@@ -1,0 +1,41 @@
+# Copy this file to clients.conf and describe your own RADIUS clients.
+#
+# nas_type selects the vendor specific reply attributes returned for the
+# user's role (see policy.d/authz_vendor_role). It is matched case
+# insensitively by prefix:
+#
+#   cisco                          Cisco-AVPair "shell:priv-lvl=N"
+#   aruba-cx                       Aruba-Priv-Admin-User
+#   aruba-ap                       admin role only, other roles are rejected
+#   fortinet, fortigate            Fortinet-Group-Name
+#   juniper                        Juniper-Local-User-Name
+#   palo-alto                      PaloAlto-Admin-Role
+#   service-type, rfc2865          Service-Type
+#   ietf-mpl, allied               Management-Privilege-Level
+#   nothing, no, none              no authorization attribute
+#
+# Any other value falls back to Management-Privilege-Level.
+
+client core-switch {
+	ipaddr = 192.0.2.1
+	secret = changeme
+	nas_type = cisco
+}
+
+client access-switches {
+	ipaddr = 198.51.100.0/24
+	secret = changeme
+	nas_type = aruba-cx
+}
+
+client localhost {
+	ipaddr = 127.0.0.1
+	secret = changeme
+	nas_type = service-type
+}
+
+client localhost_ipv6 {
+	ipv6addr = ::1
+	secret = changeme
+	nas_type = service-type
+}

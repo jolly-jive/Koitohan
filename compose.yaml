@@ -1,0 +1,73 @@
+services:
+
+  openldap:
+    image: osixia/openldap:1.5.0
+    command: ["--loglevel", "debug"]
+    container_name: ${OPENLDAP_CONTAINER_NAME}
+    environment:
+      LDAP_ORGANISATION: "${LDAP_ORGANISATION}"
+      LDAP_DOMAIN: "${LDAP_DOMAIN}"
+      LDAP_ADMIN_PASSWORD: "${LDAP_ADMIN_PASSWORD}"
+      LDAP_CONFIG_PASSWORD: "${LDAP_CONFIG_PASSWORD}"
+      LDAP_LOG_LEVEL: "256"
+      LDAP_TLS: "true"
+#      LDAP_TLS_ENFORCE: "true"
+      LDAP_READONLY_USER: "false"
+#      LDAP_READONLY_USER_USERNAME: ${LDAP_READONLY_USER_USERNAME}
+#      LDAP_READONLY_USER_PASSWORD: ${LDAP_READONLY_USER_PASSWORD}
+      LDAP_ENABLE_MEMBEROF: "true"
+      LDAP_ENABLE_REFERRALS: "false"
+      LDAP_SEED_INTERNAL_LDIF_PATH: /root/ldif
+    volumes:
+      - ./openldap/data:/var/lib/ldap
+      - ./openldap/config:/etc/ldap/slapd.d
+      - ./CA/default-ca.pem:/container/service/slapd/assets/certs/ca.crt
+      - ./CA/openldap_server.crt:/container/service/slapd/assets/certs/ldap.crt
+      - ./CA/openldap_server.key:/container/service/slapd/assets/certs/ldap.key
+      - ./CA/dhparam.pem:/container/service/slapd/assets/certs/dhparam.pem
+      - ./openldap/ldif:/root/ldif:ro
+    ports:
+#      - "389:389"
+      - "636:636"
+    restart: unless-stopped
+
+  freeradius:
+    image: freeradius/rocky10:latest
+    container_name: ${FREERADIUS_CONTAINER_NAME}
+#    command: ["/usr/sbin/radiusd", "-X"]
+    volumes:
+      - ./freeradius/config/clients.conf:/etc/freeradius/clients.conf:ro
+      - ./freeradius/config/dictionary.d:/etc/freeradius/dictionary.d:ro
+      - ./freeradius/config/mods-available/ldap_openldap:/etc/freeradius/mods-available/ldap_openldap:ro
+      - ./freeradius/config/mods-enabled:/etc/freeradius/mods-enabled:ro
+      - ./freeradius/config/policy.d/authz_vendor_role:/etc/freeradius/policy.d/authz_vendor_role:ro
+      - ./freeradius/config/sites-available/ldap-pap:/etc/freeradius/sites-available/ldap-pap:ro
+      - ./freeradius/config/sites-enabled:/etc/freeradius/sites-enabled:ro
+      - ./freeradius/log:/var/log/radius
+      - ./CA/default-ca.pem:/etc/freeradius/certs/ca.crt:ro
+      - ./CA/freeradius_client.crt:/etc/freeradius/certs/client.crt:ro
+      - ./CA/freeradius_client.key:/etc/freeradius/certs/client.key:ro
+    ports:
+      - "1812:1812/udp"
+      - "1813:1813/udp"
+    depends_on:
+      - openldap
+    restart: unless-stopped
+
+  syslog-ng:
+    image: lscr.io/linuxserver/syslog-ng:latest
+    container_name: ${SYSLOG_CONTAINER_NAME}
+    #read_only: true
+    #user: 1000:1000
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=Asia/Tokyo
+      - LOG_TO_STDOUT= #optional
+    volumes:
+      - ./syslog-ng/config:/config
+      - ./syslog-ng/log:/var/log # better on NVMe
+    ports:
+      - 514:1514/udp
+      - 514:1514/tcp
+    restart: unless-stopped

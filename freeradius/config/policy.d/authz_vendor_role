@@ -1,0 +1,150 @@
+authz_vendor_role {
+    string nas_type
+
+    nas_type = %str.lower(%client('nas_type'))
+
+    if nas_type =~ /^(cisco)/ {
+        control.Koitohan-Reply-Type = ::Cisco
+    }
+    elsif nas_type =~ /^(aruba.?cx)/ {
+        control.Koitohan-Reply-Type = ::ArubaCX
+    }
+    elsif nas_type =~ /^(aruba.?ap)/ {
+        control.Koitohan-Reply-Type = ::ArubaAP
+    }
+    elsif nas_type =~ /^(fortinet|fortigate)/ {
+        control.Koitohan-Reply-Type = ::Fortinet
+    }
+    elsif nas_type =~ /^(juniper)/ {
+        control.Koitohan-Reply-Type = ::Juniper
+    }
+    elsif nas_type =~ /^(palo.?alto)/ {
+        control.Koitohan-Reply-Type = ::PaloAlto
+    }
+    elsif nas_type =~ /^(ietf-mpl|management-privilege-level|allied)/ {
+        control.Koitohan-Reply-Type = ::IETF-MPL
+    }
+    elsif nas_type =~ /^(service-type|rfc2865)/ {
+        control.Koitohan-Reply-Type = ::Service-Type
+    }
+    elsif nas_type =~ /^(nothing|no|none)/ {
+        control.Koitohan-Reply-Type = ::Nothing
+    }
+    else {
+        control.Koitohan-Reply-Type = ::IETF-MPL
+        reply.Reply-Message := "unknown nas_type: '%client('nas_type')'"
+    }
+
+    foreach role_ou (control.LDAP-Group[*]) {
+        if (role_ou =~ /^cn=(\w+),ou=Roles/) {
+            string role_cn
+            role_cn = %regex.match(1)
+            switch role_cn {
+
+                case 'admin' {
+                    switch control.Koitohan-Reply-Type {
+                        case ::Cisco {
+                            reply.Cisco.AVPair := 'shell:priv-lvl=15'
+                        }
+                        case ::ArubaAP {
+                        }
+                        case ::ArubaCX {
+                            reply.Aruba.Priv-Admin-User := 15
+                        }
+                        case ::Fortinet {
+                            reply.Fortinet.Group-Name := 'super_admin'
+                        }
+                        case ::Juniper {
+                            reply.Juniper.Local-User-Name := 'superuser'
+                        }
+                        case ::PaloAlto {
+                            reply.PaloAlto.Admin-Role := 'superuser'
+                        }
+                        case ::Service-Type {
+                            reply.Service-Type := ::Administrative-User
+                        }
+                        case ::Nothing {
+                        }
+                        default {
+                            reply.Management-Privilege-Level := 15
+                        }
+                    }
+                }
+
+                case 'operator' {
+                    switch control.Koitohan-Reply-Type {
+                        case ::Cisco {
+                            reply.Cisco.AVPair := 'shell:priv-lvl=7'
+                        }
+                        case ::ArubaAP {
+                            reply.Reply-Message := "no administration role for '%{role_cn}' on %{control.Koitohan-Reply-Type}"
+                            reject
+                        }
+                        case ::ArubaCX {
+                            reply.Aruba.Priv-Admin-User := 7
+                        }
+                        case ::Fortinet {
+                            #reply.Fortinet.Group-Name := 'admin'
+                            reply.Fortinet.Group-Name := 'readonly'
+                        }
+                        case ::Juniper {
+                            reply.Juniper.Local-User-Name := 'operator'
+                        }
+                        case ::PaloAlto {
+                            reply.PaloAlto.Admin-Role := 'readonly'
+                        }
+                        case ::Service-Type {
+                            reply.Service-Type := ::NAS-Prompt-User
+                        }
+                        case ::Nothing {
+                        }
+                        default {
+                            reply.Management-Privilege-Level := 7
+                        }
+                    }
+                }
+
+                case 'readonly' {
+                    switch control.Koitohan-Reply-Type {
+                        case ::Cisco {
+                            reply.Cisco.AVPair := 'shell:priv-lvl=1'
+                        }
+                        case ::ArubaAP {
+                            reply.Reply-Message := "no administration role for '%{role_cn}' on %{control.Koitohan-Reply-Type}"
+                            reject
+                        }
+                        case ::ArubaCX {
+                            reply.Aruba.Priv-Admin-User := 1
+                        }
+                        case ::Fortinet {
+                            reply.Fortinet.Group-Name := 'readonly'
+                        }
+                        case ::Juniper {
+                            reply.Juniper.Local-User-Name := 'read-only'
+                        }
+                        case ::PaloAlto {
+                            reply.PaloAlto.Admin-Role := 'readonly'
+                        }
+                        case ::Service-Type {
+                            reply.Service-Type := ::Login-User
+                        }
+                        case ::Nothing {
+                        }
+                        default {
+                            reply.Management-Privilege-Level := 1
+                        }
+                    }
+                }
+
+                default {
+                    reply.Management-Privilege-Level := 1
+                    reply.Reply-Message := "unkown role: %{role_cn}"
+                }
+            }
+        }
+        else {
+            reply.Management-Privilege-Level := 1
+            reply.Reply-Message := "invalid role: %{role_ou}"
+        }
+    }
+}

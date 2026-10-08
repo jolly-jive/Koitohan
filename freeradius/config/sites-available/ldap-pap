@@ -1,0 +1,41 @@
+server ldap-pap {
+	namespace = radius
+	listen authentication {
+		type = Access-Request
+		type = Status-Server
+		transport = udp
+		require_message_authenticator = auto
+		udp {
+			ipaddr = *
+			port = 1812
+			networks {
+				allow = 127/8
+				allow = 10.0.0.0/8
+				allow = 172.16.0.0/12
+				allow = 192.168.0.0/16
+			}
+		}
+	}
+	recv Access-Request {
+		auth_log
+		control.Auth-Type := 'ldap_auth'
+		filter_username
+		ldap
+		authz_vendor_role
+	}
+	authenticate ldap_auth {
+		ldap
+	}
+	recv Status-Server {
+		ok
+	}
+	send Access-Accept {
+		#authz_vendor_role
+		reply += session-state
+		reply_log
+	}
+	send Access-Reject {
+		attr_filter.access_reject
+		delay_reject
+	}
+}

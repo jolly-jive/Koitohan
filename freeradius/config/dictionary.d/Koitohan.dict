@@ -1,0 +1,13 @@
+ENUM	Koitohan-Reply-Enum	uint16
+VALUE	Koitohan-Reply-Enum	Nothing		0
+VALUE	Koitohan-Reply-Enum	IETF-MPL	1
+VALUE	Koitohan-Reply-Enum	Service-Type	2
+VALUE	Koitohan-Reply-Enum	Cisco		3
+VALUE	Koitohan-Reply-Enum	ArubaAP		4
+VALUE	Koitohan-Reply-Enum	ArubaCX		5
+VALUE	Koitohan-Reply-Enum	Fortinet	6
+VALUE	Koitohan-Reply-Enum	Juniper		7
+VALUE	Koitohan-Reply-Enum	PaloAlto	8
+
+DEFINE	Koitohan-Reply-Type	uint16	enum=.Koitohan-Reply-Enum
+
