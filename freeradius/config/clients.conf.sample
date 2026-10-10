@@ -17,13 +17,13 @@
 # Any other value falls back to Management-Privilege-Level.
 
 client core-switch {
-	ipaddr = 192.0.2.1
+	ipaddr = 192.168.1.1
 	secret = changeme
 	nas_type = cisco
 }
 
 client access-switches {
-	ipaddr = 198.51.100.0/24
+	ipaddr = 192.168.10.0/24
 	secret = changeme
 	nas_type = aruba-cx
 }

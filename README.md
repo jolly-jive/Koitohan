@@ -86,7 +86,7 @@ Describe each network device in `freeradius/config/clients.conf`. The `nas_type`
 
 ```
 client core-switch {
-	ipaddr = 192.0.2.1
+	ipaddr = 192.168.1.1
 	secret = changeme
 	nas_type = cisco
 }

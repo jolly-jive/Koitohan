@@ -86,7 +86,7 @@ OpenLDAP と FreeRADIUS のコンテナ名は、証明書のホスト名を兼�
 
 ```
 client core-switch {
-	ipaddr = 192.0.2.1
+	ipaddr = 192.168.1.1
 	secret = changeme
 	nas_type = cisco
 }
