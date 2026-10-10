@@ -4,9 +4,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 概要
 
-ネットワーク機器向けの AAA とログ収集を提供する Docker Compose スタック(Raspberry Pi 上で稼働)。OpenLDAP がユーザーディレクトリ、FreeRADIUS がそれを参照して認証し、syslog-ng が機器のログを収集する。アプリケーションコードはなく、リポジトリの中身は `compose.yaml`、`Makefile`、`scripts/` の生成スクリプト、バインドマウントされる各サービスの設定のみ。
+ネットワーク機器向けの AAA、ログ収集、ファイル配布を提供する Docker Compose スタック(Raspberry Pi 上で稼働)。OpenLDAP がユーザーディレクトリ、FreeRADIUS がそれを参照して認証し、syslog-ng が機器のログを収集し、tftpd-hpa がファームウェアの配布とコンフィグのバックアップの受け取りを行う。アプリケーションコードはなく、リポジトリの中身は `compose.yaml`、`Makefile`、`scripts/` の生成スクリプト、バインドマウントされる各サービスの設定、tftpd-hpa のイメージの Dockerfile のみ。
 
-設計の背景、実装予定(TFTP、ログローテーション)、未決定事項(DHCP / DNS)は `docs/basic-design.md` を参照。`README.md`(英語)と `README.ja.md`(日本語)は同じ内容なので、片方を直したらもう片方も直すこと。
+設計の背景、実装予定(ログローテーション)、未決定事項(DHCP / DNS)は `docs/basic-design.md` を参照。`README.md`(英語)と `README.ja.md`(日本語)は同じ内容なので、片方を直したらもう片方も直すこと。
 
 ## コマンド
 
@@ -20,6 +20,7 @@ make ldap_testaccounts       # テストユーザー admin01/operator01/readonly
 make up / make down          # docker compose up -d / down(up は freeradius_conf に依存)
 make clean                   # 生成した証明書・鍵、LDIF、ldap_openldap を削除
 docker compose run --rm --no-deps freeradius radiusd -XC   # FreeRADIUS 設定の構文チェック(スタックは起動しない)
+docker compose build tftpd-hpa   # tftpd-hpa/build/ を変更したらビルドし直す(初回は up が自動でビルドする)
 ```
 
 生成スクリプトにはホスト側に `openssl` と `slappasswd`(`userPassword` のハッシュ化に使用)が必要。
@@ -45,11 +46,17 @@ docker compose run --rm --no-deps freeradius radiusd -XC   # FreeRADIUS 設定�
 
 **syslog-ng。** コンテナ内で 1514 udp/tcp を待ち受ける(ホストの 514 として公開)。`syslog-ng/config/syslog-ng.conf` は機器ごとのファイルを `/var/log/Hosts/${HOST}/${HOST}.log`(ホスト側: `syslog-ng/log/Hosts/`)に書き出し、加えて生メッセージとホスト系マクロを記録する `debug.log` を出力する。`syslog-ng.conf.dist` はイメージのデフォルト設定。
 
+**tftpd-hpa。** 公式イメージがないため、`tftpd-hpa/build/`(Alpine + `tftp-hpa` パッケージ)から `koitohan/tftpd-hpa` をビルドする。`in.tftpd` は uid 1000 で動き、syslog にしか出力しないので、`entrypoint.sh` が busybox の `syslogd` を並走させて標準出力へ流す(`docker compose logs tftpd-hpa` で要求元とファイル名が見える)。`--permissive` は外さないこと。これがないと、`--umask 022` で作った新規ファイルを「全員に書き込み可ではない」として自分で拒否し、アップロードが 0 バイトのファイルを残して失敗する。
+
+TFTP のルートは `tftpd-hpa/tftpboot/`。`firmware/` は `:ro` でマウントする配布専用、`configs/` が唯一の書き込み先。認証がないので書き込み量を2段で制限している。1ファイルあたりは `ulimits: fsize`(`.env` の `TFTP_UPLOAD_MAX_BYTES`)。超過した転送はエラーを返さずタイムアウトし、上限サイズの書きかけのファイルが残る。総量は、固定サイズのループバックイメージ `tftpd-hpa/configs.img` を `configs/` にマウントして制限する。これはホスト側の `sudo` 作業(`/etc/fstab`)で、手順は README にあり、`make` には含めない。
+
 ## 注意点
 
 - LDIF のターゲットは1つのスクリプトが複数ファイルを書き出すため、グループターゲット(`&:`)を使っている。GNU Make 4.3 以上が必要。
-- 生成物と実行時データは gitignore 済み(`CA/*`、`openldap/data`、`openldap/config`、`openldap/ldif/*.ldif`、`*/log`、`scripts/openssl.conf`、`syslog-ng/config` の `syslog-ng.conf` 以外)。ディレクトリは `.gitkeep` で維持している。`.gitignore` では `!.gitkeep` を末尾に置くこと(後に書いたパターンが優先されるため)。
+- 生成物と実行時データは gitignore 済み(`CA/*`、`openldap/data`、`openldap/config`、`openldap/ldif/*.ldif`、`*/log`、`scripts/openssl.conf`、`syslog-ng/config` の `syslog-ng.conf` 以外、`tftpd-hpa/configs.img`、`tftpd-hpa/tftpboot/` の `firmware/.gitkeep` 以外)。ディレクトリは `.gitkeep` で維持している。`.gitignore` では `!.gitkeep` を末尾に置くこと(後に書いたパターンが優先されるため)。
 - `CA/`、`.env`、`freeradius/config/clients.conf`、`freeradius/config/mods-available/ldap_openldap`、生成された LDIF には秘密鍵、共有シークレット、パスワードが含まれる。
 - ファイル単体のバインドマウントは、ホスト側にファイルがないと Docker が同名の root 所有ディレクトリを作る。`docker compose up` を直接叩く前に `make freeradius_conf` を済ませること。
 - `openldap/data/` と `openldap/config/` はコンテナが uid 911 に chown する。OpenLDAP にマウントしている `CA/` の4ファイル(`default-ca.pem`、`openldap_server.crt`、`openldap_server.key`、`dhparam.pem`)も同じく 911 に変えられる。いずれも ignore 対象なので git には影響しない。
-- `freeradius/log/radacct/<client-ip>/` と `syslog-ng/log/Hosts/<ip>/` は実機から届いた稼働中のデータであり、テスト用のフィクスチャではない。
+- `tftpd-hpa/tftpboot/configs/` は意図して追跡していない(`.gitkeep` も置かない)。ループバックイメージのマウントポイントであり、下のディレクトリを root 所有にしておくことで、マウントが外れたときに書き込みがホストのディスクへ落ちるのを防いでいる。存在しない場合は Docker が root 所有で作るので、アップロードが失敗する側に倒れる。
+- TFTP をホスト自身から試すときは、公開アドレス(`<ホストの IP>:69`)ではなくコンテナのアドレスに向ける。ホストから自分の公開アドレス宛てだと、ダウンロードがタイムアウトする(原因は未特定。`network_mode: host` では起きない)。外部のクライアントからは問題なく通る。
+- `freeradius/log/radacct/<client-ip>/`、`syslog-ng/log/Hosts/<ip>/`、`tftpd-hpa/tftpboot/configs/` は実機から届いた稼働中のデータであり、テスト用のフィクスチャではない。

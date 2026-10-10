@@ -16,6 +16,9 @@
 /syslog-ng/config/*
 !/syslog-ng/config/syslog-ng.conf
 
-/tftpboot/*
+/tftpd-hpa/configs.img
+/tftpd-hpa/tftpboot/*
+!/tftpd-hpa/tftpboot/firmware/
+/tftpd-hpa/tftpboot/firmware/*
 
 !.gitkeep
