@@ -5,6 +5,7 @@ services:
     command: ["--loglevel", "debug"]
     container_name: ${OPENLDAP_CONTAINER_NAME}
     environment:
+      TZ: "${TZ}"
       LDAP_ORGANISATION: "${LDAP_ORGANISATION}"
       LDAP_DOMAIN: "${LDAP_DOMAIN}"
       LDAP_ADMIN_PASSWORD: "${LDAP_ADMIN_PASSWORD}"
@@ -35,6 +36,8 @@ services:
     image: freeradius/rocky10:latest
     container_name: ${FREERADIUS_CONTAINER_NAME}
 #    command: ["/usr/sbin/radiusd", "-X"]
+    environment:
+      TZ: "${TZ}"
     volumes:
       - ./freeradius/config/clients.conf:/etc/freeradius/clients.conf:ro
       - ./freeradius/config/dictionary.d:/etc/freeradius/dictionary.d:ro
@@ -62,7 +65,7 @@ services:
     environment:
       - PUID=1000
       - PGID=1000
-      - TZ=Asia/Tokyo
+      - TZ=${TZ}
       - LOG_TO_STDOUT= #optional
     volumes:
       - ./syslog-ng/config:/config
@@ -76,6 +79,8 @@ services:
     build: ./tftpd-hpa/build
     image: koitohan/tftpd-hpa
     container_name: ${TFTP_CONTAINER_NAME}
+    environment:
+      TZ: "${TZ}"
     volumes:
       - ./tftpd-hpa/tftpboot/firmware:/tftpboot/firmware:ro
       - ./tftpd-hpa/tftpboot/configs:/tftpboot/configs
