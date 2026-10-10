@@ -77,8 +77,13 @@ make up
 | `OPENLDAP_CONTAINER_NAME` | OpenLDAP のコンテナ名。 |
 | `FREERADIUS_CONTAINER_NAME` | FreeRADIUS のコンテナ名。 |
 | `SYSLOG_CONTAINER_NAME` | syslog-ng のコンテナ名。 |
+| `DOCKER_SUBNET` | コンテナ同士をつなぐ Docker ネットワークのサブネット(CIDR 表記)。 |
 
 OpenLDAP と FreeRADIUS のコンテナ名は、証明書のホスト名を兼ねています。変更したら `make clean && make` で証明書を作り直してください。
+
+`DOCKER_SUBNET` には、機器のいるネットワークやホストから到達するネットワークと重ならない範囲を指定してください。変更は `make down && make up` で反映されます。
+
+`DOCKER_SUBNET` にはプライベートアドレスの範囲を指定してください。FreeRADIUS はプライベートアドレスとループバックからの要求だけを受け付けるため(「[RADIUS クライアント](#radius-クライアント)」を参照)、それ以外の範囲を指定すると、Docker ホスト自身から送った RADIUS 要求が拒否されることがあります。
 
 ### RADIUS クライアント
 

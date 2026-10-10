@@ -28,7 +28,7 @@ docker compose run --rm --no-deps freeradius radiusd -XC   # FreeRADIUS 設定�
 
 ## アーキテクチャ
 
-**`.env` が唯一の設定元。** `LDAP_DOMAIN` は `domain2dn` ヘルパーで LDAP サフィックスに変換される(`example.com` -> `dc=example,dc=com`)。このヘルパーは各スクリプトに重複して定義されている。コンテナ名(`OPENLDAP_CONTAINER_NAME`、`FREERADIUS_CONTAINER_NAME`)は証明書の subject / SAN のホスト名を兼ねるため、コンテナ名を変えたら証明書の再生成が必要。
+**`.env` が唯一の設定元。** `LDAP_DOMAIN` は `domain2dn` ヘルパーで LDAP サフィックスに変換される(`example.com` -> `dc=example,dc=com`)。このヘルパーは各スクリプトに重複して定義されている。コンテナ名(`OPENLDAP_CONTAINER_NAME`、`FREERADIUS_CONTAINER_NAME`)は証明書の subject / SAN のホスト名を兼ねるため、コンテナ名を変えたら証明書の再生成が必要。`DOCKER_SUBNET` は `compose.yaml` のデフォルトネットワークのサブネットで、コンテナの IP は固定していない(コンテナ間は名前で解決する)。反映には `make down && make up` でネットワークを作り直す。
 
 **TLS チェーン(`scripts/create_certs.sh`)。** プライベート CA(`CA/default-ca.pem`)、OpenLDAP サーバー証明書(`server_cert` 拡張。`scripts/openssl.conf.template` に SAN を追記して `scripts/openssl.conf` を生成)、FreeRADIUS クライアント証明書(`client_cert` 拡張)を作成する。`compose.yaml` はこれらのファイルを個別に両コンテナへマウントし、FreeRADIUS は LDAPS で OpenLDAP に接続する(公開しているのは 636 のみ、389 はコメントアウト)。`CA/.certs.stamp` は make 用のスタンプファイル。スクリプトは無条件に CA を作り直すため、再実行すると発行済みの証明書はすべて無効になる。証明書はこのスタックのコンテナ間でしか使われないので、作り直して構わない(その後 `make down && make up` で読み込み直す)。`certs` のレシピは先に古いファイルを `rm -f` する。OpenLDAP コンテナが一部を uid 911 に chown するため、上書きではなく削除が必要。
 
