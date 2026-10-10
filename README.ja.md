@@ -81,12 +81,15 @@ make up
 | `TFTP_CONTAINER_NAME`                 | tftpd-hpa のコンテナ名。                                                              |
 | `TFTP_UPLOAD_MAX_BYTES`               | TFTP でアップロードできる1ファイルあたりの上限(バイト数)。「[TFTP](#tftp)」を参照。   |
 | `DOCKER_SUBNET`                       | コンテナ同士をつなぐ Docker ネットワークのサブネット(CIDR 表記)。                     |
+| `TZ`                                  | 全コンテナのタイムゾーン。`Asia/Tokyo` のような tz database の名前で指定します。      |
 
 OpenLDAP と FreeRADIUS のコンテナ名は、証明書のホスト名を兼ねています。変更したら `make clean && make` で証明書を作り直してください。
 
 `DOCKER_SUBNET` には、機器のいるネットワークやホストから到達するネットワークと重ならない範囲を指定してください。変更は `make down && make up` で反映されます。
 
 `DOCKER_SUBNET` にはプライベートアドレスの範囲を指定してください。FreeRADIUS はプライベートアドレスとループバックからの要求だけを受け付けるため(「[RADIUS クライアント](#radius-クライアント)」を参照)、それ以外の範囲を指定すると、Docker ホスト自身から送った RADIUS 要求が拒否されることがあります。
+
+`TZ` は、各コンテナが書き出すログの時刻のタイムゾーンを決めます。変更は `make up` で反映されます。
 
 ### RADIUS クライアント
 

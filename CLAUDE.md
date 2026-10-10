@@ -29,7 +29,7 @@ docker compose build tftpd-hpa   # tftpd-hpa/build/ を変更したらビルド�
 
 ## アーキテクチャ
 
-**`.env` が唯一の設定元。** `LDAP_DOMAIN` は `domain2dn` ヘルパーで LDAP サフィックスに変換される(`example.com` -> `dc=example,dc=com`)。このヘルパーは各スクリプトに重複して定義されている。コンテナ名(`OPENLDAP_CONTAINER_NAME`、`FREERADIUS_CONTAINER_NAME`)は証明書の subject / SAN のホスト名を兼ねるため、コンテナ名を変えたら証明書の再生成が必要。`DOCKER_SUBNET` は `compose.yaml` のデフォルトネットワークのサブネットで、コンテナの IP は固定していない(コンテナ間は名前で解決する)。反映には `make down && make up` でネットワークを作り直す。
+**`.env` が唯一の設定元。** `LDAP_DOMAIN` は `domain2dn` ヘルパーで LDAP サフィックスに変換される(`example.com` -> `dc=example,dc=com`)。このヘルパーは各スクリプトに重複して定義されている。コンテナ名(`OPENLDAP_CONTAINER_NAME`、`FREERADIUS_CONTAINER_NAME`)は証明書の subject / SAN のホスト名を兼ねるため、コンテナ名を変えたら証明書の再生成が必要。`DOCKER_SUBNET` は `compose.yaml` のデフォルトネットワークのサブネットで、コンテナの IP は固定していない(コンテナ間は名前で解決する)。反映には `make down && make up` でネットワークを作り直す。`TZ` は全コンテナに環境変数として渡す。新しいサービスを足すときは `environment` に `TZ` を入れ、イメージに tz database があることを確かめる(Alpine は `tzdata` パッケージが必要)。
 
 **TLS チェーン(`scripts/create_certs.sh`)。** プライベート CA(`CA/default-ca.pem`)、OpenLDAP サーバー証明書(`server_cert` 拡張。`scripts/openssl.conf.template` に SAN を追記して `scripts/openssl.conf` を生成)、FreeRADIUS クライアント証明書(`client_cert` 拡張)を作成する。`compose.yaml` はこれらのファイルを個別に両コンテナへマウントし、FreeRADIUS は LDAPS で OpenLDAP に接続する(公開しているのは 636 のみ、389 はコメントアウト)。`CA/.certs.stamp` は make 用のスタンプファイル。スクリプトは無条件に CA を作り直すため、再実行すると発行済みの証明書はすべて無効になる。証明書はこのスタックのコンテナ間でしか使われないので、作り直して構わない(その後 `make down && make up` で読み込み直す)。`certs` のレシピは先に古いファイルを `rm -f` する。OpenLDAP コンテナが一部を uid 911 に chown するため、上書きではなく削除が必要。
 
@@ -46,7 +46,7 @@ docker compose build tftpd-hpa   # tftpd-hpa/build/ を変更したらビルド�
 
 **syslog-ng。** コンテナ内で 1514 udp/tcp を待ち受ける(ホストの 514 として公開)。`syslog-ng/config/syslog-ng.conf` は機器ごとのファイルを `/var/log/Hosts/${HOST}/${HOST}.log`(ホスト側: `syslog-ng/log/Hosts/`)に書き出し、加えて生メッセージとホスト系マクロを記録する `debug.log` を出力する。`syslog-ng.conf.dist` はイメージのデフォルト設定。
 
-**tftpd-hpa。** 公式イメージがないため、`tftpd-hpa/build/`(Alpine + `tftp-hpa` パッケージ)から `koitohan/tftpd-hpa` をビルドする。`in.tftpd` は uid 1000 で動き、syslog にしか出力しないので、`entrypoint.sh` が busybox の `syslogd` を並走させて標準出力へ流す(`docker compose logs tftpd-hpa` で要求元とファイル名が見える)。`--permissive` は外さないこと。これがないと、`--umask 022` で作った新規ファイルを「全員に書き込み可ではない」として自分で拒否し、アップロードが 0 バイトのファイルを残して失敗する。
+**tftpd-hpa。** 公式イメージがないため、`tftpd-hpa/build/`(Alpine + `tftp-hpa` パッケージ)から `koitohan/tftpd-hpa` をビルドする。`in.tftpd` は uid 1000 で動き、syslog にしか出力しないので、`entrypoint.sh` が busybox の `syslogd` を並走させて標準出力へ流す(`docker compose logs tftpd-hpa` で要求元とファイル名が見える)。`syslogd` の `-t` は外さないこと。musl の `syslog()` は時刻を UTC で付けるため、これを捨てて `syslogd` に `TZ` の時刻を付け直させている。`--permissive` は外さないこと。これがないと、`--umask 022` で作った新規ファイルを「全員に書き込み可ではない」として自分で拒否し、アップロードが 0 バイトのファイルを残して失敗する。
 
 TFTP のルートは `tftpd-hpa/tftpboot/`。`firmware/` は `:ro` でマウントする配布専用、`configs/` が唯一の書き込み先。認証がないので書き込み量を2段で制限している。1ファイルあたりは `ulimits: fsize`(`.env` の `TFTP_UPLOAD_MAX_BYTES`)。超過した転送はエラーを返さずタイムアウトし、上限サイズの書きかけのファイルが残る。総量は、固定サイズのループバックイメージ `tftpd-hpa/configs.img` を `configs/` にマウントして制限する。これはホスト側の `sudo` 作業(`/etc/fstab`)で、手順は README にあり、`make` には含めない。
 

@@ -81,12 +81,15 @@ Use `make up` instead of calling `docker compose up` directly on a fresh checkou
 | `TFTP_CONTAINER_NAME`                 | Container name of tftpd-hpa.                                                   |
 | `TFTP_UPLOAD_MAX_BYTES`               | Size limit, in bytes, for one file uploaded over TFTP. See [TFTP](#tftp).      |
 | `DOCKER_SUBNET`                       | Subnet of the Docker network that connects the containers, in CIDR notation.   |
+| `TZ`                                  | Time zone of every container, as a tz database name such as `Asia/Tokyo`.      |
 
 The container names of OpenLDAP and FreeRADIUS are also the host names in their certificates. If you change them, regenerate the certificates with `make clean && make`.
 
 Set `DOCKER_SUBNET` to a range that does not overlap the networks your devices are on or any network the host reaches. Apply a change with `make down && make up`.
 
 Keep `DOCKER_SUBNET` inside a private address range. FreeRADIUS accepts requests only from private address ranges and loopback (see [RADIUS clients](#radius-clients)), so with any other range, RADIUS requests sent from the Docker host itself may be rejected.
+
+`TZ` sets the time zone of the timestamps in the logs each container writes. Apply a change with `make up`.
 
 ### RADIUS clients
 
