@@ -12,6 +12,14 @@ Koitohan is a Docker Compose stack that gives network devices a login backend an
 
 You manage users and roles (`admin`, `operator`, `readonly`) in one place. Koitohan translates a role into what each device understands, such as `shell:priv-lvl=15` for Cisco or `Aruba-Priv-Admin-User = 15` for ArubaOS-CX.
 
+## About the name
+
+*Koitohan* (こいとはん) is a word from Osaka. In Osaka merchant families, a daughter of the house is called *itohan*. The word is said to come from *itoshii* ("dear") or *itokenai* ("young and innocent"), and it means a daughter her parents cherish. When a family has two or more daughters, the youngest is *ko-itohan*, the "little itohan".
+
+Full-featured management servers for large networks already exist. Koitohan does not aim to be one of those fat servers. It aims to be small enough to run on a Raspberry Pi, to offer management functions a little better than the bare minimum, and still to take availability into account. It is a small and dear server, so it is named Koitohan.
+
+Redundancy for availability is not implemented yet.
+
 ## Status
 
 Koitohan is at the verification stage. It is not hardened for production use.
