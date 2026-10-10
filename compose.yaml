@@ -71,3 +71,9 @@ services:
       - 514:1514/udp
       - 514:1514/tcp
     restart: unless-stopped
+
+networks:
+  default:
+    ipam:
+      config:
+        - subnet: ${DOCKER_SUBNET}

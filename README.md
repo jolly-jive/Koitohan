@@ -77,8 +77,13 @@ Use `make up` instead of calling `docker compose up` directly on a fresh checkou
 | `OPENLDAP_CONTAINER_NAME` | Container name of OpenLDAP. |
 | `FREERADIUS_CONTAINER_NAME` | Container name of FreeRADIUS. |
 | `SYSLOG_CONTAINER_NAME` | Container name of syslog-ng. |
+| `DOCKER_SUBNET` | Subnet of the Docker network that connects the containers, in CIDR notation. |
 
 The container names of OpenLDAP and FreeRADIUS are also the host names in their certificates. If you change them, regenerate the certificates with `make clean && make`.
+
+Set `DOCKER_SUBNET` to a range that does not overlap the networks your devices are on or any network the host reaches. Apply a change with `make down && make up`.
+
+Keep `DOCKER_SUBNET` inside a private address range. FreeRADIUS accepts requests only from private address ranges and loopback (see [RADIUS clients](#radius-clients)), so with any other range, RADIUS requests sent from the Docker host itself may be rejected.
 
 ### RADIUS clients
 
