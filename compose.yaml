@@ -72,6 +72,19 @@ services:
       - 514:1514/tcp
     restart: unless-stopped
 
+  tftpd-hpa:
+    build: ./tftpd-hpa/build
+    image: koitohan/tftpd-hpa
+    container_name: ${TFTP_CONTAINER_NAME}
+    volumes:
+      - ./tftpd-hpa/tftpboot/firmware:/tftpboot/firmware:ro
+      - ./tftpd-hpa/tftpboot/configs:/tftpboot/configs
+    ports:
+      - "69:69/udp"
+    ulimits:
+      fsize: ${TFTP_UPLOAD_MAX_BYTES}
+    restart: unless-stopped
+
 networks:
   default:
     ipam:
