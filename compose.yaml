@@ -32,6 +32,8 @@ services:
     ports:
 #      - "389:389"
       - "636:636"
+    security_opt:
+      - no-new-privileges:true
     restart: unless-stopped
 
   freeradius:
@@ -57,6 +59,8 @@ services:
       - "1813:1813/udp"
     depends_on:
       - openldap
+    security_opt:
+      - no-new-privileges:true
     restart: unless-stopped
 
   syslog-ng:
@@ -75,6 +79,8 @@ services:
     ports:
       - 514:1514/udp
       - 514:1514/tcp
+    security_opt:
+      - no-new-privileges:true
     restart: unless-stopped
 
   tftpd-hpa:
@@ -90,6 +96,8 @@ services:
       - "69:69/udp"
     ulimits:
       fsize: ${TFTP_UPLOAD_MAX_BYTES}
+    security_opt:
+      - no-new-privileges:true
     restart: unless-stopped
 
 networks:
