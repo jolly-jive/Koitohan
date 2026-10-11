@@ -249,7 +249,7 @@ docker compose logs -f freeradius
 
 - A user who belongs to no role is still accepted, with no privilege attribute. What happens next depends on the device.
 - A user who belongs to more than one role has no defined precedence.
-- The `freeradius` and `syslog-ng` images are not pinned to a version.
+- The `freeradius` image is not pinned to a version.
 - The TFTP server does not restrict the addresses it accepts requests from.
 
 ## Security notes

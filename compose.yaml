@@ -58,7 +58,7 @@ services:
     restart: unless-stopped
 
   syslog-ng:
-    image: lscr.io/linuxserver/syslog-ng:latest
+    image: lscr.io/linuxserver/syslog-ng:4.11.0-r0-ls205
     container_name: ${SYSLOG_CONTAINER_NAME}
     #read_only: true
     #user: 1000:1000
