@@ -264,6 +264,7 @@ docker compose logs -f freeradius
 - どのロールにも所属していないユーザーも、権限属性なしで認証に成功します。その後の扱いは機器によって異なります。
 - 複数のロールに所属するユーザーについて、優先順位を定めていません。
 - TFTP サーバーは、接続元のアドレスを制限していません。
+- FreeRADIUS を動かしたまま OpenLDAP が再起動すると(`docker compose restart openldap` など)、FreeRADIUS はその後のログインを拒否し、やがてセグメンテーション違反で異常終了します。Docker が起動し直すので、それ以降のログインは通ります。開発バージョンである FreeRADIUS 4.x の不具合です。ログインが拒否される時間をなくすには、OpenLDAP の再起動に続けて `docker compose restart freeradius` で FreeRADIUS も再起動してください。FreeRADIUS 側で修正されたら、この項目は削除します。
 
 ## セキュリティ上の注意
 
