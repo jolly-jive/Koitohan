@@ -23,6 +23,8 @@ ROLES_LDIF="${OUT_DIR}/200-Roles.ldif"
 SERVICE_ACCOUNTS_LDIF="${OUT_DIR}/300-ServiceAccounts.ldif"
 ACL_LDIF="${OUT_DIR}/900-ACL.ldif"
 
+# contains password hashes
+umask 077
 
 cat <<EOF > ${PEOPLE_LDIF}
 dn: ou=People,${LDAP_SUFFIX}

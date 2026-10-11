@@ -244,7 +244,7 @@ Check authentication and authorization end to end:
 make test
 ```
 
-`make test` starts OpenLDAP and FreeRADIUS as a separate project (`koitohan-test`), authenticates as the test users, and compares the reply attributes for every combination of device type and role. It publishes no ports and keeps no data, so it does not affect a running stack. Run `make` beforehand. To look into a failed check, keep the test stack up with `KEEP=1 tests/smoke.sh`.
+`make test` starts OpenLDAP and FreeRADIUS as a separate project (`koitohan-test`), authenticates as the test users, and compares the reply attributes for every combination of device type and role. At the end it restarts the OpenLDAP container and checks that it comes up again. It publishes no ports and keeps no data, so it does not affect a running stack. Run `make` beforehand. To look into a failed check, keep the test stack up with `KEEP=1 tests/smoke.sh`.
 
 The tftpd-hpa image is built automatically by the first `make up`. After you change `tftpd-hpa/build/`, rebuild it before you start the stack.
 

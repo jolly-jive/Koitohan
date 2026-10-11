@@ -21,6 +21,9 @@ LDAP_SUFFIX=$(domain2dn ${LDAP_DOMAIN})
 TESTACCOUNTS_LDIF="${OUT_DIR}/250-TestAccounts.ldif"
 TESTACCOUNTROLES_LDIF="${OUT_DIR}/260-TestAccountRoles.ldif"
 
+# contains password hashes
+umask 077
+
 cat <<EOF > ${TESTACCOUNTS_LDIF}
 dn: uid=admin01,ou=People,${LDAP_SUFFIX}
 objectClass: inetOrgPerson

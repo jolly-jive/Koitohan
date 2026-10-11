@@ -98,6 +98,36 @@ function check() {
   fi
 }
 
+# The same container has to start a second time, as it does after a
+# reboot of the host. This asks slapd itself and leaves FreeRADIUS out.
+function check_restart() {
+  local TRY WHY='expected a bind to succeed'
+  local DN='uid=admin01,ou=People,dc=${LDAP_DOMAIN//./,dc=}'
+  local BIND="ldapwhoami -x -H ldap://localhost -w passadmin -D \"${DN}\""
+
+  "${COMPOSE[@]}" restart openldap > /dev/null 2>&1
+  for TRY in $(seq ${WAIT_TRIES}); do
+    if [ -z "$("${COMPOSE[@]}" ps --status running -q openldap)" ]; then
+      WHY='openldap exited'
+      break
+    fi
+    if "${COMPOSE[@]}" exec -T openldap bash -c "${BIND}" > /dev/null 2>&1; then
+      WHY=''
+      break
+    fi
+    sleep 3
+  done
+
+  COUNT=$((COUNT + 1))
+  if [ -z "${WHY}" ]; then
+    printf 'ok    %-13s %-11s %s\n' 'ldap restart' admin01 'bind'
+  else
+    FAILED=$((FAILED + 1))
+    printf 'FAIL  %-13s %-11s %s\n' 'ldap restart' admin01 "${WHY}"
+    "${COMPOSE[@]}" logs --tail 5 openldap 2>&1 | sed 's/^/      | /'
+  fi
+}
+
 # a missing source of a file bind mount would be created as a directory
 for FILE in \
   CA/default-ca.pem \
@@ -165,6 +195,8 @@ CASES
 
 check 'bad password' 127.0.0.1 admin01 wrong Reject '-'
 check 'unknown user' 127.0.0.1 nobody01 nopass Reject '-'
+
+check_restart
 
 echo
 if [ ${FAILED} -ne 0 ]; then
