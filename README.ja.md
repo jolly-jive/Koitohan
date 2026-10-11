@@ -244,7 +244,7 @@ docker compose run --rm --no-deps freeradius radiusd -XC
 make test
 ```
 
-`make test` は、OpenLDAP と FreeRADIUS を別のプロジェクト(`koitohan-test`)として起動し、テストユーザーで認証して、機器種別とロールの組み合わせごとに応答属性を照合します。ポートを公開せず、データも残さないので、稼働中のスタックには影響しません。事前に `make` を済ませておいてください。失敗した項目は `KEEP=1 tests/smoke.sh` でテスト用のスタックを残して調べられます。
+`make test` は、OpenLDAP と FreeRADIUS を別のプロジェクト(`koitohan-test`)として起動し、テストユーザーで認証して、機器種別とロールの組み合わせごとに応答属性を照合します。最後に OpenLDAP のコンテナを再起動し、起動し直せることを確かめます。ポートを公開せず、データも残さないので、稼働中のスタックには影響しません。事前に `make` を済ませておいてください。失敗した項目は `KEEP=1 tests/smoke.sh` でテスト用のスタックを残して調べられます。
 
 tftpd-hpa のイメージは、最初の `make up` で自動的にビルドされます。`tftpd-hpa/build/` を変更したときは、ビルドし直してから起動します。
 

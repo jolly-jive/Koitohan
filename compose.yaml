@@ -19,6 +19,8 @@ services:
       LDAP_ENABLE_MEMBEROF: "true"
       LDAP_ENABLE_REFERRALS: "false"
       LDAP_SEED_INTERNAL_LDIF_PATH: /root/ldif
+      # the seed is copied on every start, so its destination has to stay
+      LDAP_REMOVE_CONFIG_AFTER_SETUP: "false"
     volumes:
       - ./openldap/data:/var/lib/ldap
       - ./openldap/config:/etc/ldap/slapd.d
