@@ -25,16 +25,16 @@ Koitohan は、ネットワーク機器にログイン認証の基盤、ログ�
 
 Koitohan は検証段階です。本番利用に耐える堅牢化はしていません。
 
-| 機能               | コンポーネント                       | 状況     |
-| ------------------ | ------------------------------------ | -------- |
-| ディレクトリ       | OpenLDAP(`osixia/openldap`)          | 動作中   |
-| 認証・認可         | FreeRADIUS 4.x(`freeradius/rocky10`) | 動作中   |
-| ログ収集           | syslog-ng(`linuxserver/syslog-ng`)   | 動作中   |
-| ファイル配布       | tftpd-hpa(Alpine から自前でビルド)   | 動作中   |
-| ログローテーション | Docker ホスト側の logrotate          | 実装予定 |
-| DHCP と DNS        | Kea、BIND9                           | 未決定   |
+| 機能               | コンポーネント                                 | 状況     |
+| ------------------ | ---------------------------------------------- | -------- |
+| ディレクトリ       | OpenLDAP(`osixia/openldap`)                    | 動作中   |
+| 認証・認可         | FreeRADIUS 4.x(`cayenneryo/freeradius-server`) | 動作中   |
+| ログ収集           | syslog-ng(`linuxserver/syslog-ng`)             | 動作中   |
+| ファイル配布       | tftpd-hpa(Alpine から自前でビルド)             | 動作中   |
+| ログローテーション | Docker ホスト側の logrotate                    | 実装予定 |
+| DHCP と DNS        | Kea、BIND9                                     | 未決定   |
 
-FreeRADIUS 4.x は開発バージョンです。Koitohan は正式リリースに先行して採用しています。
+FreeRADIUS 4.x は開発バージョンです。Koitohan は正式リリースに先行して採用しています。イメージは [freeradius-server-image](https://github.com/jolly-jive/freeradius-server-image) で開発ブランチからビルドしたもので、`compose.yaml` では特定のビルドに固定しています。
 
 ## 必要なもの
 
@@ -52,12 +52,15 @@ cd koitohan
 cp .env.sample .env    # その後 .env を編集
 make                   # 証明書、LDIF、FreeRADIUS の LDAP 設定を生成
 $EDITOR freeradius/config/clients.conf
+sudo chown -R 101:101 freeradius/log
 make up
 ```
 
 `make` を実行する前に、`.env` のパスワードをすべて変更してください。`.env.sample` の値は公開されています。
 
 `make` は `clients.conf.sample` から `freeradius/config/clients.conf` を作ります。`make up` の前に、サンプルのクライアントを自分の機器に書き換えてください。
+
+FreeRADIUS は uid 101 で動作し、`freeradius/log/` にログを書き込みます。`chown` をしないと、ログインを記録できず、すべての要求を拒否します。
 
 クローン直後は、`docker compose up` を直接実行せずに `make up` を使ってください。Docker がマウントする前に、生成ファイルが揃っていることを保証します。
 
@@ -209,6 +212,8 @@ sudo chown 1000:1000 tftpd-hpa/tftpboot/configs
 | `syslog-ng/log/debug.log`               | すべての生メッセージ(調査用) |
 | `freeradius/log/`                       | FreeRADIUS の認証ログ        |
 
+`freeradius/log/` のファイルは uid 101 の所有です。読むときは `sudo` を使ってください。
+
 これらのファイルは、まだローテーションされません。特に `debug.log` は際限なく大きくなります。
 
 TFTP の転送の記録はファイルには保存されません。`docker compose logs tftpd-hpa` で確認します。
@@ -258,7 +263,6 @@ docker compose logs -f freeradius
 
 - どのロールにも所属していないユーザーも、権限属性なしで認証に成功します。その後の扱いは機器によって異なります。
 - 複数のロールに所属するユーザーについて、優先順位を定めていません。
-- `freeradius` のイメージは、バージョンを固定していません。
 - TFTP サーバーは、接続元のアドレスを制限していません。
 
 ## セキュリティ上の注意
@@ -271,6 +275,8 @@ docker compose logs -f freeradius
 - `freeradius/config/mods-available/ldap_openldap`
 - `openldap/ldif/*.ldif`
 - `tftpd-hpa/tftpboot/configs/`(機器のコンフィグ。パスワードのハッシュや共有シークレットを含むことがあります)
+
+`CA/freeradius_client.key` は、Docker ホストのすべてのユーザーが読めます。FreeRADIUS がこの鍵を uid 101 で読み、ホスト側にはその uid が所有するものがないためです。
 
 RADIUS のログインは PAP を使うため、通信経路上でユーザーのパスワードを守るのは、各クライアントの共有シークレットです。機器ごとに長いランダムなシークレットを使ってください。
 

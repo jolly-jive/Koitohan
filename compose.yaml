@@ -33,9 +33,9 @@ services:
     restart: unless-stopped
 
   freeradius:
-    image: freeradius/rocky10:latest
+    image: cayenneryo/freeradius-server:4.0.40537-devel-ubuntu26-14fdfb3-r1
     container_name: ${FREERADIUS_CONTAINER_NAME}
-#    command: ["/usr/sbin/radiusd", "-X"]
+#    command: ["radiusd", "-X"]
     environment:
       TZ: "${TZ}"
     volumes:
@@ -46,7 +46,7 @@ services:
       - ./freeradius/config/policy.d/authz_vendor_role:/etc/freeradius/policy.d/authz_vendor_role:ro
       - ./freeradius/config/sites-available/ldap-pap:/etc/freeradius/sites-available/ldap-pap:ro
       - ./freeradius/config/sites-enabled:/etc/freeradius/sites-enabled:ro
-      - ./freeradius/log:/var/log/radius
+      - ./freeradius/log:/var/log/freeradius
       - ./CA/default-ca.pem:/etc/freeradius/certs/ca.crt:ro
       - ./CA/freeradius_client.crt:/etc/freeradius/certs/client.crt:ro
       - ./CA/freeradius_client.key:/etc/freeradius/certs/client.key:ro
