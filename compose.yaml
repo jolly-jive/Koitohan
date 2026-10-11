@@ -12,7 +12,9 @@ services:
       LDAP_CONFIG_PASSWORD: "${LDAP_CONFIG_PASSWORD}"
       LDAP_LOG_LEVEL: "256"
       LDAP_TLS: "true"
-#      LDAP_TLS_ENFORCE: "true"
+      # refuses anything without TLS on 389. The image keeps this on once
+      # it has been set, until openldap/config is deleted.
+      LDAP_TLS_ENFORCE: "true"
       LDAP_READONLY_USER: "false"
 #      LDAP_READONLY_USER_USERNAME: ${LDAP_READONLY_USER_USERNAME}
 #      LDAP_READONLY_USER_PASSWORD: ${LDAP_READONLY_USER_PASSWORD}

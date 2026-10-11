@@ -130,7 +130,7 @@ FreeRADIUS accepts requests only from private address ranges (`10.0.0.0/8`, `172
 
 Users live under `ou=People`. Roles are `groupOfUniqueNames` entries under `ou=Roles`. Add a user to a role by adding the user's DN to the role's `uniqueMember`.
 
-Koitohan does not include a tool for managing users. Use any LDAP client against `ldaps://<host>:636` with the CA certificate `CA/default-ca.pem`.
+Koitohan does not include a tool for managing users.
 
 For a quick trial, `make ldap_testaccounts` generates three test users (`admin01`, `operator01`, `readonly01`), one per role. Their passwords are written in `scripts/generate_ldap_test_accounts.sh`. Run it before the first `make up`, and do not use it outside a lab.
 

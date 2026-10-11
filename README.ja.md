@@ -130,7 +130,7 @@ FreeRADIUS は、プライベートアドレス(`10.0.0.0/8`、`172.16.0.0/12`�
 
 ユーザーは `ou=People` の下に置きます。ロールは `ou=Roles` の下の `groupOfUniqueNames` です。ユーザーをロールに所属させるには、ロールの `uniqueMember` にユーザーの DN を追加します。
 
-Koitohan にユーザー管理用のツールは含まれていません。任意の LDAP クライアントで `ldaps://<ホスト>:636` に接続してください。CA 証明書は `CA/default-ca.pem` です。
+Koitohan にユーザー管理用のツールは含まれていません。
 
 手早く試すには、`make ldap_testaccounts` でテストユーザー3名(`admin01`、`operator01`、`readonly01`)を各ロールに1名ずつ生成できます。パスワードは `scripts/generate_ldap_test_accounts.sh` に書いてあります。最初の `make up` の前に実行してください。検証環境以外では使わないでください。
 
