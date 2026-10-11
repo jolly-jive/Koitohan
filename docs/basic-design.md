@@ -426,14 +426,17 @@ TFTP には認証がなく、69/udp に到達できる相手は誰でも `config
 
 ### コンテナ一覧
 
-| コンテナ     | イメージ                | 公開ポート         | 状況     |
-| ------------ | ----------------------- | ------------------ | -------- |
-| `openldap`   | `osixia/openldap`       | 636/tcp            | 実装済み |
-| `freeradius` | `freeradius/rocky10`    | 1812/udp、1813/udp | 実装済み |
-| `syslog-ng`  | `linuxserver/syslog-ng` | 514/udp、514/tcp   | 実装済み |
-| `tftpd-hpa`  | 自前でビルド（Alpine）  | 69/udp             | 実装済み |
+| コンテナ     | イメージ                       | 公開ポート         | 状況     |
+| ------------ | ------------------------------ | ------------------ | -------- |
+| `openldap`   | `osixia/openldap`              | 636/tcp            | 実装済み |
+| `freeradius` | `cayenneryo/freeradius-server` | 1812/udp、1813/udp | 実装済み |
+| `syslog-ng`  | `linuxserver/syslog-ng`        | 514/udp、514/tcp   | 実装済み |
+| `tftpd-hpa`  | 自前でビルド（Alpine）         | 69/udp             | 実装済み |
 
 コンテナ名は `.env` で指定する。
+
+イメージは、再現性のためバージョンを固定する。  
+FreeRADIUS 4.x にはリリースの区切りがないため、開発ブランチからビルドしたイメージ（[freeradius-server-image](https://github.com/jolly-jive/freeradius-server-image)）を特定のビルドに固定して使う。
 
 タイムゾーンは `.env` の `TZ` で指定し、全コンテナに環境変数として渡す。ログの時刻をコンテナ間で揃えるためである。
 
@@ -446,15 +449,11 @@ TFTP には認証がなく、69/udp に到達できる相手は誰でも `config
 ### 永続化対象
 
 - LDAP データベースと LDAP の設定（`slapd.d`）
-- FreeRADIUS のログ
+- FreeRADIUS のログ（コンテナの実行ユーザ uid 101 の所有とする）
 - SYSLOG ログディレクトリ（NVMe）
 - TFTP ディレクトリ（`/tftpboot`）
 
 FreeRADIUS の設定と証明書は永続化対象ではなく、ホスト側のファイルを読み取り専用でマウントする。
-
-### 課題
-
-- `freeradius` のイメージは `latest` を参照している。再現性のため、バージョンを固定する。
 
 ---
 

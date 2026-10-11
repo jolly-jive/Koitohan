@@ -25,16 +25,16 @@ Redundancy for availability is not implemented yet.
 
 Koitohan is at the verification stage. It is not hardened for production use.
 
-| Function                         | Component                             | Status    |
-| -------------------------------- | ------------------------------------- | --------- |
-| Directory                        | OpenLDAP (`osixia/openldap`)          | Working   |
-| Authentication and authorization | FreeRADIUS 4.x (`freeradius/rocky10`) | Working   |
-| Log collection                   | syslog-ng (`linuxserver/syslog-ng`)   | Working   |
-| File distribution                | tftpd-hpa (built here from Alpine)    | Working   |
-| Log rotation                     | logrotate on the Docker host          | Planned   |
-| DHCP and DNS                     | Kea, BIND9                            | Undecided |
+| Function                         | Component                                       | Status    |
+| -------------------------------- | ----------------------------------------------- | --------- |
+| Directory                        | OpenLDAP (`osixia/openldap`)                    | Working   |
+| Authentication and authorization | FreeRADIUS 4.x (`cayenneryo/freeradius-server`) | Working   |
+| Log collection                   | syslog-ng (`linuxserver/syslog-ng`)             | Working   |
+| File distribution                | tftpd-hpa (built here from Alpine)              | Working   |
+| Log rotation                     | logrotate on the Docker host                    | Planned   |
+| DHCP and DNS                     | Kea, BIND9                                      | Undecided |
 
-FreeRADIUS 4.x is a development version. Koitohan uses it ahead of its official release.
+FreeRADIUS 4.x is a development version. Koitohan uses it ahead of its official release. The image is built from the development branch in [freeradius-server-image](https://github.com/jolly-jive/freeradius-server-image), and `compose.yaml` pins it to one build.
 
 ## Requirements
 
@@ -52,12 +52,15 @@ cd koitohan
 cp .env.sample .env    # then edit .env
 make                   # generate certificates, LDIF files and the FreeRADIUS LDAP config
 $EDITOR freeradius/config/clients.conf
+sudo chown -R 101:101 freeradius/log
 make up
 ```
 
 Change every password in `.env` before you run `make`. The values in `.env.sample` are public.
 
 `make` creates `freeradius/config/clients.conf` from `clients.conf.sample`. Replace the sample clients with your own devices before you run `make up`.
+
+FreeRADIUS runs as uid 101 and writes its logs to `freeradius/log/`. Without the `chown`, it cannot record a login there and rejects every request.
 
 Use `make up` instead of calling `docker compose up` directly on a fresh checkout. It makes sure the generated files exist before Docker mounts them.
 
@@ -209,6 +212,8 @@ Port 1813/udp is also published, but RADIUS accounting is not implemented yet.
 | `syslog-ng/log/debug.log`               | Every raw message, for troubleshooting |
 | `freeradius/log/`                       | FreeRADIUS authentication logs         |
 
+The files under `freeradius/log/` belong to uid 101. Read them with `sudo`.
+
 Nothing rotates these files yet. `debug.log` in particular grows without limit.
 
 TFTP transfers are not logged to a file. See them with `docker compose logs tftpd-hpa`.
@@ -258,7 +263,6 @@ docker compose logs -f freeradius
 
 - A user who belongs to no role is still accepted, with no privilege attribute. What happens next depends on the device.
 - A user who belongs to more than one role has no defined precedence.
-- The `freeradius` image is not pinned to a version.
 - The TFTP server does not restrict the addresses it accepts requests from.
 
 ## Security notes
@@ -271,6 +275,8 @@ These files contain private keys, shared secrets or passwords. Git ignores all o
 - `freeradius/config/mods-available/ldap_openldap`
 - `openldap/ldif/*.ldif`
 - `tftpd-hpa/tftpboot/configs/` (device configurations, which can contain password hashes and shared secrets)
+
+`CA/freeradius_client.key` is readable by every user on the Docker host. FreeRADIUS reads it as uid 101, which owns nothing on the host.
 
 RADIUS logins use PAP, so the shared secret of each client is what protects the user's password on the wire. Use a long random secret for each device.
 
