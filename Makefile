@@ -1,6 +1,6 @@
 ENV_FILE := .env
 
-.PHONY: all certs ldap_dir ldap_testaccounts freeradius_conf clean up down
+.PHONY: all certs ldap_dir ldap_testaccounts freeradius_conf test clean up down
 
 all: certs ldap_dir freeradius_conf
 
@@ -49,10 +49,22 @@ $(FREERADIUS_LDAP): $(ENV_FILE) scripts/generate_freeradius_ldap.sh
 $(FREERADIUS_CLIENTS):
 	install -m 640 $(FREERADIUS_CLIENTS).sample $@
 
+### smoke test
+SMOKE_TEST_LDIFS := \
+	tests/ldif/250-TestAccounts.ldif \
+	tests/ldif/260-TestAccountRoles.ldif
+
+# does not depend on all, so that a test never regenerates the certificates
+test: $(SMOKE_TEST_LDIFS)
+	./tests/smoke.sh
+
+$(SMOKE_TEST_LDIFS) &: $(ENV_FILE) scripts/generate_ldap_test_accounts.sh
+	./scripts/generate_ldap_test_accounts.sh tests/ldif
+
 ### clean 
 clean:
 	rm -f $(CERT_STAMP) $(CERT_FILES)
-	rm -f $(LDAP_BASE_LDIFS) $(LDAP_TEST_LDIFS)
+	rm -f $(LDAP_BASE_LDIFS) $(LDAP_TEST_LDIFS) $(SMOKE_TEST_LDIFS)
 	rm -f $(FREERADIUS_LDAP)
 
 ### up and down

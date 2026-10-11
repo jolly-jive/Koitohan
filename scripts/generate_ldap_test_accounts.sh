@@ -5,7 +5,7 @@ ROOT_DIR="$(dirname "${SCRIPT_DIR}")"
 
 source "${ROOT_DIR}/.env"
 
-OUT_DIR="${ROOT_DIR}/openldap/ldif"
+OUT_DIR="${1:-${ROOT_DIR}/openldap/ldif}"
 
 function domain2dn() {
   local DOMAIN=${1}
