@@ -103,7 +103,7 @@ function check() {
 function check_restart() {
   local TRY WHY='expected a bind to succeed'
   local DN='uid=admin01,ou=People,dc=${LDAP_DOMAIN//./,dc=}'
-  local BIND="ldapwhoami -x -H ldap://localhost -w passadmin -D \"${DN}\""
+  local BIND="ldapwhoami -x -H ldapi:/// -w passadmin -D \"${DN}\""
 
   "${COMPOSE[@]}" restart openldap > /dev/null 2>&1
   for TRY in $(seq ${WAIT_TRIES}); do
