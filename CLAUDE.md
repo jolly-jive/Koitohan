@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ネットワーク機器向けの AAA、ログ収集、ファイル配布を提供する Docker Compose スタック(Raspberry Pi 上で稼働)。OpenLDAP がユーザーディレクトリ、FreeRADIUS がそれを参照して認証し、syslog-ng が機器のログを収集し、tftpd-hpa がファームウェアの配布とコンフィグのバックアップの受け取りを行う。アプリケーションコードはなく、リポジトリの中身は `compose.yaml`、`Makefile`、`scripts/` の生成スクリプト、バインドマウントされる各サービスの設定、tftpd-hpa のイメージの Dockerfile のみ。
 
-設計の背景、実装予定(ログローテーション)、未決定事項(DHCP / DNS)は `docs/basic-design.md` を参照。`README.md`(英語)と `README.ja.md`(日本語)は同じ内容なので、片方を直したらもう片方も直すこと。
+設計の背景、実装予定(ログローテーション、ユーザ管理のスクリプトとパスワードポリシー、利用者作業用コンテナ)、未決定事項(DHCP / DNS)は `docs/basic-design.md` を参照。`README.md`(英語)と `README.ja.md`(日本語)は同じ内容なので、片方を直したらもう片方も直すこと。
 
 ## コマンド
 
