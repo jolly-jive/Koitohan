@@ -264,6 +264,7 @@ docker compose logs -f freeradius
 - A user who belongs to no role is still accepted, with no privilege attribute. What happens next depends on the device.
 - A user who belongs to more than one role has no defined precedence.
 - The TFTP server does not restrict the addresses it accepts requests from.
+- When OpenLDAP restarts while FreeRADIUS keeps running, for example after `docker compose restart openldap`, FreeRADIUS rejects the logins that follow and then crashes with a segmentation fault. Docker starts it again, and logins work after that. This is a bug in FreeRADIUS 4.x, which is a development version. To avoid the rejected logins, restart FreeRADIUS right after OpenLDAP with `docker compose restart freeradius`. This item will be removed when FreeRADIUS fixes the bug.
 
 ## Security notes
 
