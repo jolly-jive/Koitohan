@@ -221,6 +221,7 @@ make certs              # private CA, server and client certificates
 make ldap_dir           # LDIF files for OUs, roles, the service account and ACLs
 make freeradius_conf    # FreeRADIUS LDAP module config and clients.conf
 make ldap_testaccounts  # LDIF files for the test users
+make test               # smoke test
 make up                 # start the stack
 make down               # stop the stack
 make clean              # delete generated certificates, LDIF files and config
@@ -231,6 +232,14 @@ Check the FreeRADIUS configuration without starting the stack:
 ```sh
 docker compose run --rm --no-deps freeradius radiusd -XC
 ```
+
+Check authentication and authorization end to end:
+
+```sh
+make test
+```
+
+`make test` starts OpenLDAP and FreeRADIUS as a separate project (`koitohan-test`), authenticates as the test users, and compares the reply attributes for every combination of device type and role. It publishes no ports and keeps no data, so it does not affect a running stack. Run `make` beforehand. To look into a failed check, keep the test stack up with `KEEP=1 tests/smoke.sh`.
 
 The tftpd-hpa image is built automatically by the first `make up`. After you change `tftpd-hpa/build/`, rebuild it before you start the stack.
 

@@ -221,6 +221,7 @@ make certs              # プライベート CA、サーバー証明書、クラ
 make ldap_dir           # OU、ロール、サービスアカウント、ACL の LDIF
 make freeradius_conf    # FreeRADIUS の LDAP モジュール設定と clients.conf
 make ldap_testaccounts  # テストユーザーの LDIF
+make test               # スモークテスト
 make up                 # スタックを起動
 make down               # スタックを停止
 make clean              # 生成した証明書、LDIF、設定を削除
@@ -231,6 +232,14 @@ make clean              # 生成した証明書、LDIF、設定を削除
 ```sh
 docker compose run --rm --no-deps freeradius radiusd -XC
 ```
+
+認証と認可を通しで確かめる:
+
+```sh
+make test
+```
+
+`make test` は、OpenLDAP と FreeRADIUS を別のプロジェクト(`koitohan-test`)として起動し、テストユーザーで認証して、機器種別とロールの組み合わせごとに応答属性を照合します。ポートを公開せず、データも残さないので、稼働中のスタックには影響しません。事前に `make` を済ませておいてください。失敗した項目は `KEEP=1 tests/smoke.sh` でテスト用のスタックを残して調べられます。
 
 tftpd-hpa のイメージは、最初の `make up` で自動的にビルドされます。`tftpd-hpa/build/` を変更したときは、ビルドし直してから起動します。
 

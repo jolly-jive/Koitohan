@@ -1,0 +1,40 @@
+# Overrides compose.yaml for the smoke test (see tests/smoke.sh).
+# The test stack runs as a separate project next to the real one. It
+# publishes no ports and keeps no data.
+
+services:
+
+  openldap:
+    container_name: !reset null
+    environment:
+      LDAP_SEED_INTERNAL_LDIF_PATH: /root/ldif-test
+    volumes:
+      # anonymous volumes take the place of the persistent directories
+      - /var/lib/ldap
+      - /etc/ldap/slapd.d
+      - ./openldap/ldif/100-People.ldif:/root/ldif-test/100-People.ldif:ro
+      - ./openldap/ldif/200-Roles.ldif:/root/ldif-test/200-Roles.ldif:ro
+      - ./tests/ldif/250-TestAccounts.ldif:/root/ldif-test/250-TestAccounts.ldif:ro
+      - ./tests/ldif/260-TestAccountRoles.ldif:/root/ldif-test/260-TestAccountRoles.ldif:ro
+      - ./openldap/ldif/300-ServiceAccounts.ldif:/root/ldif-test/300-ServiceAccounts.ldif:ro
+      - ./openldap/ldif/900-ACL.ldif:/root/ldif-test/900-ACL.ldif:ro
+    networks:
+      default:
+        aliases:
+          # ldap_openldap and the server certificate use this name
+          - ${OPENLDAP_CONTAINER_NAME}
+    ports: !reset []
+    restart: "no"
+
+  freeradius:
+    container_name: !reset null
+    volumes:
+      - ./tests/clients.conf:/etc/freeradius/clients.conf:ro
+      # keeps the test out of freeradius/log
+      - /var/log/radius
+    ports: !reset []
+    restart: "no"
+
+networks:
+  default:
+    ipam: !reset null
