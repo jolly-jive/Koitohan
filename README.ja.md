@@ -33,7 +33,7 @@ Koitohan は検証段階です。本番利用に耐える堅牢化はしてい�
 | ログ収集           | syslog-ng(`linuxserver/syslog-ng`)             | 動作中   |
 | ファイル配布       | tftpd-hpa(Alpine から自前でビルド)             | 動作中   |
 | ユーザーの作業環境 | OpenSSH(Alpine から自前でビルド)               | 動作中   |
-| ログローテーション | Docker ホスト側の logrotate                    | 実装予定 |
+| ログローテーション | Docker ホスト側の logrotate                    | 動作中   |
 | DHCP と DNS        | Kea、BIND9                                     | 未決定   |
 
 FreeRADIUS 4.x は開発バージョンです。Koitohan は正式リリースに先行して採用しています。イメージは [freeradius-server-image](https://github.com/jolly-jive/freeradius-server-image) で開発ブランチからビルドしたもので、`compose.yaml` では特定のビルドに固定しています。
@@ -45,6 +45,7 @@ FreeRADIUS 4.x は開発バージョンです。Koitohan は正式リリース�
 - `openssl`
 - `slappasswd`(Debian と Raspberry Pi OS では `slapd` パッケージに含まれます)
 - `ssh-keygen`。`make test` は OpenSSH 8.4 以降の `ssh` も使います。
+- `logrotate`(ログのローテーションに使います)
 
 ## クイックスタート
 
@@ -53,11 +54,12 @@ git clone <repository-url> koitohan
 cd koitohan
 
 cp .env.sample .env    # その後 .env を編集
-make                   # 証明書、サービスアカウントのパスワード、LDIF、FreeRADIUS の LDAP 設定、sshd のホスト鍵を生成
+make                   # 証明書、サービスアカウントのパスワード、LDIF、FreeRADIUS の LDAP 設定、sshd のホスト鍵、logrotate の設定を生成
 $EDITOR freeradius/config/clients.conf
 sudo chown -R 101:101 freeradius/log
 sudo chown 1000:10001 tftpd-hpa/tftpboot/firmware
 sudo chmod 2770 tftpd-hpa/tftpboot/firmware
+sudo install -m 644 -o root -g root logrotate/koitohan /etc/logrotate.d/koitohan
 make up
 ```
 
@@ -66,6 +68,8 @@ make up
 `make` は `clients.conf.sample` から `freeradius/config/clients.conf` を作ります。`make up` の前に、サンプルのクライアントを自分の機器に書き換えてください。
 
 FreeRADIUS は uid 101 で動作し、`freeradius/log/` にログを書き込みます。`chown` をしないと、ログインを記録できず、すべての要求を拒否します。
+
+`install` は、ログのローテーションの設定を Docker ホストの logrotate に渡します(「[ローテーション](#ローテーション)」を参照)。
 
 `firmware/` の `chown` と `chmod` は、SSH でログインしたユーザーのうち、ロール `admin` のユーザーにだけこのディレクトリを開きます(「[SSH での作業](#ssh-での作業)」を参照)。`configs/` の同じ設定は、「[TFTP](#tftp)」の手順に含まれています。
 
@@ -325,8 +329,11 @@ sudo chmod 2770 tftpd-hpa/tftpboot/configs
 ```sh
 ssh -p 2222 alice@<ホスト>
 
-# 全機器のログから、特定のメッセージだけを取り出す
+# 全機器の今日のログから、特定のメッセージだけを取り出す
 ssh -p 2222 alice@<ホスト> 'grep -h LINK-3 /logs/Hosts/*/*.log' > link.txt
+
+# 同じことを、2026-10-10 のログで行う(2日以上前のログは圧縮されている)
+ssh -p 2222 alice@<ホスト> 'zgrep -h LINK-3 /logs/Hosts/*/*.log-2026-10-10.gz' > link.txt
 
 # ファームウェアを配置する(ロール admin のみ)
 scp -P 2222 image.bin alice@<ホスト>:/tftpboot/firmware/
@@ -423,19 +430,65 @@ make down && make up
 
 `freeradius/log/` のファイルは uid 101 の所有です。読むときは `sudo` を使ってください。
 
-これらのファイルは、まだローテーションされません。特に `debug.log` は際限なく大きくなります。
-
 TFTP の転送の記録はファイルには保存されません。`docker compose logs tftpd-hpa` で確認します。SSH のログインの記録も同様で、`docker compose logs openssh` で確認します。
+
+### ローテーション
+
+上の表のファイルは、Docker ホストの logrotate が1日ごとに切り替えます。設定は `make` が `logrotate/koitohan` に生成するので、logrotate が読む場所に置いてください。
+
+```sh
+make logrotate_conf
+sudo install -m 644 -o root -g root logrotate/koitohan /etc/logrotate.d/koitohan
+```
+
+| ファイル                                           | 切り替えたあとの名前                  | 残す日数 |
+| -------------------------------------------------- | ------------------------------------- | -------- |
+| `syslog-ng/log/Hosts/<host>/<host>.log`            | `<host>.log-2026-10-10.gz`            | 1096(3年) |
+| `syslog-ng/log/debug.log`                          | `debug.log-2026-10-10.gz`             | 7        |
+| `freeradius/log/radius.log`                        | `radius.log-2026-10-10.gz`            | 1096     |
+| `freeradius/log/radacct/<client>/auth-detail`、`reply-detail` | `auth-detail-2026-10-10.gz`、`reply-detail-2026-10-10.gz` | 1096 |
+
+- 名前の日付は、中身の日付です。切り替えは、日付が変わったあとに logrotate が動いたときに起きます。
+- 前日のファイルは、もう1日だけ圧縮されずに残ります(`<host>.log-2026-10-10`)。
+- ログが1行もなかった日のファイルは作られません。
+- logrotate は、初めて見たファイルを記録するだけで、切り替えは翌日から始めます。
+- 生成される設定には、リポジトリの絶対パスと syslog-ng のコンテナ名(`.env` の `SYSLOG_CONTAINER_NAME`)が入ります。リポジトリを移動したときや、コンテナ名を変えたときは、上の2行をもう一度実行してください。
+- 残す日数を変えるときは、`scripts/generate_logrotate.sh` の先頭の値を変えて、同じく2行を実行します。
+- 設定を試すには、`sudo logrotate -d /etc/logrotate.d/koitohan` を使います。何も変更せずに、対象のファイルと判定を表示します。
+
+FreeRADIUS の detail ログ(`auth-detail`、`reply-detail`)は、以前のバージョンでは、FreeRADIUS が日付入りの名前で日ごとに分けていました(`auth-detail-2026-9-2`)。稼働中の環境を更新するときは、FreeRADIUS と OpenSSH のコンテナを作り直してください。
+
+```sh
+docker compose build openssh    # 圧縮されたログを読むための zgrep が入る
+make up                         # FreeRADIUS は detail ログの新しい設定で、OpenSSH は新しいイメージで作り直される
+```
+
+以前の名前のファイルは、そのまま残ります。要らなければ削除してください。
+
+### コンテナの標準出力
+
+`docker compose logs` で読むログ(TFTP の転送、SSH のログイン、OpenLDAP)は、Docker のログドライバが保存します。`compose.yaml` はドライバを指定せず、Docker ホストの設定に従います。
+
+Docker の既定のドライバ(`json-file`)は、上限を指定しないかぎり、ログを際限なく残します。`/etc/docker/daemon.json` で、上限のあるドライバにしておいてください。たとえば、systemd の journal に送るには次のようにします。
+
+```json
+{
+  "log-driver": "journald"
+}
+```
+
+`journald` のほか、`local`(既定でローテーションします)や、`json-file` に `max-size` と `max-file` を指定する方法があります。変更は、Docker を再起動したあとに作られたコンテナから効きます。
 
 ## コマンド
 
 ```sh
-make                    # certs + secrets + ldap_dir + freeradius_conf + ssh_hostkeys
+make                    # certs + secrets + ldap_dir + freeradius_conf + ssh_hostkeys + logrotate_conf
 make certs              # プライベート CA、サーバー証明書、クライアント証明書
 make secrets            # サービスアカウントのパスワード(すでにあれば作り直さない)
 make ldap_dir           # OU、ロール、サービスアカウント、パスワードポリシー、ACL の LDIF
 make freeradius_conf    # FreeRADIUS の LDAP モジュール設定と clients.conf
 make ssh_hostkeys       # sshd のホスト鍵(すでにあれば作り直さない)
+make logrotate_conf     # Docker ホストの logrotate に渡す設定
 make test               # スモークテスト
 make up                 # スタックを起動
 make down               # スタックを停止
@@ -456,7 +509,7 @@ docker compose run --rm --no-deps freeradius radiusd -XC
 make test
 ```
 
-`make test` は、OpenLDAP、FreeRADIUS、OpenSSH を別のプロジェクト(`koitohan-test`)として起動し、`bin/manage_users.sh` でテストユーザーを登録して認証し、機器種別とロールの組み合わせごとに応答属性を照合します。続いて、各ロールのユーザーで SSH でログインし、ディレクトリの権限とパスワードの変更を確かめます。そのあと、`bin/manage_users.sh` の各操作と、パスワードポリシー(最小の長さ、ロックとその解除)、サービスアカウントのパスワードの変更を確かめます。最後に OpenLDAP のコンテナを再起動し、起動し直せることを確かめます。ポートを公開せず、データも残さず、サービスアカウントのパスワードもテスト用に生成する(`tests/generated/`)ので、稼働中のスタックには影響しません。事前に `make` を済ませておいてください。失敗した項目は `KEEP=1 tests/smoke.sh` でテスト用のスタックを残して調べられます。
+`make test` は、OpenLDAP、FreeRADIUS、OpenSSH を別のプロジェクト(`koitohan-test`)として起動し、`bin/manage_users.sh` でテストユーザーを登録して認証し、機器種別とロールの組み合わせごとに応答属性を照合します。FreeRADIUS が、ローテーションで移動された detail ログを作り直すことも確かめます。続いて、各ロールのユーザーで SSH でログインし、ディレクトリの権限、圧縮されたログの読み取り、パスワードの変更を確かめます。そのあと、`bin/manage_users.sh` の各操作と、パスワードポリシー(最小の長さ、ロックとその解除)、サービスアカウントのパスワードの変更を確かめます。最後に OpenLDAP のコンテナを再起動し、起動し直せることを確かめます。ポートを公開せず、データも残さず、サービスアカウントのパスワードもテスト用に生成する(`tests/generated/`)ので、稼働中のスタックには影響しません。事前に `make` を済ませておいてください。失敗した項目は `KEEP=1 tests/smoke.sh` でテスト用のスタックを残して調べられます。
 
 tftpd-hpa と OpenSSH のイメージは、最初の `make up` で自動的にビルドされます。`tftpd-hpa/build/` や `openssh/build/` を変更したときは、ビルドし直してから起動します。
 

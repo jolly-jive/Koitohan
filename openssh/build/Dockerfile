@@ -18,6 +18,7 @@ RUN tar -xzf /tmp/passwdqc.tar.gz -C /tmp \
 FROM alpine:3.24
 
 RUN apk add --no-cache \
+      gzip \
       linux-pam \
       nss-pam-ldapd \
       openldap-clients \

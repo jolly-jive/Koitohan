@@ -1,0 +1,24 @@
+#  Takes the place of the file of the image, which puts the date into
+#  the file names. Here each client has one file that keeps its name,
+#  and logrotate on the Docker host moves it away once a day
+#  (scripts/generate_logrotate.sh). The names are in the patterns of
+#  that script and in tests/smoke.sh, so keep them in step.
+
+#  Access-Request
+detail auth_log {
+	filename = "${radacctdir}/%{Net.Src.IP}/auth-detail"
+
+	permissions = 0600
+
+	#  keeps the passwords out of the log
+	suppress {
+		User-Password
+	}
+}
+
+#  Access-Accept and Access-Reject
+detail reply_log {
+	filename = "${radacctdir}/%{Net.Src.IP}/reply-detail"
+
+	permissions = 0600
+}
