@@ -2,40 +2,35 @@
 #
 # Makes the password of a service account: secrets/<service>_service_account_password.
 #
-#   generate_service_account_password.sh freeradius|openssh
+#   generate_service_account_password.sh freeradius|openssh [<file>]
 #
-# An .env from before this script still carries the password. That one
-# is taken over, as the running directory knows no other.
+# <file> is another place to write to. bin/change_service_account_password.sh
+# uses it, to hold the new password until the directory has taken it.
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(dirname "${SCRIPT_DIR}")"
 
-source "${ROOT_DIR}/.env"
+# tests/smoke.sh keeps its own generated files apart
+GENERATED_ROOT="${KOITOHAN_GENERATED_ROOT:-${ROOT_DIR}}"
 
 SERVICE=${1}
 case ${SERVICE} in
   freeradius|openssh) ;;
-  *) echo "usage: ${0} freeradius|openssh" >&2; exit 1 ;;
+  *) echo "usage: ${0} freeradius|openssh [<file>]" >&2; exit 1 ;;
 esac
 
-OUT_FILE="${ROOT_DIR}/secrets/${SERVICE}_service_account_password"
-LEGACY_NAME="${SERVICE^^}_SERVICE_ACCOUNT_PASSWORD"
+OUT_FILE=${2:-${GENERATED_ROOT}/secrets/${SERVICE}_service_account_password}
 
 if [ -e "${OUT_FILE}" ]; then
-  echo "${OUT_FILE} exists. Remove it first to make a new one." >&2
+  echo "${OUT_FILE} exists. bin/change_service_account_password.sh makes a new one on a running stack." >&2
   exit 1
 fi
 
-if [ -n "${!LEGACY_NAME}" ]; then
-  PASSWORD=${!LEGACY_NAME}
-  echo "took ${LEGACY_NAME} over from .env. It is not read any more, so remove it from .env."
-else
-  # letters and digits only: the value goes into ldap_openldap and nslcd.conf as it is
-  PASSWORD=$(openssl rand -hex 24)
-  if [ ${#PASSWORD} -ne 48 ]; then
-    echo 'could not make a password' >&2
-    exit 1
-  fi
+# letters and digits only: the value goes into ldap_openldap and nslcd.conf as it is
+PASSWORD=$(openssl rand -hex 24)
+if [ ${#PASSWORD} -ne 48 ]; then
+  echo 'could not make a password' >&2
+  exit 1
 fi
 
 umask 077

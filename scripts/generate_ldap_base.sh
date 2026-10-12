@@ -5,7 +5,10 @@ ROOT_DIR="$(dirname "${SCRIPT_DIR}")"
 
 source "${ROOT_DIR}/.env"
 
-OUT_DIR="${ROOT_DIR}/openldap/ldif"
+# tests/smoke.sh keeps its own generated files apart
+GENERATED_ROOT="${KOITOHAN_GENERATED_ROOT:-${ROOT_DIR}}"
+
+OUT_DIR="${GENERATED_ROOT}/openldap/ldif"
 
 function domain2dn() {
   local DOMAIN=${1}
@@ -36,7 +39,7 @@ for NAME in PPOLICY_MIN_LENGTH PPOLICY_MAX_FAILURE PPOLICY_FAILURE_WINDOW PPOLIC
   fi
 done
 
-SECRETS_DIR="${ROOT_DIR}/secrets"
+SECRETS_DIR="${GENERATED_ROOT}/secrets"
 for SERVICE in freeradius openssh; do
   if [ ! -s "${SECRETS_DIR}/${SERVICE}_service_account_password" ]; then
     echo "${SECRETS_DIR}/${SERVICE}_service_account_password is missing or empty. Run 'make secrets' first." >&2
