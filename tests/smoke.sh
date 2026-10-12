@@ -6,8 +6,8 @@
 # Starts openldap, freeradius and openssh as a separate compose project,
 # seeded with the test accounts. Checks the reply for every combination
 # of reply type and role, then logs in over ssh as each role, then
-# manages a user with bin/manage_users.sh. The running stack is left
-# alone.
+# manages a user with bin/manage_users.sh, then runs into the password
+# policy of OpenLDAP. The running stack is left alone.
 #
 #   KEEP=1 tests/smoke.sh    leave the test stack up for a closer look
 
@@ -70,6 +70,9 @@ function wait_ready() {
 
 FAILED=0
 COUNT=0
+
+# for bash in the openldap container, which has LDAP_DOMAIN
+LDAP_SUFFIX_SET='SUFFIX="dc=${LDAP_DOMAIN//./,dc=}"'
 
 # EXPECT is a fixed string to find in the reply. '-' means that the
 # reply carries no attributes.
@@ -193,6 +196,31 @@ function check_users() {
   fi
 }
 
+# Runs COMMAND with bash in the openldap container, where SUFFIX is the
+# suffix of the directory. EXPECT is a fixed string to find in the
+# output. INPUT goes to the standard input of the command.
+function check_ldap() {
+  local NAME=${1}
+  local USER=${2}
+  local EXPECT=${3}
+  local COMMAND=${4}
+  local INPUT=${5}
+  local OUT WHY=''
+
+  OUT=$(printf '%b' "${INPUT}" \
+        | "${COMPOSE[@]}" exec -T openldap bash -c "${LDAP_SUFFIX_SET}; ${COMMAND}" 2>&1)
+  echo "${OUT}" | grep -q -F -- "${EXPECT}" || WHY="expected ${EXPECT}"
+
+  COUNT=$((COUNT + 1))
+  if [ -z "${WHY}" ]; then
+    printf 'ok    %-13s %-11s %s\n' "${NAME}" "${USER}" "${EXPECT}"
+  else
+    FAILED=$((FAILED + 1))
+    printf 'FAIL  %-13s %-11s %s\n' "${NAME}" "${USER}" "${WHY}"
+    echo "${OUT}" | sed 's/^/      | /'
+  fi
+}
+
 # The same container has to start a second time, as it does after a
 # reboot of the host. This asks slapd itself and leaves FreeRADIUS out.
 function check_restart() {
@@ -231,6 +259,7 @@ for FILE in \
   CA/openssh_client.crt \
   openssh/hostkeys/ssh_host_ed25519_key \
   openldap/ldif/100-People.ldif \
+  openldap/ldif/400-PPolicy.ldif \
   freeradius/config/mods-available/ldap_openldap \
   tests/ldif/250-TestAccounts.ldif
 do
@@ -377,8 +406,43 @@ check_users 'users passwd' 'set the password' "${NEW_PASS2}" passwd smoke01
 check_ssh 'users passwd' smoke01 "${NEW_PASS2}" 'koitohan admin' 'id -Gn' < /dev/null
 check_ssh 'users passwd' smoke01 "${NEW_PASS}" denied 'id -Gn' < /dev/null
 
-# without ppolicy, nobody is ever locked
+# The password policy of OpenLDAP (ppolicy). A user who goes around
+# passwd still meets the least length, and cannot store a hash, which
+# would hide the length.
+AS_OPERATOR01='-x -H ldapi:/// -D "uid=operator01,ou=People,${SUFFIX}" -w passoperator'
+check_ldap 'min length' operator01 'Password fails quality checking policy' \
+  "ldappasswd ${AS_OPERATOR01} -s 'x9#Kq!v'"
+check_ldap 'hashed' operator01 'Password fails quality checking policy' \
+  "printf 'dn: uid=operator01,ou=People,%s\nchangetype: modify\nreplace: userPassword\nuserPassword: {SSHA}c21va2Vfc21va2Vfc21va2Vfc21va2U=\n' \"\${SUFFIX}\" | ldapmodify ${AS_OPERATOR01}"
+check 'min length' 127.0.0.1 operator01 passoperator Accept 'AVPair = "shell:priv-lvl=7"'
+
+# The lock. The failures come in over RADIUS and lock ssh as well.
 check_users 'users unlock' 'smoke01 is not locked' '' unlock smoke01
+MAX_FAILURE=$("${COMPOSE[@]}" exec -T openldap bash -c "${LDAP_SUFFIX_SET};"'
+  ldapsearch -Q -Y EXTERNAL -H ldapi:/// -LLL -b "cn=default,ou=Policies,${SUFFIX}" -s base pwdMaxFailure' \
+  2> /dev/null | awk '$1 == "pwdMaxFailure:" { print $2 }')
+for TRY in $(seq ${MAX_FAILURE:-0}); do
+  send_request 127.0.0.1 smoke01 wrong > /dev/null
+done
+check 'lock' 127.0.0.1 smoke01 "${NEW_PASS2}" Reject '-'
+check_ssh 'lock' smoke01 "${NEW_PASS2}" denied 'id -Gn' < /dev/null
+check_users 'users unlock' 'unlocked smoke01' '' unlock smoke01
+check 'users unlock' 127.0.0.1 smoke01 "${NEW_PASS2}" Accept 'AVPair = "shell:priv-lvl=15"'
+check_ssh 'users unlock' smoke01 "${NEW_PASS2}" 'koitohan admin' 'id -Gn' < /dev/null
+
+# The service accounts are never locked, or nobody could log in.
+# FreeRADIUS and nslcd keep their connections, so a login would not
+# show a lock. This looks at the entries.
+check_ldap 'no lock' 'service' 'never locked' '
+  for DN in $(ldapsearch -Q -Y EXTERNAL -H ldapi:/// -LLL -o ldif-wrap=no -b "ou=ServiceAccounts,${SUFFIX}" -s one dn | sed -n "s/^dn: //p"); do
+    for TRY in $(seq '"${MAX_FAILURE:-0}"'); do
+      ldapwhoami -x -H ldapi:/// -D "${DN}" -w wrong 2>&1 | grep -q "Invalid credentials" || echo "${DN}: no failure"
+    done
+    FOUND=1
+  done
+  LOCKED=$(ldapsearch -Q -Y EXTERNAL -H ldapi:/// -LLL -b "ou=ServiceAccounts,${SUFFIX}" "(pwdAccountLockedTime=*)" dn)
+  echo "${LOCKED}"
+  [ -n "${FOUND}" ] && [ -z "${LOCKED}" ] && echo "never locked"'
 
 check_users 'users delete' 'deleted smoke01' '' delete smoke01
 check_ssh 'users delete' smoke01 "${NEW_PASS2}" denied 'id -Gn' < /dev/null

@@ -17,6 +17,7 @@ services:
       - ./tests/ldif/250-TestAccounts.ldif:/root/ldif-test/250-TestAccounts.ldif:ro
       - ./tests/ldif/260-TestAccountRoles.ldif:/root/ldif-test/260-TestAccountRoles.ldif:ro
       - ./openldap/ldif/300-ServiceAccounts.ldif:/root/ldif-test/300-ServiceAccounts.ldif:ro
+      - ./openldap/ldif/400-PPolicy.ldif:/root/ldif-test/400-PPolicy.ldif:ro
       - ./openldap/ldif/900-ACL.ldif:/root/ldif-test/900-ACL.ldif:ro
     networks:
       default:
