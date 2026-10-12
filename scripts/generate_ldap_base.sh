@@ -21,7 +21,20 @@ LDAP_SUFFIX=$(domain2dn ${LDAP_DOMAIN})
 PEOPLE_LDIF="${OUT_DIR}/100-People.ldif"
 ROLES_LDIF="${OUT_DIR}/200-Roles.ldif"
 SERVICE_ACCOUNTS_LDIF="${OUT_DIR}/300-ServiceAccounts.ldif"
+PPOLICY_LDIF="${OUT_DIR}/400-PPolicy.ldif"
 ACL_LDIF="${OUT_DIR}/900-ACL.ldif"
+
+POLICIES_DN="ou=Policies,${LDAP_SUFFIX}"
+SERVICE_ACCOUNTS_DN="ou=ServiceAccounts,${LDAP_SUFFIX}"
+
+# an .env from before ppolicy does not have these, and an empty value
+# would stop OpenLDAP in the middle of the seed
+for NAME in PPOLICY_MIN_LENGTH PPOLICY_MAX_FAILURE PPOLICY_FAILURE_WINDOW PPOLICY_LOCKOUT_DURATION; do
+  if [[ ! "${!NAME}" =~ ^[0-9]+$ ]]; then
+    echo "${NAME} is not a number. Copy it from .env.sample to .env." >&2
+    exit 1
+  fi
+done
 
 # contains password hashes
 umask 077
@@ -73,6 +86,84 @@ uid: ${OPENSSH_SERVICE_ACCOUNT_NAME}
 userPassword: $(slappasswd -s "${OPENSSH_SERVICE_ACCOUNT_PASSWORD}")
 EOF
 
+
+# Goes in after every LDIF that carries a hashed password, as the overlay
+# refuses those (pwdCheckQuality: 2). The order inside matters too: the
+# policies need the module, and the accounts need the policies.
+#
+# The values are set by a replace, apart from the entries. That way the
+# file can be applied again to a running directory (ldapmodify -c), and
+# the values follow .env.
+cat <<EOF > ${PPOLICY_LDIF}
+dn: cn=module{0},cn=config
+changetype: modify
+add: olcModuleLoad
+olcModuleLoad: ppolicy
+
+dn: olcOverlay=ppolicy,olcDatabase={1}mdb,cn=config
+changetype: add
+objectClass: olcOverlayConfig
+objectClass: olcPPolicyConfig
+olcOverlay: ppolicy
+olcPPolicyDefault: cn=default,${POLICIES_DN}
+olcPPolicyHashCleartext: TRUE
+olcPPolicyUseLockout: FALSE
+
+dn: ${POLICIES_DN}
+changetype: add
+objectClass: organizationalUnit
+ou: Policies
+
+dn: cn=default,${POLICIES_DN}
+changetype: add
+objectClass: device
+objectClass: pwdPolicy
+cn: default
+pwdAttribute: userPassword
+
+dn: cn=default,${POLICIES_DN}
+changetype: modify
+replace: pwdMinLength
+pwdMinLength: ${PPOLICY_MIN_LENGTH}
+-
+replace: pwdCheckQuality
+pwdCheckQuality: 2
+-
+replace: pwdLockout
+pwdLockout: TRUE
+-
+replace: pwdMaxFailure
+pwdMaxFailure: ${PPOLICY_MAX_FAILURE}
+-
+replace: pwdFailureCountInterval
+pwdFailureCountInterval: ${PPOLICY_FAILURE_WINDOW}
+-
+replace: pwdLockoutDuration
+pwdLockoutDuration: ${PPOLICY_LOCKOUT_DURATION}
+
+dn: cn=serviceaccounts,${POLICIES_DN}
+changetype: add
+objectClass: device
+objectClass: pwdPolicy
+cn: serviceaccounts
+pwdAttribute: userPassword
+
+dn: cn=serviceaccounts,${POLICIES_DN}
+changetype: modify
+replace: pwdLockout
+pwdLockout: FALSE
+EOF
+
+# a locked service account would stop the logins of everybody
+for NAME in "${FREERADIUS_SERVICE_ACCOUNT_NAME}" "${OPENSSH_SERVICE_ACCOUNT_NAME}"; do
+  cat <<EOF >> ${PPOLICY_LDIF}
+
+dn: uid=${NAME},${SERVICE_ACCOUNTS_DN}
+changetype: modify
+replace: pwdPolicySubentry
+pwdPolicySubentry: cn=serviceaccounts,${POLICIES_DN}
+EOF
+done
 
 cat <<EOF > ${ACL_LDIF}
 dn: olcDatabase={1}mdb,cn=config

@@ -20,6 +20,7 @@ LDAP_BASE_LDIFS := \
 	openldap/ldif/100-People.ldif \
 	openldap/ldif/200-Roles.ldif \
 	openldap/ldif/300-ServiceAccounts.ldif \
+	openldap/ldif/400-PPolicy.ldif \
 	openldap/ldif/900-ACL.ldif
 
 ldap_dir: $(LDAP_BASE_LDIFS)

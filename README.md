@@ -97,6 +97,10 @@ Use `make up` instead of calling `docker compose up` directly on a fresh checkou
 | `OPENSSH_SERVICE_ACCOUNT_NAME`        | Account the OpenSSH container uses to search the directory.                    |
 | `OPENSSH_SERVICE_ACCOUNT_PASSWORD`    | Password of that account.                                                      |
 | `PASSWDQC_MIN`                        | Minimum lengths of the passwords `passwd` accepts. See [Changing a password](#changing-a-password). |
+| `PPOLICY_MIN_LENGTH`                  | Minimum length of the passwords OpenLDAP accepts. See [Password policy](#password-policy). |
+| `PPOLICY_MAX_FAILURE`                 | Number of failed logins that locks a user.                                     |
+| `PPOLICY_FAILURE_WINDOW`              | Time in which the failures are counted, in seconds.                            |
+| `PPOLICY_LOCKOUT_DURATION`            | Time a lock lasts, in seconds.                                                 |
 | `DOCKER_SUBNET`                       | Subnet of the Docker network that connects the containers, in CIDR notation.   |
 | `TZ`                                  | Time zone of every container, as a tz database name such as `Asia/Tokyo`.      |
 
@@ -159,7 +163,7 @@ bin/manage_users.sh delete alice                  # delete
 - A user name takes lowercase letters, digits, `_` and `-`, up to 32 characters.
 - `uidNumber` is handed out in order from 10000. A number is never reused, even after its user is deleted. The files a user leaves behind keep the number as their owner. The next number to hand out is kept in `cn=nextUidNumber` in the directory.
 - A change reaches SSH logins at once. `delete` and `role` close the sessions of that user.
-- `unlock` lifts the lock of the password policy (ppolicy). ppolicy is not built in yet, so no user gets locked for now.
+- `unlock` lifts the lock of a user who failed to log in too many times, without waiting for it to end (see [Password policy](#password-policy)). Setting a new password with `passwd` lifts the lock as well.
 
 In the directory, users live under `ou=People`, and roles are `groupOfUniqueNames` entries under `ou=Roles`. A user belongs to a role when the role's `uniqueMember` holds the user's DN.
 
@@ -190,9 +194,38 @@ EOF
 
 For a quick trial, `make ldap_testaccounts` generates four test users: `admin01`, `operator01` and `readonly01`, one per role, and `norole01`, which belongs to no role. Their passwords are written in `scripts/generate_ldap_test_accounts.sh`. Run it before the first `make up`, and do not use it outside a lab.
 
+### Password policy
+
+The rules for passwords are enforced in two places.
+
+| Place                                | What it enforces                                                    |
+| ------------------------------------ | ------------------------------------------------------------------- |
+| `passwd` and `bin/manage_users.sh`   | Minimum lengths by character classes (`PASSWDQC_MIN`, see [Changing a password](#changing-a-password)) |
+| OpenLDAP (the ppolicy overlay)       | A minimum length (`PPOLICY_MIN_LENGTH`) and the lock                |
+
+A user who keeps failing to log in is locked for a while. With the values in `.env.sample`, 10 failures (`PPOLICY_MAX_FAILURE`) within 5 minutes (`PPOLICY_FAILURE_WINDOW`) lock the user for 5 minutes (`PPOLICY_LOCKOUT_DURATION`).
+
+- Logins on the network devices and logins over SSH share one count of failures. A successful login sets it back to 0.
+- While a user is locked, the right password is rejected too. The reply is the same as for a wrong password, so it does not tell that the user is locked.
+- A lock ends by itself when its time is over. To lift it at once, use `bin/manage_users.sh unlock <user>`.
+- The service accounts of FreeRADIUS and OpenSSH are never locked.
+
+After you change a `PPOLICY_*` value, generate the LDIF files again and apply the policy to the running OpenLDAP. The data in the directory stays.
+
+```sh
+make ldap_dir
+docker compose exec -T openldap ldapmodify -c -Q -Y EXTERNAL -H ldapi:/// < openldap/ldif/400-PPolicy.ldif
+```
+
+It reports `Type or value exists`, `overlay "ppolicy" already in list` and `Already exists` for the module, the overlay and the entries that are already there, which is fine. Only the values are replaced.
+
+The same steps add the policy when you update from a version without ppolicy. Copy `PPOLICY_*` from `.env.sample` to `.env` first. No errors are reported in this case. The passwords of the users who are already there keep working.
+
+Once the policy is applied, OpenLDAP refuses a password that is written as a hash, as it cannot check its length. Set the passwords of the users with `bin/manage_users.sh` or `passwd`.
+
 ### Changing the directory seed
 
-OpenLDAP loads the generated LDIF files only on its first start with an empty database. To apply changes to `.env` or the LDIF files afterwards, you have to delete `openldap/data/` and `openldap/config/` and start again. This deletes every user and role in the directory.
+OpenLDAP loads the generated LDIF files only on its first start with an empty database. To apply changes to `.env` or the LDIF files afterwards, you have to delete `openldap/data/` and `openldap/config/` and start again. This deletes every user and role in the directory. A change of `PPOLICY_*` is the exception and needs no deletion (see [Password policy](#password-policy)).
 
 ## TFTP
 
@@ -293,6 +326,8 @@ passwdqc checks the new password. `PASSWDQC_MIN` in `.env` sets the minimum leng
 
 An upper case letter at the beginning and a digit at the end do not count as classes. `Password1`, for example, counts as one class. Apply a change with `make up`.
 
+Apart from this, OpenLDAP checks a minimum length by itself (see [Password policy](#password-policy)). Keep the smallest value of `PASSWDQC_MIN` at `PPOLICY_MIN_LENGTH` or above.
+
 ### Applying changes to users and roles
 
 The OpenSSH container reads the directory when it starts and builds the list of users who can log in. `bin/manage_users.sh` rebuilds the list after every change, so there is usually nothing to do. Rebuild the list yourself after you change the directory without the script.
@@ -327,7 +362,7 @@ chmod -R go+rX syslog-ng/log/Hosts
 make down && make up
 ```
 
-- `ldapadd` adds the service account for OpenSSH. It reports `Already exists` for the entries that are already there, which is fine.
+- `ldapadd` adds the service account for OpenSSH. It reports `Already exists` for the entries that are already there, which is fine. Apply the password policy after this step (see [Password policy](#password-policy)). Applied first, it refuses the hashed passwords in this LDIF file.
 - The last `chmod` lets the users who log in over SSH read the log directories created so far. Earlier versions created them so that only the owner could enter.
 - After that, give `posixAccount` to the users who are to log in over SSH (see [Users and roles](#users-and-roles)) and run `koitohan-update-users`.
 
@@ -362,7 +397,7 @@ TFTP transfers are not logged to a file. See them with `docker compose logs tftp
 ```sh
 make                    # certs + ldap_dir + freeradius_conf + ssh_hostkeys
 make certs              # private CA, server and client certificates
-make ldap_dir           # LDIF files for OUs, roles, the service account and ACLs
+make ldap_dir           # LDIF files for OUs, roles, the service accounts, the password policy and ACLs
 make freeradius_conf    # FreeRADIUS LDAP module config and clients.conf
 make ssh_hostkeys       # sshd host keys (kept if they already exist)
 make ldap_testaccounts  # LDIF files for the test users
@@ -385,7 +420,7 @@ Check authentication and authorization end to end:
 make test
 ```
 
-`make test` starts OpenLDAP, FreeRADIUS and OpenSSH as a separate project (`koitohan-test`), authenticates as the test users, and compares the reply attributes for every combination of device type and role. It then logs in over SSH as a user of each role and checks the permissions on the directories and a password change. At the end it restarts the OpenLDAP container and checks that it comes up again. It publishes no ports and keeps no data, so it does not affect a running stack. Run `make` beforehand. To look into a failed check, keep the test stack up with `KEEP=1 tests/smoke.sh`.
+`make test` starts OpenLDAP, FreeRADIUS and OpenSSH as a separate project (`koitohan-test`), authenticates as the test users, and compares the reply attributes for every combination of device type and role. It then logs in over SSH as a user of each role and checks the permissions on the directories and a password change. After that it runs each operation of `bin/manage_users.sh` and checks the password policy (the minimum length, the lock and the unlock). At the end it restarts the OpenLDAP container and checks that it comes up again. It publishes no ports and keeps no data, so it does not affect a running stack. Run `make` beforehand. To look into a failed check, keep the test stack up with `KEEP=1 tests/smoke.sh`.
 
 The tftpd-hpa and OpenSSH images are built automatically by the first `make up`. After you change `tftpd-hpa/build/` or `openssh/build/`, rebuild them before you start the stack.
 
@@ -407,7 +442,8 @@ docker compose logs -f freeradius
 - A user who belongs to more than one role has no defined precedence.
 - The TFTP server does not restrict the addresses it accepts requests from.
 - Changes to users and roles made without `bin/manage_users.sh` do not reach SSH logins until you run `koitohan-update-users`.
-- A logged-in user can get around the password check of `passwd`. The check is there to prevent weak passwords set by carelessness. OpenLDAP itself does not check passwords.
+- A logged-in user can get around the password check of `passwd`. The check is there to prevent weak passwords set by carelessness. Even then, the minimum length that OpenLDAP checks by itself (`PPOLICY_MIN_LENGTH`) holds.
+- Anyone who can reach the login prompt of a network device or the SSH port can lock a user whose name they know, by sending wrong passwords. A lock ends by itself when its time is over (see [Password policy](#password-policy)).
 - A user logged in over SSH can connect from the OpenSSH container to the Docker host and to outside networks. The Docker network keeps them only from the containers other than OpenLDAP.
 - When OpenLDAP restarts while FreeRADIUS keeps running, for example after `docker compose restart openldap`, FreeRADIUS rejects the logins that follow and then crashes with a segmentation fault. Docker starts it again, and logins work after that. This is a bug in FreeRADIUS 4.x, which is a development version. To avoid the rejected logins, restart FreeRADIUS right after OpenLDAP with `docker compose restart freeradius`. This item will be removed when FreeRADIUS fixes the bug.
 

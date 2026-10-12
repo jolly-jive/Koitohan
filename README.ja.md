@@ -97,6 +97,10 @@ FreeRADIUS は uid 101 で動作し、`freeradius/log/` にログを書き込み
 | `OPENSSH_SERVICE_ACCOUNT_NAME`        | OpenSSH のコンテナがディレクトリの検索に使うアカウント。                              |
 | `OPENSSH_SERVICE_ACCOUNT_PASSWORD`    | そのアカウントのパスワード。                                                          |
 | `PASSWDQC_MIN`                        | `passwd` が受け付けるパスワードの最小の長さ。「[パスワードの変更](#パスワードの変更)」を参照。 |
+| `PPOLICY_MIN_LENGTH`                  | OpenLDAP が受け付けるパスワードの最小の長さ。「[パスワードポリシー](#パスワードポリシー)」を参照。 |
+| `PPOLICY_MAX_FAILURE`                 | ユーザーをロックするまでの、認証の失敗の回数。                                        |
+| `PPOLICY_FAILURE_WINDOW`              | 失敗を数える期間(秒)。                                                                |
+| `PPOLICY_LOCKOUT_DURATION`            | ロックする時間(秒)。                                                                  |
 | `DOCKER_SUBNET`                       | コンテナ同士をつなぐ Docker ネットワークのサブネット(CIDR 表記)。                     |
 | `TZ`                                  | 全コンテナのタイムゾーン。`Asia/Tokyo` のような tz database の名前で指定します。      |
 
@@ -159,7 +163,7 @@ bin/manage_users.sh delete alice                  # 削除
 - ユーザー名に使えるのは、英小文字、数字、`_`、`-` で、32 文字までです。
 - `uidNumber` は 10000 から順に割り当てます。一度使った番号は、ユーザーを削除したあとも再利用しません。ユーザーが置いたファイルの所有者は、番号で残るためです。次に割り当てる番号は、ディレクトリの `cn=nextUidNumber` に記録しています。
 - 変更は、SSH のログインにもすぐに反映されます。`delete` と `role` は、そのユーザーのログイン中のセッションを切ります。
-- `unlock` が解除するのは、パスワードポリシー(ppolicy)によるロックです。ppolicy はまだ組み込んでいないので、いまはロックされるユーザーはいません。
+- `unlock` は、認証の失敗が続いてロックされたユーザーを、時間を待たずに解除します(「[パスワードポリシー](#パスワードポリシー)」を参照)。`passwd` でパスワードを再発行しても、ロックは解除されます。
 
 ディレクトリの中では、ユーザーは `ou=People` の下にあり、ロールは `ou=Roles` の下の `groupOfUniqueNames` です。ロールへの所属は、ロールの `uniqueMember` にユーザーの DN があることで表します。
 
@@ -190,9 +194,38 @@ EOF
 
 手早く試すには、`make ldap_testaccounts` でテストユーザー4名を生成できます。`admin01`、`operator01`、`readonly01` は各ロールに1名ずつ、`norole01` はどのロールにも所属しません。パスワードは `scripts/generate_ldap_test_accounts.sh` に書いてあります。最初の `make up` の前に実行してください。検証環境以外では使わないでください。
 
+### パスワードポリシー
+
+パスワードの規則は、2か所で強制しています。
+
+| 場所                                             | 強制する内容                                   |
+| ------------------------------------------------ | ---------------------------------------------- |
+| `passwd` と `bin/manage_users.sh`                | 文字の種類に応じた最小の長さ(`PASSWDQC_MIN`。「[パスワードの変更](#パスワードの変更)」を参照) |
+| OpenLDAP(ppolicy オーバーレイ)                   | 最小の長さ(`PPOLICY_MIN_LENGTH`)と、ロック     |
+
+認証に続けて失敗したユーザーは、しばらくロックされます。`.env.sample` の値では、5 分(`PPOLICY_FAILURE_WINDOW`)のあいだに 10 回(`PPOLICY_MAX_FAILURE`)失敗すると、5 分(`PPOLICY_LOCKOUT_DURATION`)ロックされます。
+
+- 失敗の回数は、ネットワーク機器へのログインと SSH のログインで共通に数えます。認証に成功すると 0 に戻ります。
+- ロックされているあいだは、正しいパスワードでも拒否されます。応答はパスワードを誤ったときと同じで、ロックされていることは相手に伝わりません。
+- ロックは時間が過ぎると解除されます。すぐに解除するには `bin/manage_users.sh unlock <ユーザー>` を使います。
+- FreeRADIUS と OpenSSH のサービスアカウントは、ロックの対象から外しています。
+
+`PPOLICY_*` の値を変えたときは、LDIF を生成し直して、稼働中の OpenLDAP に適用します。ディレクトリのデータを消す必要はありません。
+
+```sh
+make ldap_dir
+docker compose exec -T openldap ldapmodify -c -Q -Y EXTERNAL -H ldapi:/// < openldap/ldif/400-PPolicy.ldif
+```
+
+すでにあるモジュール、オーバーレイ、エントリには `Type or value exists`、`overlay "ppolicy" already in list`、`Already exists` と表示されますが、問題ありません。値だけが置き換わります。
+
+ppolicy がなかったバージョンから更新するときも、同じ手順で追加できます。先に、`.env.sample` の `PPOLICY_*` を `.env` に書き足してください。このときはエラーは表示されません。すでにあるユーザーのパスワードは、そのまま使えます。
+
+適用したあとの OpenLDAP は、ハッシュ済みのパスワードの書き込みを受け付けません(長さを確かめられないためです)。ユーザーのパスワードは `bin/manage_users.sh` か `passwd` で設定してください。
+
 ### ディレクトリの初期データを変更する
 
-OpenLDAP が生成済みの LDIF を読み込むのは、データベースが空の状態での初回起動時だけです。その後に `.env` や LDIF の変更を反映するには、`openldap/data/` と `openldap/config/` を削除して起動し直す必要があります。このとき、ディレクトリ内のユーザーとロールはすべて失われます。
+OpenLDAP が生成済みの LDIF を読み込むのは、データベースが空の状態での初回起動時だけです。その後に `.env` や LDIF の変更を反映するには、`openldap/data/` と `openldap/config/` を削除して起動し直す必要があります。このとき、ディレクトリ内のユーザーとロールはすべて失われます。`PPOLICY_*` の変更は例外で、データを消さずに反映できます(「[パスワードポリシー](#パスワードポリシー)」を参照)。
 
 ## TFTP
 
@@ -293,6 +326,8 @@ scp -P 2222 image.bin alice@<ホスト>:/tftpboot/firmware/
 
 先頭の大文字と末尾の数字は、種類に数えません。たとえば `Password1` は1種類として扱われます。変更は `make up` で反映されます。
 
+これとは別に、OpenLDAP 自身も最小の長さを確かめます(「[パスワードポリシー](#パスワードポリシー)」を参照)。`PASSWDQC_MIN` のいちばん小さい値は、`PPOLICY_MIN_LENGTH` 以上にしてください。
+
 ### ユーザーとロールの変更を反映する
 
 OpenSSH のコンテナは、起動時にディレクトリを読んで、ログインできるユーザーの一覧を作ります。`bin/manage_users.sh` は、変更のたびにこの一覧を作り直すので、ふだんは何もしなくて構いません。スクリプトを使わずにディレクトリを書き換えたときは、一覧を作り直してください。
@@ -327,7 +362,7 @@ chmod -R go+rX syslog-ng/log/Hosts
 make down && make up
 ```
 
-- `ldapadd` は、OpenSSH 用のサービスアカウントを追加します。すでにあるエントリには `Already exists` と表示されますが、問題ありません。
+- `ldapadd` は、OpenSSH 用のサービスアカウントを追加します。すでにあるエントリには `Already exists` と表示されますが、問題ありません。パスワードポリシーは、このあとで適用してください(「[パスワードポリシー](#パスワードポリシー)」を参照)。先に適用すると、この LDIF のハッシュ済みのパスワードが拒否されます。
 - 最後の `chmod` は、これまでに作られたログのディレクトリを、SSH でログインしたユーザーが読めるようにします。以前のバージョンは、所有者しか入れないディレクトリを作っていました。
 - そのあと、SSH でログインさせるユーザーに `posixAccount` を持たせ(「[ユーザーとロール](#ユーザーとロール)」を参照)、`koitohan-update-users` を実行してください。
 
@@ -362,7 +397,7 @@ TFTP の転送の記録はファイルには保存されません。`docker comp
 ```sh
 make                    # certs + ldap_dir + freeradius_conf + ssh_hostkeys
 make certs              # プライベート CA、サーバー証明書、クライアント証明書
-make ldap_dir           # OU、ロール、サービスアカウント、ACL の LDIF
+make ldap_dir           # OU、ロール、サービスアカウント、パスワードポリシー、ACL の LDIF
 make freeradius_conf    # FreeRADIUS の LDAP モジュール設定と clients.conf
 make ssh_hostkeys       # sshd のホスト鍵(すでにあれば作り直さない)
 make ldap_testaccounts  # テストユーザーの LDIF
@@ -385,7 +420,7 @@ docker compose run --rm --no-deps freeradius radiusd -XC
 make test
 ```
 
-`make test` は、OpenLDAP、FreeRADIUS、OpenSSH を別のプロジェクト(`koitohan-test`)として起動し、テストユーザーで認証して、機器種別とロールの組み合わせごとに応答属性を照合します。続いて、各ロールのユーザーで SSH でログインし、ディレクトリの権限とパスワードの変更を確かめます。最後に OpenLDAP のコンテナを再起動し、起動し直せることを確かめます。ポートを公開せず、データも残さないので、稼働中のスタックには影響しません。事前に `make` を済ませておいてください。失敗した項目は `KEEP=1 tests/smoke.sh` でテスト用のスタックを残して調べられます。
+`make test` は、OpenLDAP、FreeRADIUS、OpenSSH を別のプロジェクト(`koitohan-test`)として起動し、テストユーザーで認証して、機器種別とロールの組み合わせごとに応答属性を照合します。続いて、各ロールのユーザーで SSH でログインし、ディレクトリの権限とパスワードの変更を確かめます。そのあと、`bin/manage_users.sh` の各操作と、パスワードポリシー(最小の長さ、ロックとその解除)を確かめます。最後に OpenLDAP のコンテナを再起動し、起動し直せることを確かめます。ポートを公開せず、データも残さないので、稼働中のスタックには影響しません。事前に `make` を済ませておいてください。失敗した項目は `KEEP=1 tests/smoke.sh` でテスト用のスタックを残して調べられます。
 
 tftpd-hpa と OpenSSH のイメージは、最初の `make up` で自動的にビルドされます。`tftpd-hpa/build/` や `openssh/build/` を変更したときは、ビルドし直してから起動します。
 
@@ -407,7 +442,8 @@ docker compose logs -f freeradius
 - 複数のロールに所属するユーザーについて、優先順位を定めていません。
 - TFTP サーバーは、接続元のアドレスを制限していません。
 - `bin/manage_users.sh` を使わずに行ったユーザーとロールの変更は、`koitohan-update-users` を実行するまで、SSH のログインに反映されません。
-- `passwd` によるパスワードの判定は、ログインしたユーザーが迂回できます。この判定は、不注意で弱いパスワードを設定することを防ぐためのものです。OpenLDAP 自身は判定しません。
+- `passwd` によるパスワードの判定は、ログインしたユーザーが迂回できます。この判定は、不注意で弱いパスワードを設定することを防ぐためのものです。迂回しても、OpenLDAP 自身が確かめる最小の長さ(`PPOLICY_MIN_LENGTH`)は守られます。
+- ネットワーク機器のログイン画面や SSH のポートに到達できる相手は、誤ったパスワードを送り続けることで、名前を知っているユーザーをロックできます。ロックは時間が過ぎると解除されます(「[パスワードポリシー](#パスワードポリシー)」を参照)。
 - SSH でログインしたユーザーは、OpenSSH のコンテナから、Docker ホストや外部のネットワークへ接続できます。Docker のネットワークで届かなくしているのは、OpenLDAP 以外のコンテナだけです。
 - FreeRADIUS を動かしたまま OpenLDAP が再起動すると(`docker compose restart openldap` など)、FreeRADIUS はその後のログインを拒否し、やがてセグメンテーション違反で異常終了します。Docker が起動し直すので、それ以降のログインは通ります。開発バージョンである FreeRADIUS 4.x の不具合です。ログインが拒否される時間をなくすには、OpenLDAP の再起動に続けて `docker compose restart freeradius` で FreeRADIUS も再起動してください。FreeRADIUS 側で修正されたら、この項目は削除します。
 
