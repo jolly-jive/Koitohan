@@ -27,7 +27,12 @@ umask 077
 cat <<EOF > ${TESTACCOUNTS_LDIF}
 dn: uid=admin01,ou=People,${LDAP_SUFFIX}
 objectClass: inetOrgPerson
+objectClass: posixAccount
 uid: admin01
+uidNumber: 10000
+gidNumber: 10000
+homeDirectory: /home/admin01
+loginShell: /bin/sh
 cn: Admin01 TEST
 sn: TEST
 givenName: Admin
@@ -35,7 +40,12 @@ userPassword: $(slappasswd -s 'passadmin')
 
 dn: uid=operator01,ou=People,${LDAP_SUFFIX}
 objectClass: inetOrgPerson
+objectClass: posixAccount
 uid: operator01
+uidNumber: 10001
+gidNumber: 10000
+homeDirectory: /home/operator01
+loginShell: /bin/sh
 cn: Operator01 TEST
 sn: TEST
 givenName: Operator
@@ -43,7 +53,12 @@ userPassword: $(slappasswd -s 'passoperator')
 
 dn: uid=readonly01,ou=People,${LDAP_SUFFIX}
 objectClass: inetOrgPerson
+objectClass: posixAccount
 uid: readonly01
+uidNumber: 10002
+gidNumber: 10000
+homeDirectory: /home/readonly01
+loginShell: /bin/sh
 cn: Readonly01 TEST
 sn: TEST
 givenName: Readonly
@@ -51,7 +66,12 @@ userPassword: $(slappasswd -s 'passreadonly')
 
 dn: uid=norole01,ou=People,${LDAP_SUFFIX}
 objectClass: inetOrgPerson
+objectClass: posixAccount
 uid: norole01
+uidNumber: 10003
+gidNumber: 10000
+homeDirectory: /home/norole01
+loginShell: /bin/sh
 cn: Norole01 TEST
 sn: TEST
 givenName: Norole

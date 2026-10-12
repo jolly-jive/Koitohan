@@ -1,8 +1,8 @@
 ENV_FILE := .env
 
-.PHONY: all certs ldap_dir ldap_testaccounts freeradius_conf test clean up down
+.PHONY: all certs ldap_dir ldap_testaccounts freeradius_conf ssh_hostkeys test clean up down
 
-all: certs ldap_dir freeradius_conf
+all: certs ldap_dir freeradius_conf ssh_hostkeys
 
 ### keys and certs
 CERT_STAMP := CA/.certs.stamp
@@ -49,6 +49,17 @@ $(FREERADIUS_LDAP): $(ENV_FILE) scripts/generate_freeradius_ldap.sh
 $(FREERADIUS_CLIENTS):
 	install -m 640 $(FREERADIUS_CLIENTS).sample $@
 
+### sshd host keys
+SSH_HOSTKEYS := \
+	openssh/hostkeys/ssh_host_ed25519_key \
+	openssh/hostkeys/ssh_host_rsa_key
+
+ssh_hostkeys: $(SSH_HOSTKEYS)
+
+# made once and kept, clean included: a new key makes every client warn
+openssh/hostkeys/ssh_host_%_key:
+	ssh-keygen -q -t $* -N '' -C koitohan -f $@
+
 ### smoke test
 SMOKE_TEST_LDIFS := \
 	tests/ldif/250-TestAccounts.ldif \
@@ -68,7 +79,15 @@ clean:
 	rm -f $(FREERADIUS_LDAP)
 
 ### up and down
-up: freeradius_conf
+# Docker would create a missing source of a bind mount as root
+SYSLOG_HOSTS_DIR := syslog-ng/log/Hosts
+OPENSSH_CERT := CA/openssh_client.crt
+
+$(SYSLOG_HOSTS_DIR):
+	mkdir -p $@
+
+up: freeradius_conf ssh_hostkeys | $(SYSLOG_HOSTS_DIR)
+	@test -f $(OPENSSH_CERT) || { echo "$(OPENSSH_CERT) is missing. Run 'make' first."; exit 1; }
 	docker compose up -d
 
 down:

@@ -34,6 +34,9 @@ services:
     ports:
 #      - "389:389"
       - "636:636"
+    networks:
+      - default
+      - openssh
     security_opt:
       - no-new-privileges:true
     restart: unless-stopped
@@ -102,8 +105,57 @@ services:
       - no-new-privileges:true
     restart: unless-stopped
 
+  openssh:
+    build: ./openssh/build
+    image: koitohan/openssh
+    container_name: ${OPENSSH_CONTAINER_NAME}
+    # shown in the prompt, so that the users see which server they are on
+    hostname: ${OPENSSH_HOSTNAME}
+    # reaps the processes that the users leave behind
+    init: true
+    read_only: true
+    environment:
+      TZ: "${TZ}"
+      LDAP_URI: "ldaps://${OPENLDAP_CONTAINER_NAME}"
+      LDAP_DOMAIN: "${LDAP_DOMAIN}"
+      SERVICE_ACCOUNT_NAME: "${OPENSSH_SERVICE_ACCOUNT_NAME}"
+      SERVICE_ACCOUNT_PASSWORD: "${OPENSSH_SERVICE_ACCOUNT_PASSWORD}"
+      PASSWDQC_MIN: "${PASSWDQC_MIN}"
+    volumes:
+      - ./CA/default-ca.pem:/etc/koitohan/certs/ca.crt:ro
+      - ./CA/openssh_client.crt:/etc/koitohan/certs/client.crt:ro
+      - ./CA/openssh_client.key:/etc/koitohan/certs/client.key:ro
+      - ./openssh/hostkeys:/etc/koitohan/hostkeys:ro
+      - ./syslog-ng/log/Hosts:/logs/Hosts:ro
+      - ./tftpd-hpa/tftpboot/configs:/tftpboot/configs
+      - ./tftpd-hpa/tftpboot/firmware:/tftpboot/firmware
+    tmpfs:
+      - /run:mode=755,size=1m
+      # the only place the users can write to. Counts against mem_limit,
+      # so keep it well below.
+      - /tmp:mode=1777,size=32m
+    ports:
+      - "${OPENSSH_PORT}:22"
+    # reaches OpenLDAP only, not the other services
+    networks:
+      - openssh
+    depends_on:
+      - openldap
+    # mem_limit needs the memory controller of cgroup on the Docker host
+    pids_limit: 256
+    mem_limit: 256m
+    memswap_limit: 256m
+    cpus: 1.0
+    security_opt:
+      - no-new-privileges:true
+    restart: unless-stopped
+
 networks:
   default:
     ipam:
       config:
         - subnet: ${DOCKER_SUBNET}
+  openssh:
+    ipam:
+      config:
+        - subnet: ${OPENSSH_SUBNET}

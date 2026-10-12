@@ -1,0 +1,35 @@
+# sshd of the Koitohan workspace container
+
+# the smoke test turns PerSourcePenalties off here (tests/sshd_test.conf)
+Include /etc/ssh/sshd_config.d/*.conf
+
+Port 22
+
+# generated on the Docker host (make ssh_hostkeys) and mounted read-only
+HostKey /etc/koitohan/hostkeys/ssh_host_ed25519_key
+HostKey /etc/koitohan/hostkeys/ssh_host_rsa_key
+
+# the root file system is read-only
+PidFile none
+
+# passwords are checked against LDAP through PAM (pam_ldap -> nslcd)
+UsePAM yes
+PasswordAuthentication yes
+KbdInteractiveAuthentication no
+PubkeyAuthentication no
+AuthorizedKeysFile none
+
+# only the users written by koitohan-update-users (primary group, GID 10000)
+PermitRootLogin no
+AllowGroups koitohan
+
+AllowTcpForwarding no
+AllowStreamLocalForwarding no
+AllowAgentForwarding no
+GatewayPorts no
+PermitTunnel no
+X11Forwarding no
+
+PrintMotd no
+
+Subsystem sftp internal-sftp

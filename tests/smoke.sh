@@ -1,10 +1,12 @@
 #!/bin/bash
 #
-# Smoke test for the AAA path: FreeRADIUS -> LDAPS -> OpenLDAP.
+# Smoke test for the AAA path (FreeRADIUS -> LDAPS -> OpenLDAP) and for
+# the workspace container (ssh -> OpenSSH -> LDAPS -> OpenLDAP).
 #
-# Starts openldap and freeradius as a separate compose project, seeded
-# with the test accounts, and checks the reply for every combination of
-# reply type and role. The running stack is left alone.
+# Starts openldap, freeradius and openssh as a separate compose project,
+# seeded with the test accounts. Checks the reply for every combination
+# of reply type and role, then logs in over ssh as each role. The
+# running stack is left alone.
 #
 #   KEEP=1 tests/smoke.sh    leave the test stack up for a closer look
 
@@ -18,6 +20,7 @@ SECRET='testing123'
 WAIT_TRIES=40
 
 function cleanup() {
+  rm -f "${ASKPASS}"
   if [ -n "${KEEP}" ]; then
     echo "test stack left up: ${COMPOSE[*]} down -v"
   else
@@ -99,6 +102,72 @@ function check() {
   fi
 }
 
+# The test stack publishes no ports, so ssh goes to the address of the
+# container. ssh takes the password from SSH_ASKPASS (OpenSSH 8.4 or later).
+SSH_OPTS=(
+  -o StrictHostKeyChecking=no
+  -o UserKnownHostsFile=/dev/null
+  -o PreferredAuthentications=password
+  -o PubkeyAuthentication=no
+  -o NumberOfPasswordPrompts=1
+  -o ConnectTimeout=5
+  -o LogLevel=ERROR
+)
+
+function ssh_run() {
+  local USER=${1}
+  local PASS=${2}
+  shift 2
+
+  SSH_TEST_PASS="${PASS}" SSH_ASKPASS="${ASKPASS}" SSH_ASKPASS_REQUIRE=force \
+  ssh "${SSH_OPTS[@]}" "${USER}@${SSH_ADDR}" "$@" 2>&1
+}
+
+# the users appear once the container has read them from OpenLDAP
+function wait_ssh_ready() {
+  local TRY
+
+  for TRY in $(seq ${WAIT_TRIES}); do
+    SSH_ADDR=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' \
+      "$("${COMPOSE[@]}" ps -q openssh)" 2> /dev/null)
+    if [ -n "${SSH_ADDR}" ] && ssh_run admin01 passadmin true < /dev/null > /dev/null; then
+      return 0
+    fi
+    sleep 3
+  done
+  return 1
+}
+
+# Runs COMMAND over ssh. EXPECT is a fixed string to find in the output.
+# 'denied' means that the login itself has to fail. INPUT goes to the
+# standard input of the command.
+function check_ssh() {
+  local NAME=${1}
+  local USER=${2}
+  local PASS=${3}
+  local EXPECT=${4}
+  local COMMAND=${5}
+  local INPUT=${6}
+  local OUT WHY=''
+
+  OUT=$(printf '%b' "${INPUT}" | ssh_run ${USER} "${PASS}" "${COMMAND}")
+
+  if [ "${EXPECT}" = 'denied' ]; then
+    echo "${OUT}" | grep -q -F 'Permission denied (password)' || WHY='expected the login to fail'
+  elif ! echo "${OUT}" | grep -q -F -- "${EXPECT}"; then
+    WHY="expected ${EXPECT}"
+  fi
+
+  COUNT=$((COUNT + 1))
+  if [ -z "${WHY}" ]; then
+    printf 'ok    %-13s %-11s %s\n' "${NAME}" "${USER}" "${EXPECT}"
+  else
+    FAILED=$((FAILED + 1))
+    printf 'FAIL  %-13s %-11s %s\n' "${NAME}" "${USER}" "${WHY}"
+    echo "${OUT}" | sed 's/^/      | /'
+  fi
+}
+
 # The same container has to start a second time, as it does after a
 # reboot of the host. This asks slapd itself and leaves FreeRADIUS out.
 function check_restart() {
@@ -134,6 +203,8 @@ for FILE in \
   CA/default-ca.pem \
   CA/openldap_server.crt \
   CA/freeradius_client.crt \
+  CA/openssh_client.crt \
+  openssh/hostkeys/ssh_host_ed25519_key \
   openldap/ldif/100-People.ldif \
   freeradius/config/mods-available/ldap_openldap \
   tests/ldif/250-TestAccounts.ldif
@@ -144,12 +215,16 @@ do
   fi
 done
 
+ASKPASS=$(mktemp)
+printf '#!/bin/sh\necho "${SSH_TEST_PASS}"\n' > "${ASKPASS}"
+chmod 700 "${ASKPASS}"
+
 trap cleanup EXIT
 
 echo 'starting the test stack'
-if ! "${COMPOSE[@]}" up -d openldap freeradius > /dev/null 2>&1; then
+if ! "${COMPOSE[@]}" up -d --build openldap freeradius openssh > /dev/null 2>&1; then
   echo 'failed to start the test stack'
-  "${COMPOSE[@]}" up -d openldap freeradius
+  "${COMPOSE[@]}" up -d --build openldap freeradius openssh
   exit 1
 fi
 
@@ -207,7 +282,48 @@ CASES
 check 'bad password' 127.0.0.1 admin01 wrong Reject '-'
 check 'unknown user' 127.0.0.1 nobody01 nopass Reject '-'
 
+if ! wait_ssh_ready; then
+  echo 'the openssh container did not become ready'
+  "${COMPOSE[@]}" logs --tail 30 openssh
+  exit 1
+fi
+
+NEW_PASS='x9#Kq!vT2m@Lz7Pw'
+TOUCH='2> /dev/null && echo written || echo refused'
+
+# name | user | password | expected output | command
+while IFS='|' read -r NAME USER PASS EXPECT COMMAND; do
+  check_ssh "${NAME}" "${USER}" "${PASS}" "${EXPECT}" "${COMMAND}" < /dev/null
+done <<CASES
+ssh login|admin01|passadmin|koitohan admin|id -Gn
+ssh login|operator01|passoperator|koitohan operator|id -Gn
+ssh login|readonly01|passreadonly|koitohan readonly|id -Gn
+ssh login|norole01|passnorole|denied|id -Gn
+ssh login|admin01|wrong|denied|id -Gn
+ssh login|nobody01|nopass|denied|id -Gn
+ssh login|root|nopass|denied|id -Gn
+firmware|admin01|passadmin|written|touch /tftpboot/firmware/smoke ${TOUCH}
+firmware|operator01|passoperator|refused|touch /tftpboot/firmware/smoke ${TOUCH}
+firmware|readonly01|passreadonly|refused|touch /tftpboot/firmware/smoke ${TOUCH}
+configs|admin01|passadmin|written|touch /tftpboot/configs/smoke ${TOUCH}
+configs|operator01|passoperator|refused|ls /tftpboot/configs ${TOUCH}
+configs|readonly01|passreadonly|refused|ls /tftpboot/configs ${TOUCH}
+root fs|admin01|passadmin|refused|touch /smoke ${TOUCH}
+secrets|admin01|passadmin|refused|cat /run/koitohan/bindpw /etc/koitohan/certs/client.key ${TOUCH}
+CASES
+
+# passwd reads the current password, then the new one twice
+check_ssh 'weak password' readonly01 passreadonly 'Weak password' passwd \
+  'passreadonly\nPassword1\nPassword1\n'
+check_ssh 'passwd' readonly01 passreadonly 'password updated successfully' passwd \
+  "passreadonly\n${NEW_PASS}\n${NEW_PASS}\n"
+check_ssh 'new password' readonly01 "${NEW_PASS}" 'koitohan readonly' 'id -Gn' < /dev/null
+check_ssh 'old password' readonly01 passreadonly denied 'id -Gn' < /dev/null
+
 check_restart
+
+# nslcd has to find the restarted OpenLDAP again
+check_ssh 'ldap restart' admin01 passadmin 'koitohan admin' 'id -Gn' < /dev/null
 
 echo
 if [ ${FAILED} -ne 0 ]; then

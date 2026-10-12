@@ -23,6 +23,9 @@ services:
         aliases:
           # ldap_openldap and the server certificate use this name
           - ${OPENLDAP_CONTAINER_NAME}
+      openssh:
+        aliases:
+          - ${OPENLDAP_CONTAINER_NAME}
     ports: !reset []
     restart: "no"
 
@@ -35,6 +38,19 @@ services:
     ports: !reset []
     restart: "no"
 
+  openssh:
+    container_name: !reset null
+    volumes:
+      # empty volumes with the ownership the image gives these directories
+      - /logs/Hosts
+      - /tftpboot/configs
+      - /tftpboot/firmware
+      - ./tests/sshd_test.conf:/etc/ssh/sshd_config.d/test.conf:ro
+    ports: !reset []
+    restart: "no"
+
 networks:
   default:
+    ipam: !reset null
+  openssh:
     ipam: !reset null
