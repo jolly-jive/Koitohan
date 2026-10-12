@@ -18,8 +18,6 @@
 /syslog-ng/config/*
 !/syslog-ng/config/syslog-ng.conf
 
-/tests/ldif/*.ldif
-
 /tftpd-hpa/configs.img
 /tftpd-hpa/tftpboot/*
 !/tftpd-hpa/tftpboot/firmware/

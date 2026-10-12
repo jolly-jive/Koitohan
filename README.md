@@ -192,8 +192,6 @@ loginShell: /bin/sh
 EOF
 ```
 
-For a quick trial, `make ldap_testaccounts` generates four test users: `admin01`, `operator01` and `readonly01`, one per role, and `norole01`, which belongs to no role. Their passwords are written in `scripts/generate_ldap_test_accounts.sh`. Run it before the first `make up`, and do not use it outside a lab.
-
 ### Password policy
 
 The rules for passwords are enforced in two places.
@@ -400,7 +398,6 @@ make certs              # private CA, server and client certificates
 make ldap_dir           # LDIF files for OUs, roles, the service accounts, the password policy and ACLs
 make freeradius_conf    # FreeRADIUS LDAP module config and clients.conf
 make ssh_hostkeys       # sshd host keys (kept if they already exist)
-make ldap_testaccounts  # LDIF files for the test users
 make test               # smoke test
 make up                 # start the stack
 make down               # stop the stack
@@ -420,7 +417,7 @@ Check authentication and authorization end to end:
 make test
 ```
 
-`make test` starts OpenLDAP, FreeRADIUS and OpenSSH as a separate project (`koitohan-test`), authenticates as the test users, and compares the reply attributes for every combination of device type and role. It then logs in over SSH as a user of each role and checks the permissions on the directories and a password change. After that it runs each operation of `bin/manage_users.sh` and checks the password policy (the minimum length, the lock and the unlock). At the end it restarts the OpenLDAP container and checks that it comes up again. It publishes no ports and keeps no data, so it does not affect a running stack. Run `make` beforehand. To look into a failed check, keep the test stack up with `KEEP=1 tests/smoke.sh`.
+`make test` starts OpenLDAP, FreeRADIUS and OpenSSH as a separate project (`koitohan-test`), adds test users with `bin/manage_users.sh`, authenticates as them, and compares the reply attributes for every combination of device type and role. It then logs in over SSH as a user of each role and checks the permissions on the directories and a password change. After that it runs each operation of `bin/manage_users.sh` and checks the password policy (the minimum length, the lock and the unlock). At the end it restarts the OpenLDAP container and checks that it comes up again. It publishes no ports and keeps no data, so it does not affect a running stack. Run `make` beforehand. To look into a failed check, keep the test stack up with `KEEP=1 tests/smoke.sh`.
 
 The tftpd-hpa and OpenSSH images are built automatically by the first `make up`. After you change `tftpd-hpa/build/` or `openssh/build/`, rebuild them before you start the stack.
 

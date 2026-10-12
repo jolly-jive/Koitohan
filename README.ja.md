@@ -192,8 +192,6 @@ loginShell: /bin/sh
 EOF
 ```
 
-手早く試すには、`make ldap_testaccounts` でテストユーザー4名を生成できます。`admin01`、`operator01`、`readonly01` は各ロールに1名ずつ、`norole01` はどのロールにも所属しません。パスワードは `scripts/generate_ldap_test_accounts.sh` に書いてあります。最初の `make up` の前に実行してください。検証環境以外では使わないでください。
-
 ### パスワードポリシー
 
 パスワードの規則は、2か所で強制しています。
@@ -400,7 +398,6 @@ make certs              # プライベート CA、サーバー証明書、クラ
 make ldap_dir           # OU、ロール、サービスアカウント、パスワードポリシー、ACL の LDIF
 make freeradius_conf    # FreeRADIUS の LDAP モジュール設定と clients.conf
 make ssh_hostkeys       # sshd のホスト鍵(すでにあれば作り直さない)
-make ldap_testaccounts  # テストユーザーの LDIF
 make test               # スモークテスト
 make up                 # スタックを起動
 make down               # スタックを停止
@@ -420,7 +417,7 @@ docker compose run --rm --no-deps freeradius radiusd -XC
 make test
 ```
 
-`make test` は、OpenLDAP、FreeRADIUS、OpenSSH を別のプロジェクト(`koitohan-test`)として起動し、テストユーザーで認証して、機器種別とロールの組み合わせごとに応答属性を照合します。続いて、各ロールのユーザーで SSH でログインし、ディレクトリの権限とパスワードの変更を確かめます。そのあと、`bin/manage_users.sh` の各操作と、パスワードポリシー(最小の長さ、ロックとその解除)を確かめます。最後に OpenLDAP のコンテナを再起動し、起動し直せることを確かめます。ポートを公開せず、データも残さないので、稼働中のスタックには影響しません。事前に `make` を済ませておいてください。失敗した項目は `KEEP=1 tests/smoke.sh` でテスト用のスタックを残して調べられます。
+`make test` は、OpenLDAP、FreeRADIUS、OpenSSH を別のプロジェクト(`koitohan-test`)として起動し、`bin/manage_users.sh` でテストユーザーを登録して認証し、機器種別とロールの組み合わせごとに応答属性を照合します。続いて、各ロールのユーザーで SSH でログインし、ディレクトリの権限とパスワードの変更を確かめます。そのあと、`bin/manage_users.sh` の各操作と、パスワードポリシー(最小の長さ、ロックとその解除)を確かめます。最後に OpenLDAP のコンテナを再起動し、起動し直せることを確かめます。ポートを公開せず、データも残さないので、稼働中のスタックには影響しません。事前に `make` を済ませておいてください。失敗した項目は `KEEP=1 tests/smoke.sh` でテスト用のスタックを残して調べられます。
 
 tftpd-hpa と OpenSSH のイメージは、最初の `make up` で自動的にビルドされます。`tftpd-hpa/build/` や `openssh/build/` を変更したときは、ビルドし直してから起動します。
 
