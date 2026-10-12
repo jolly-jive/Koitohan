@@ -54,7 +54,7 @@ git clone <repository-url> koitohan
 cd koitohan
 
 cp .env.sample .env    # then edit .env
-make                   # generate certificates, the service account passwords, LDIF files, the FreeRADIUS LDAP config, the sshd host keys and the logrotate config
+make                   # generate certificates, passwords, LDIF files, the FreeRADIUS LDAP config, the sshd host keys and the logrotate config
 $EDITOR freeradius/config/clients.conf
 sudo chown -R 101:101 freeradius/log
 sudo chown 1000:10001 tftpd-hpa/tftpboot/firmware
@@ -63,7 +63,7 @@ sudo install -m 644 -o root -g root logrotate/koitohan /etc/logrotate.d/koitohan
 make up
 ```
 
-Change every password in `.env` before you run `make`. The values in `.env.sample` are public. The passwords of the service accounts of FreeRADIUS and OpenSSH are not in `.env`: `make` generates them (see [Service account passwords](#service-account-passwords)).
+There are no passwords in `.env`. `make` generates the passwords of the OpenLDAP administrators and of the service accounts of FreeRADIUS and OpenSSH, and puts them in `secrets/` (see [OpenLDAP administrator passwords](#openldap-administrator-passwords) and [Service account passwords](#service-account-passwords)).
 
 `make` creates `freeradius/config/clients.conf` from `clients.conf.sample`. Replace the sample clients with your own devices before you run `make up`.
 
@@ -85,8 +85,6 @@ Use `make up` instead of calling `docker compose up` directly on a fresh checkou
 | ------------------------------------- | ------------------------------------------------------------------------------ |
 | `LDAP_DOMAIN`                         | Domain of the directory. `example.com` becomes the suffix `dc=example,dc=com`. |
 | `LDAP_ORGANISATION`                   | Organization name stored in the directory.                                     |
-| `LDAP_ADMIN_PASSWORD`                 | Password of the LDAP data administrator (`cn=admin,<suffix>`).                 |
-| `LDAP_CONFIG_PASSWORD`                | Password of the LDAP configuration administrator.                              |
 | `FREERADIUS_SERVICE_ACCOUNT_NAME`     | Account FreeRADIUS uses to search the directory.                               |
 | `OPENLDAP_CONTAINER_NAME`             | Container name of OpenLDAP.                                                    |
 | `FREERADIUS_CONTAINER_NAME`           | Container name of FreeRADIUS.                                                  |
@@ -252,6 +250,42 @@ The script generates a new password, writes it to the directory, replaces the fi
 If the script stops halfway, run it again. It does not need the current password, so the same command also repairs a file in `secrets/` that no longer matches the directory.
 
 Use the script as well when you update from a version that kept these passwords in `.env`. The values of `.env` are not read any more, and the passwords that `make` generates do not match the directory, so the script writes them to it. SSH logins fail until it has finished.
+
+### OpenLDAP administrator passwords
+
+OpenLDAP has two administrators that log in with a password. Neither is subject to the access control or to the password policy. `make` (`make secrets`) generates their passwords and puts them in `secrets/`.
+
+| File                           | Administrator                                          |
+| ------------------------------ | ------------------------------------------------------ |
+| `secrets/ldap_admin_password`  | Administrator of the data (`cn=admin,<suffix>`)        |
+| `secrets/ldap_config_password` | Administrator of the configuration (`cn=admin,cn=config`) |
+
+The scripts of this stack use neither password. Work from the Docker host goes through `ldapi:///` inside the container, which makes you an administrator without a password (`docker compose exec openldap ldapsearch -Q -Y EXTERNAL -H ldapi:/// ...`). You need a password only when you connect an LDAP client to port 636, and you can pass it as the file (`ldapsearch -y secrets/ldap_admin_password`). The files have no newline at the end.
+
+The OpenLDAP container sets the passwords from the files again on every start. A password that you change in the directory alone goes back on the next start.
+
+A file that already exists is kept, and `make clean` keeps it too.
+
+To change the passwords, use `bin/change_ldap_admin_password.sh` on the Docker host. Run it while the stack is up.
+
+```sh
+bin/change_ldap_admin_password.sh
+docker compose restart freeradius
+```
+
+The script generates the two passwords, replaces the files in `secrets/`, recreates the OpenLDAP container and checks that the new passwords work. Every login fails until OpenLDAP is up again. FreeRADIUS is restarted afterwards because it refuses logins for a while after OpenLDAP has restarted (see [Known limitations](#known-limitations)).
+
+If the script stops halfway, run it again. It does not need the current passwords.
+
+When you update from a version that kept these passwords in `.env` (`LDAP_ADMIN_PASSWORD`, `LDAP_CONFIG_PASSWORD`), switch over as follows. The OpenLDAP container is recreated and sets the generated passwords as it starts. Delete the two lines from `.env` afterwards.
+
+```sh
+make secrets
+make up
+docker compose restart freeradius
+```
+
+Do not run OpenLDAP with `--loglevel debug` in `compose.yaml`. The image would write the passwords it reads from the files to its log.
 
 ```sh
 # first remove the lines of FREERADIUS_SERVICE_ACCOUNT_PASSWORD and OPENSSH_SERVICE_ACCOUNT_PASSWORD from .env
@@ -482,9 +516,10 @@ Other choices are `local`, which rotates by default, and `json-file` with `max-s
 ## Commands
 
 ```sh
-make                    # certs + secrets + ldap_dir + freeradius_conf + ssh_hostkeys + logrotate_conf
+make                    # private_dirs + certs + secrets + ldap_dir + freeradius_conf + ssh_hostkeys + logrotate_conf
+make private_dirs       # close the directories of keys and passwords to everyone but their owner
 make certs              # private CA, server and client certificates
-make secrets            # passwords of the service accounts (kept if they already exist)
+make secrets            # passwords of the service accounts and of the OpenLDAP administrators (kept if they already exist)
 make ldap_dir           # LDIF files for OUs, roles, the service accounts, the password policy and ACLs
 make freeradius_conf    # FreeRADIUS LDAP module config and clients.conf
 make ssh_hostkeys       # sshd host keys (kept if they already exist)
@@ -495,6 +530,7 @@ make down               # stop the stack
 make clean              # delete generated certificates, LDIF files and config
 bin/manage_users.sh     # add and delete users, change a role, set a new password, unlock
 bin/change_service_account_password.sh   # change the password of a service account
+bin/change_ldap_admin_password.sh        # change the passwords of the OpenLDAP administrators
 ```
 
 Check the FreeRADIUS configuration without starting the stack:
@@ -509,7 +545,7 @@ Check authentication and authorization end to end:
 make test
 ```
 
-`make test` starts OpenLDAP, FreeRADIUS and OpenSSH as a separate project (`koitohan-test`), adds test users with `bin/manage_users.sh`, authenticates as them, and compares the reply attributes for every combination of device type and role. It also checks that FreeRADIUS makes a detail log again after the rotation has moved it away. It then logs in over SSH as a user of each role and checks the permissions on the directories, the reading of a compressed log and a password change. After that it runs each operation of `bin/manage_users.sh` and checks the password policy (the minimum length, the lock and the unlock) and the change of the service account passwords. At the end it restarts the OpenLDAP container and checks that it comes up again. It publishes no ports, keeps no data and generates service account passwords of its own (`tests/generated/`), so it does not affect a running stack. Run `make` beforehand. To look into a failed check, keep the test stack up with `KEEP=1 tests/smoke.sh`.
+`make test` starts OpenLDAP, FreeRADIUS and OpenSSH as a separate project (`koitohan-test`), adds test users with `bin/manage_users.sh`, authenticates as them, and compares the reply attributes for every combination of device type and role. It also checks that FreeRADIUS makes a detail log again after the rotation has moved it away. It then logs in over SSH as a user of each role and checks the permissions on the directories, the reading of a compressed log and a password change. After that it runs each operation of `bin/manage_users.sh` and checks the password policy (the minimum length, the lock and the unlock) and the change of the passwords of the service accounts and of the OpenLDAP administrators. At the end it restarts the OpenLDAP container and checks that it comes up again. It publishes no ports, keeps no data and generates passwords of its own (`tests/generated/`), so it does not affect a running stack. Run `make` beforehand. To look into a failed check, keep the test stack up with `KEEP=1 tests/smoke.sh`.
 
 The tftpd-hpa and OpenSSH images are built automatically by the first `make up`. After you change `tftpd-hpa/build/` or `openssh/build/`, rebuild them before you start the stack.
 
@@ -518,7 +554,7 @@ docker compose build tftpd-hpa openssh
 make up
 ```
 
-`make clean` keeps the sshd host keys (`openssh/hostkeys/`). A new host key makes the client of every user show a warning. It keeps the passwords of the service accounts (`secrets/`) as well (see [Service account passwords](#service-account-passwords)).
+`make clean` keeps the sshd host keys (`openssh/hostkeys/`). A new host key makes the client of every user show a warning. It keeps the passwords in `secrets/` as well (see [Service account passwords](#service-account-passwords) and [OpenLDAP administrator passwords](#openldap-administrator-passwords)).
 
 Follow the logs of a service:
 
@@ -540,7 +576,6 @@ docker compose logs -f freeradius
 
 These files contain private keys, shared secrets or passwords. Git ignores all of them. Keep them out of backups and copies that others can read.
 
-- `.env`
 - `CA/`
 - `freeradius/config/clients.conf`
 - `freeradius/config/mods-available/ldap_openldap`
@@ -549,7 +584,9 @@ These files contain private keys, shared secrets or passwords. Git ignores all o
 - `secrets/`
 - `tftpd-hpa/tftpboot/configs/` (device configurations, which can contain password hashes and shared secrets)
 
-`CA/freeradius_client.key` is readable by every user on the Docker host. FreeRADIUS reads it as uid 101, which owns nothing on the host.
+`make` and `make up` close `CA/`, `secrets/` and `openssh/hostkeys/` to everyone but their owner (0700). `CA/freeradius_client.key` has the mode 0644, because FreeRADIUS reads it as uid 101 inside the container. The mode of the directory is what keeps it from the other users of the Docker host, so do not loosen it.
+
+The private key of the CA is deleted once the certificates are issued. `make certs` makes a new CA every time, so the key is not needed again. If an earlier version left `CA/default-ca-key.pem` and `CA/*.csr` behind, delete them.
 
 The device logs under `syslog-ng/log/Hosts/` are readable by every user on the Docker host, so that the users who log in over SSH can read them.
 

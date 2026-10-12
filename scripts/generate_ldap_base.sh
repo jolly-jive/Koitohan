@@ -193,7 +193,6 @@ olcAccess: {1}to attrs=userPassword,shadowLastChange
 olcAccess: {2}to *
   by self read
   by dn="cn=admin,${LDAP_SUFFIX}" write
-  by dn="cn=readonly,${LDAP_SUFFIX}" read
   by dn.subtree="ou=ServiceAccounts,${LDAP_SUFFIX}" read
   by * none
 EOF
