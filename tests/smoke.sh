@@ -30,6 +30,7 @@ function password_of() {
     admin01)    echo 'passadmin' ;;
     operator01) echo 'passoperator' ;;
     readonly01) echo 'passreadonly' ;;
+    norole01)   echo 'passnorole' ;;
     *)          echo 'nopass' ;;
   esac
 }
@@ -165,32 +166,42 @@ done <<'CASES'
 cisco|127.0.0.1|admin01|Accept|AVPair = "shell:priv-lvl=15"
 cisco|127.0.0.1|operator01|Accept|AVPair = "shell:priv-lvl=7"
 cisco|127.0.0.1|readonly01|Accept|AVPair = "shell:priv-lvl=1"
+cisco|127.0.0.1|norole01|Reject|-
 aruba-cx|127.0.0.2|admin01|Accept|Priv-Admin-User = 15
 aruba-cx|127.0.0.2|operator01|Accept|Priv-Admin-User = 7
 aruba-cx|127.0.0.2|readonly01|Accept|Priv-Admin-User = 1
+aruba-cx|127.0.0.2|norole01|Reject|-
 aruba-ap|127.0.0.3|admin01|Accept|-
 aruba-ap|127.0.0.3|operator01|Reject|no administration role for 'operator'
 aruba-ap|127.0.0.3|readonly01|Reject|no administration role for 'readonly'
+aruba-ap|127.0.0.3|norole01|Reject|-
 fortinet|127.0.0.4|admin01|Accept|Group-Name = "super_admin"
 fortinet|127.0.0.4|operator01|Accept|Group-Name = "readonly"
 fortinet|127.0.0.4|readonly01|Accept|Group-Name = "readonly"
+fortinet|127.0.0.4|norole01|Reject|-
 juniper|127.0.0.5|admin01|Accept|Local-User-Name = "superuser"
 juniper|127.0.0.5|operator01|Accept|Local-User-Name = "operator"
 juniper|127.0.0.5|readonly01|Accept|Local-User-Name = "read-only"
+juniper|127.0.0.5|norole01|Reject|-
 palo-alto|127.0.0.6|admin01|Accept|Admin-Role = "superuser"
 palo-alto|127.0.0.6|operator01|Accept|Admin-Role = "readonly"
 palo-alto|127.0.0.6|readonly01|Accept|Admin-Role = "readonly"
+palo-alto|127.0.0.6|norole01|Reject|-
 service-type|127.0.0.7|admin01|Accept|Service-Type = ::Administrative-User
 service-type|127.0.0.7|operator01|Accept|Service-Type = ::NAS-Prompt-User
 service-type|127.0.0.7|readonly01|Accept|Service-Type = ::Login-User
+service-type|127.0.0.7|norole01|Reject|-
 ietf-mpl|127.0.0.8|admin01|Accept|Management-Privilege-Level = 15
 ietf-mpl|127.0.0.8|operator01|Accept|Management-Privilege-Level = 7
 ietf-mpl|127.0.0.8|readonly01|Accept|Management-Privilege-Level = 1
+ietf-mpl|127.0.0.8|norole01|Reject|-
 none|127.0.0.9|admin01|Accept|-
 none|127.0.0.9|operator01|Accept|-
 none|127.0.0.9|readonly01|Accept|-
+none|127.0.0.9|norole01|Reject|-
 unknown|127.0.0.10|admin01|Accept|Management-Privilege-Level = 15
 unknown|127.0.0.10|readonly01|Accept|unknown nas_type: 'bogus'
+unknown|127.0.0.10|norole01|Reject|-
 CASES
 
 check 'bad password' 127.0.0.1 admin01 wrong Reject '-'

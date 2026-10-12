@@ -1,6 +1,15 @@
 authz_vendor_role {
     string nas_type
 
+    # A user in no role is rejected before the bind. The reply carries
+    # no reason, so it looks the same as a wrong password.
+    if (!control.LDAP-Group) {
+        if (control.LDAP-UserDN) {
+            %log.warn("no role for '%{User-Name}'")
+        }
+        reject
+    }
+
     nas_type = %str.lower(%client('nas_type'))
 
     if nas_type =~ /^(cisco)/ {

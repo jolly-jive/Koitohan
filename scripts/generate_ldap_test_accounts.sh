@@ -48,6 +48,14 @@ cn: Readonly01 TEST
 sn: TEST
 givenName: Readonly
 userPassword: $(slappasswd -s 'passreadonly')
+
+dn: uid=norole01,ou=People,${LDAP_SUFFIX}
+objectClass: inetOrgPerson
+uid: norole01
+cn: Norole01 TEST
+sn: TEST
+givenName: Norole
+userPassword: $(slappasswd -s 'passnorole')
 EOF
 
 
