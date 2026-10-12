@@ -452,7 +452,9 @@ make down && make up
 | 69/udp           | TFTP        |
 | 636/tcp          | LDAPS       |
 
-1813/udp も公開していますが、RADIUS アカウンティングは未実装です。
+どのポートも IPv4 でのみ公開しています。IPv6 には対応していません。
+
+RADIUS アカウンティング(1813/udp)は提供していません。ログインの記録は FreeRADIUS の detail ログに、ログアウトと操作の記録は機器の syslog に残ります。
 
 ## ログ
 
