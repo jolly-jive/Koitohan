@@ -12,6 +12,8 @@
 /openldap/config/*
 /openldap/ldif/*.ldif
 
+/openssh/hostkeys/*
+
 /syslog-ng/log/*
 /syslog-ng/config/*
 !/syslog-ng/config/syslog-ng.conf

@@ -10,6 +10,7 @@ Koitohan は、ネットワーク機器にログイン認証の基盤、ログ�
 - **FreeRADIUS** が機器へのログインを LDAP で認証し、ベンダーごとに決まった権限属性を返します。
 - **syslog-ng** が機器の syslog を収集し、ホストごとのディレクトリに保存します。
 - **tftpd-hpa** がファームウェアを機器へ配布し、機器のコンフィグのバックアップを受け取ります。
+- **OpenSSH** がユーザーに作業用のシェルを提供します。ログの閲覧と取得、TFTP のファイルの出し入れ、パスワードの変更に使います。
 
 ユーザーとロール(`admin`、`operator`、`readonly`)は1か所で管理します。Koitohan がロールを各機器の流儀に読み替えます。たとえば Cisco には `shell:priv-lvl=15`、ArubaOS-CX には `Aruba-Priv-Admin-User = 15` を返します。
 
@@ -31,6 +32,7 @@ Koitohan は検証段階です。本番利用に耐える堅牢化はしてい�
 | 認証・認可         | FreeRADIUS 4.x(`cayenneryo/freeradius-server`) | 動作中   |
 | ログ収集           | syslog-ng(`linuxserver/syslog-ng`)             | 動作中   |
 | ファイル配布       | tftpd-hpa(Alpine から自前でビルド)             | 動作中   |
+| ユーザーの作業環境 | OpenSSH(Alpine から自前でビルド)               | 動作中   |
 | ログローテーション | Docker ホスト側の logrotate                    | 実装予定 |
 | DHCP と DNS        | Kea、BIND9                                     | 未決定   |
 
@@ -42,6 +44,7 @@ FreeRADIUS 4.x は開発バージョンです。Koitohan は正式リリース�
 - GNU Make 4.3 以上
 - `openssl`
 - `slappasswd`(Debian と Raspberry Pi OS では `slapd` パッケージに含まれます)
+- `ssh-keygen`。`make test` は OpenSSH 8.4 以降の `ssh` も使います。
 
 ## クイックスタート
 
@@ -50,9 +53,11 @@ git clone <repository-url> koitohan
 cd koitohan
 
 cp .env.sample .env    # その後 .env を編集
-make                   # 証明書、LDIF、FreeRADIUS の LDAP 設定を生成
+make                   # 証明書、LDIF、FreeRADIUS の LDAP 設定、sshd のホスト鍵を生成
 $EDITOR freeradius/config/clients.conf
 sudo chown -R 101:101 freeradius/log
+sudo chown 1000:10001 tftpd-hpa/tftpboot/firmware
+sudo chmod 2770 tftpd-hpa/tftpboot/firmware
 make up
 ```
 
@@ -61,6 +66,8 @@ make up
 `make` は `clients.conf.sample` から `freeradius/config/clients.conf` を作ります。`make up` の前に、サンプルのクライアントを自分の機器に書き換えてください。
 
 FreeRADIUS は uid 101 で動作し、`freeradius/log/` にログを書き込みます。`chown` をしないと、ログインを記録できず、すべての要求を拒否します。
+
+`firmware/` の `chown` と `chmod` は、SSH でログインしたユーザーのうち、ロール `admin` のユーザーにだけこのディレクトリを開きます(「[SSH での作業](#ssh-での作業)」を参照)。`configs/` の同じ設定は、「[TFTP](#tftp)」の手順に含まれています。
 
 クローン直後は、`docker compose up` を直接実行せずに `make up` を使ってください。Docker がマウントする前に、生成ファイルが揃っていることを保証します。
 
@@ -83,14 +90,23 @@ FreeRADIUS は uid 101 で動作し、`freeradius/log/` にログを書き込み
 | `SYSLOG_CONTAINER_NAME`               | syslog-ng のコンテナ名。                                                              |
 | `TFTP_CONTAINER_NAME`                 | tftpd-hpa のコンテナ名。                                                              |
 | `TFTP_UPLOAD_MAX_BYTES`               | TFTP でアップロードできる1ファイルあたりの上限(バイト数)。「[TFTP](#tftp)」を参照。   |
+| `OPENSSH_CONTAINER_NAME`              | OpenSSH のコンテナ名。                                                                |
+| `OPENSSH_HOSTNAME`                    | OpenSSH のコンテナのホスト名。ログインしたシェルのプロンプトに表示されます。          |
+| `OPENSSH_PORT`                        | SSH を公開する Docker ホストのポート番号。ホスト自身の sshd とは別の番号にします。    |
+| `OPENSSH_SUBNET`                      | OpenSSH と OpenLDAP だけをつなぐ Docker ネットワークのサブネット(CIDR 表記)。         |
+| `OPENSSH_SERVICE_ACCOUNT_NAME`        | OpenSSH のコンテナがディレクトリの検索に使うアカウント。                              |
+| `OPENSSH_SERVICE_ACCOUNT_PASSWORD`    | そのアカウントのパスワード。                                                          |
+| `PASSWDQC_MIN`                        | `passwd` が受け付けるパスワードの最小の長さ。「[パスワードの変更](#パスワードの変更)」を参照。 |
 | `DOCKER_SUBNET`                       | コンテナ同士をつなぐ Docker ネットワークのサブネット(CIDR 表記)。                     |
 | `TZ`                                  | 全コンテナのタイムゾーン。`Asia/Tokyo` のような tz database の名前で指定します。      |
 
-OpenLDAP と FreeRADIUS のコンテナ名は、証明書のホスト名を兼ねています。変更したら `make clean && make` で証明書を作り直してください。
+OpenLDAP、FreeRADIUS、OpenSSH のコンテナ名は、証明書のホスト名を兼ねています。変更したら `make clean && make` で証明書を作り直してください。
 
-`DOCKER_SUBNET` には、機器のいるネットワークやホストから到達するネットワークと重ならない範囲を指定してください。変更は `make down && make up` で反映されます。
+`DOCKER_SUBNET` と `OPENSSH_SUBNET` には、機器のいるネットワークやホストから到達するネットワークと重ならない範囲を、互いにも重ならないように指定してください。変更は `make down && make up` で反映されます。
 
 `DOCKER_SUBNET` にはプライベートアドレスの範囲を指定してください。FreeRADIUS はプライベートアドレスとループバックからの要求だけを受け付けるため(「[RADIUS クライアント](#radius-クライアント)」を参照)、それ以外の範囲を指定すると、Docker ホスト自身から送った RADIUS 要求が拒否されることがあります。
+
+`OPENSSH_HOSTNAME` は、ユーザーがどのサーバーにログインしているかを見分けるための名前です。プロンプトは `alice@koitohan:/logs/Hosts$` の形になります。Koitohan を複数台で動かすときは、台ごとに別の名前にしてください。変更は `make up` で反映されます。
 
 `TZ` は、各コンテナが書き出すログの時刻のタイムゾーンを決めます。変更は `make up` で反映されます。
 
@@ -132,6 +148,34 @@ FreeRADIUS は、プライベートアドレス(`10.0.0.0/8`、`172.16.0.0/12`�
 
 Koitohan にユーザー管理用のツールは含まれていません。
 
+SSH でログインさせるユーザーには、`posixAccount` も持たせます(「[SSH での作業](#ssh-での作業)」を参照)。
+
+- `uidNumber` は 10000〜59999 の範囲で、ユーザーごとに別の番号にします。一度使った番号は、ユーザーを削除したあとも再利用しないでください。ユーザーが置いたファイルの所有者は、番号で残るためです。
+- `gidNumber` は 10000 にします。
+
+既存のユーザーに持たせる例:
+
+```sh
+docker compose exec -T openldap ldapmodify -Q -Y EXTERNAL -H ldapi:/// <<'EOF'
+dn: uid=alice,ou=People,dc=example,dc=com
+changetype: modify
+add: objectClass
+objectClass: posixAccount
+-
+add: uidNumber
+uidNumber: 10000
+-
+add: gidNumber
+gidNumber: 10000
+-
+add: homeDirectory
+homeDirectory: /home/alice
+-
+add: loginShell
+loginShell: /bin/sh
+EOF
+```
+
 手早く試すには、`make ldap_testaccounts` でテストユーザー4名を生成できます。`admin01`、`operator01`、`readonly01` は各ロールに1名ずつ、`norole01` はどのロールにも所属しません。パスワードは `scripts/generate_ldap_test_accounts.sh` に書いてあります。最初の `make up` の前に実行してください。検証環境以外では使わないでください。
 
 ### ディレクトリの初期データを変更する
@@ -169,14 +213,15 @@ sudo mkdir -p tftpd-hpa/tftpboot/configs
 echo "$PWD/tftpd-hpa/configs.img $PWD/tftpd-hpa/tftpboot/configs ext4 loop,noatime,nodev,nosuid,noexec 0 2" | sudo tee -a /etc/fstab
 sudo systemctl daemon-reload
 sudo mount "$PWD/tftpd-hpa/tftpboot/configs"
-sudo chown 1000:1000 tftpd-hpa/tftpboot/configs
+sudo chown 1000:10001 tftpd-hpa/tftpboot/configs
+sudo chmod 2770 tftpd-hpa/tftpboot/configs
 ```
 
-`chown` は必ず `mount` の後に実行してください。所有者を変えるのはイメージの中のディレクトリで、マウント前のディレクトリは root の所有のままにしておきます。こうしておくと、イメージがマウントされていないときはアップロードが失敗するだけで、ホストのディスクには書き込まれません。
+`chown` と `chmod` は必ず `mount` の後に実行してください。所有者の 1000 は tftpd-hpa、グループの 10001 は SSH でログインしたロール `admin` のユーザーです。所有者を変えるのはイメージの中のディレクトリで、マウント前のディレクトリは root の所有のままにしておきます。こうしておくと、イメージがマウントされていないときはアップロードが失敗するだけで、ホストのディスクには書き込まれません。
 
 スタックの起動後にマウントした場合は、`docker compose restart tftpd-hpa` でコンテナに反映してください。
 
-この手順を行わずに起動すると、Docker が `configs/` を root の所有で作るため、アップロードは失敗します。`sudo chown 1000:1000 tftpd-hpa/tftpboot/configs` で書き込みを許可できますが、容量の制限がなくなるので推奨しません。
+この手順を行わずに起動すると、Docker が `configs/` を root の所有で作るため、アップロードは失敗します。上の `chown` と `chmod` で書き込みを許可できますが、容量の制限がなくなるので推奨しません。
 
 ### 1ファイルあたりの上限
 
@@ -193,10 +238,92 @@ sudo chown 1000:1000 tftpd-hpa/tftpboot/configs
 - `firmware/` は Docker ホストのディスクにそのまま置かれます。大きなファームウェアを置く前に、空き容量を確認してください。
 - 転送の記録は `docker compose logs tftpd-hpa` で確認できます。要求元のアドレスとファイル名が残ります。
 
+## SSH での作業
+
+ユーザーは、ネットワーク機器へのログインと同じユーザー名とパスワードで、OpenSSH のコンテナに SSH でログインできます。ポートは `.env` の `OPENSSH_PORT` です(`.env.sample` では 2222)。公開鍵認証には、まだ対応していません。
+
+```sh
+ssh -p 2222 alice@<ホスト>
+
+# 全機器のログから、特定のメッセージだけを取り出す
+ssh -p 2222 alice@<ホスト> 'grep -h LINK-3 /logs/Hosts/*/*.log' > link.txt
+
+# ファームウェアを配置する(ロール admin のみ)
+scp -P 2222 image.bin alice@<ホスト>:/tftpboot/firmware/
+```
+
+| コンテナ内のパス      | 内容                             | admin    | operator | readonly |
+| --------------------- | -------------------------------- | -------- | -------- | -------- |
+| `/logs/Hosts/`        | 各機器の syslog                  | 読み取り | 読み取り | 読み取り |
+| `/tftpboot/firmware/` | 機器へ配布するファイル           | 読み書き | なし     | なし     |
+| `/tftpboot/configs/`  | 機器がアップロードしたコンフィグ | 読み書き | なし     | なし     |
+| `/tmp/`               | 作業用の置き場所(32MB)           | 読み書き | 読み書き | 読み書き |
+
+- ログインできるのは、`posixAccount` を持ち、ロールに所属するユーザーだけです(「[ユーザーとロール](#ユーザーとロール)」を参照)。
+- ホームディレクトリはありません。`scp` と `sftp` では、コンテナ側のパスを絶対パスで指定します。
+- ユーザーが書き込めるのは、上の表で「読み書き」とした場所だけです。`/tmp/` の内容は、コンテナを作り直すと消えます。
+- ロール `admin` のユーザーが置いたファームウェアを機器が取得するには、ファイルに「その他」の読み取り権限が要ります。0600 で置いたファイルは、`chmod 644` で直してください。
+- 機器がアップロードしたコンフィグは、ロール `admin` のユーザーが読み、複製し、削除できます。その場での書き換えはできません。
+- ポートフォワーディングは無効にしています。
+- 同じ接続元から認証の失敗が続くと、sshd はその接続元からの接続をしばらく拒否します(OpenSSH の `PerSourcePenalties` の既定の動作)。
+
+### パスワードの変更
+
+ログインしたシェルで `passwd` を実行します。変更したパスワードは、ネットワーク機器へのログインにも使われます。
+
+新しいパスワードは passwdqc が判定します。`.env` の `PASSWDQC_MIN` は、文字の種類(大文字、小文字、数字、その他)に応じた最小の長さです。`.env.sample` の `12,10,10,8,8` は、次の意味になります。
+
+| 含む文字の種類 | 最小の長さ |
+| -------------- | ---------- |
+| 3種類以上      | 8          |
+| 2種類          | 10         |
+| 1種類          | 12         |
+
+先頭の大文字と末尾の数字は、種類に数えません。たとえば `Password1` は1種類として扱われます。変更は `make up` で反映されます。
+
+### ユーザーとロールの変更を反映する
+
+OpenSSH のコンテナは、起動時にディレクトリを読んで、ログインできるユーザーの一覧を作ります。ユーザーの追加、削除、ロールの変更をしたあとは、一覧を作り直してください。
+
+```sh
+docker compose exec openssh koitohan-update-users
+```
+
+ロールの変更は、ログイン中のセッションには及びません。すぐに効かせるには、一覧を作り直したあとで、そのユーザーのセッションを切ります。`<uidNumber>` はユーザーの `uidNumber` です。
+
+```sh
+docker compose exec openssh pkill -KILL -u <uidNumber>
+```
+
+### メモリの上限を有効にする(任意)
+
+OpenSSH のコンテナには、プロセス数、メモリ、CPU の上限を設けています。このうちメモリの上限は、Docker ホストで cgroup のメモリコントローラが有効なときにだけ効きます。Raspberry Pi OS の既定では無効で、`docker info` が `No memory limit support` と警告します。
+
+有効にするには、`/boot/firmware/cmdline.txt` の行の末尾に `cgroup_enable=memory` を加えて、Docker ホストを再起動します。
+
+### 稼働中の環境に追加する
+
+OpenSSH のコンテナがなかったバージョンから更新するときは、ディレクトリのデータを消さずに、次の手順で追加できます。
+
+```sh
+# 先に、.env.sample の OPENSSH_* と PASSWDQC_MIN を .env に書き足す
+make                   # CA と証明書を作り直し、sshd のホスト鍵を生成
+docker compose exec -T openldap ldapadd -c -Q -Y EXTERNAL -H ldapi:/// < openldap/ldif/300-ServiceAccounts.ldif
+sudo chown 1000:10001 tftpd-hpa/tftpboot/firmware tftpd-hpa/tftpboot/configs
+sudo chmod 2770 tftpd-hpa/tftpboot/firmware tftpd-hpa/tftpboot/configs
+chmod -R go+rX syslog-ng/log/Hosts
+make down && make up
+```
+
+- `ldapadd` は、OpenSSH 用のサービスアカウントを追加します。すでにあるエントリには `Already exists` と表示されますが、問題ありません。
+- 最後の `chmod` は、これまでに作られたログのディレクトリを、SSH でログインしたユーザーが読めるようにします。以前のバージョンは、所有者しか入れないディレクトリを作っていました。
+- そのあと、SSH でログインさせるユーザーに `posixAccount` を持たせ(「[ユーザーとロール](#ユーザーとロール)」を参照)、`koitohan-update-users` を実行してください。
+
 ## ポート
 
 | ポート           | サービス    |
 | ---------------- | ----------- |
+| 2222/tcp         | SSH(番号は `OPENSSH_PORT` で指定) |
 | 1812/udp         | RADIUS 認証 |
 | 514/udp、514/tcp | syslog      |
 | 69/udp           | TFTP        |
@@ -216,15 +343,16 @@ sudo chown 1000:1000 tftpd-hpa/tftpboot/configs
 
 これらのファイルは、まだローテーションされません。特に `debug.log` は際限なく大きくなります。
 
-TFTP の転送の記録はファイルには保存されません。`docker compose logs tftpd-hpa` で確認します。
+TFTP の転送の記録はファイルには保存されません。`docker compose logs tftpd-hpa` で確認します。SSH のログインの記録も同様で、`docker compose logs openssh` で確認します。
 
 ## コマンド
 
 ```sh
-make                    # certs + ldap_dir + freeradius_conf
+make                    # certs + ldap_dir + freeradius_conf + ssh_hostkeys
 make certs              # プライベート CA、サーバー証明書、クライアント証明書
 make ldap_dir           # OU、ロール、サービスアカウント、ACL の LDIF
 make freeradius_conf    # FreeRADIUS の LDAP モジュール設定と clients.conf
+make ssh_hostkeys       # sshd のホスト鍵(すでにあれば作り直さない)
 make ldap_testaccounts  # テストユーザーの LDIF
 make test               # スモークテスト
 make up                 # スタックを起動
@@ -244,14 +372,16 @@ docker compose run --rm --no-deps freeradius radiusd -XC
 make test
 ```
 
-`make test` は、OpenLDAP と FreeRADIUS を別のプロジェクト(`koitohan-test`)として起動し、テストユーザーで認証して、機器種別とロールの組み合わせごとに応答属性を照合します。最後に OpenLDAP のコンテナを再起動し、起動し直せることを確かめます。ポートを公開せず、データも残さないので、稼働中のスタックには影響しません。事前に `make` を済ませておいてください。失敗した項目は `KEEP=1 tests/smoke.sh` でテスト用のスタックを残して調べられます。
+`make test` は、OpenLDAP、FreeRADIUS、OpenSSH を別のプロジェクト(`koitohan-test`)として起動し、テストユーザーで認証して、機器種別とロールの組み合わせごとに応答属性を照合します。続いて、各ロールのユーザーで SSH でログインし、ディレクトリの権限とパスワードの変更を確かめます。最後に OpenLDAP のコンテナを再起動し、起動し直せることを確かめます。ポートを公開せず、データも残さないので、稼働中のスタックには影響しません。事前に `make` を済ませておいてください。失敗した項目は `KEEP=1 tests/smoke.sh` でテスト用のスタックを残して調べられます。
 
-tftpd-hpa のイメージは、最初の `make up` で自動的にビルドされます。`tftpd-hpa/build/` を変更したときは、ビルドし直してから起動します。
+tftpd-hpa と OpenSSH のイメージは、最初の `make up` で自動的にビルドされます。`tftpd-hpa/build/` や `openssh/build/` を変更したときは、ビルドし直してから起動します。
 
 ```sh
-docker compose build tftpd-hpa
+docker compose build tftpd-hpa openssh
 make up
 ```
+
+`make clean` は、sshd のホスト鍵(`openssh/hostkeys/`)を消しません。ホスト鍵が変わると、すべてのユーザーの手元で警告が出るためです。
 
 サービスのログを追う:
 
@@ -263,6 +393,9 @@ docker compose logs -f freeradius
 
 - 複数のロールに所属するユーザーについて、優先順位を定めていません。
 - TFTP サーバーは、接続元のアドレスを制限していません。
+- ユーザーとロールの変更は、`koitohan-update-users` を実行するまで、SSH のログインに反映されません。
+- `passwd` によるパスワードの判定は、ログインしたユーザーが迂回できます。この判定は、不注意で弱いパスワードを設定することを防ぐためのものです。OpenLDAP 自身は判定しません。
+- SSH でログインしたユーザーは、OpenSSH のコンテナから、Docker ホストや外部のネットワークへ接続できます。Docker のネットワークで届かなくしているのは、OpenLDAP 以外のコンテナだけです。
 - FreeRADIUS を動かしたまま OpenLDAP が再起動すると(`docker compose restart openldap` など)、FreeRADIUS はその後のログインを拒否し、やがてセグメンテーション違反で異常終了します。Docker が起動し直すので、それ以降のログインは通ります。開発バージョンである FreeRADIUS 4.x の不具合です。ログインが拒否される時間をなくすには、OpenLDAP の再起動に続けて `docker compose restart freeradius` で FreeRADIUS も再起動してください。FreeRADIUS 側で修正されたら、この項目は削除します。
 
 ## セキュリティ上の注意
@@ -274,9 +407,12 @@ docker compose logs -f freeradius
 - `freeradius/config/clients.conf`
 - `freeradius/config/mods-available/ldap_openldap`
 - `openldap/ldif/*.ldif`
+- `openssh/hostkeys/`
 - `tftpd-hpa/tftpboot/configs/`(機器のコンフィグ。パスワードのハッシュや共有シークレットを含むことがあります)
 
 `CA/freeradius_client.key` は、Docker ホストのすべてのユーザーが読めます。FreeRADIUS がこの鍵を uid 101 で読み、ホスト側にはその uid が所有するものがないためです。
+
+`syslog-ng/log/Hosts/` 以下の機器のログは、Docker ホストのすべてのユーザーが読めます。SSH でログインしたユーザーに読ませるためです。
 
 RADIUS のログインは PAP を使うため、通信経路上でユーザーのパスワードを守るのは、各クライアントの共有シークレットです。機器ごとに長いランダムなシークレットを使ってください。
 

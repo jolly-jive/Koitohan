@@ -1,0 +1,6 @@
+#%PAM-1.0
+
+auth      required  pam_ldap.so minimum_uid=10000
+account   required  pam_ldap.so minimum_uid=10000
+password  required  pam_deny.so
+session   required  pam_limits.so

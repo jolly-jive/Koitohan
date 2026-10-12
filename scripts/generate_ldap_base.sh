@@ -65,6 +65,12 @@ objectClass: simpleSecurityObject
 objectClass: account
 uid: ${FREERADIUS_SERVICE_ACCOUNT_NAME}
 userPassword: $(slappasswd -s "${FREERADIUS_SERVICE_ACCOUNT_PASSWORD}")
+
+dn: uid=${OPENSSH_SERVICE_ACCOUNT_NAME},ou=ServiceAccounts,${LDAP_SUFFIX}
+objectClass: simpleSecurityObject
+objectClass: account
+uid: ${OPENSSH_SERVICE_ACCOUNT_NAME}
+userPassword: $(slappasswd -s "${OPENSSH_SERVICE_ACCOUNT_PASSWORD}")
 EOF
 
 
