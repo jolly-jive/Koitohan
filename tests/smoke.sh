@@ -8,7 +8,9 @@
 # bin/manage_users.sh. Checks the reply for every combination of reply
 # type and role, then logs in over ssh as each role, then manages a user
 # with bin/manage_users.sh, then runs into the password policy of
-# OpenLDAP. The running stack is left alone.
+# OpenLDAP, then changes the passwords of the service accounts. The
+# running stack is left alone: the test generates its own passwords,
+# LDIFs and ldap_openldap into tests/generated.
 #
 #   KEEP=1 tests/smoke.sh    leave the test stack up for a closer look
 
@@ -18,15 +20,19 @@ ROOT_DIR="$(dirname "${SCRIPT_DIR}")"
 cd "${ROOT_DIR}"
 
 COMPOSE=(docker compose -p koitohan-test -f compose.yaml -f tests/compose.test.yaml)
+# the scripts under scripts/ and bin/change_service_account_password.sh
+# write here instead of secrets/, openldap/ldif/ and freeradius/config/
+export KOITOHAN_GENERATED_ROOT="${ROOT_DIR}/tests/generated"
 SECRET='testing123'
 WAIT_TRIES=40
 
 function cleanup() {
   rm -f "${ASKPASS}"
   if [ -n "${KEEP}" ]; then
-    echo "test stack left up: ${COMPOSE[*]} down -v"
+    echo "test stack left up: ${COMPOSE[*]} down -v && rm -rf tests/generated"
   else
     "${COMPOSE[@]}" down -v > /dev/null 2>&1
+    rm -rf "${KOITOHAN_GENERATED_ROOT}"
   fi
 }
 
@@ -244,6 +250,27 @@ function check_ldap() {
   fi
 }
 
+# Runs bin/change_service_account_password.sh against the test stack.
+# EXPECT is a fixed string to find in the output.
+function check_service_password() {
+  local SERVICE=${1}
+  local EXPECT=${2}
+  local OUT WHY=''
+
+  OUT=$(COMPOSE_PROJECT_NAME=koitohan-test COMPOSE_FILE=compose.yaml:tests/compose.test.yaml \
+        bin/change_service_account_password.sh "${SERVICE}" 2>&1 < /dev/null)
+  echo "${OUT}" | grep -q -F -- "${EXPECT}" || WHY="expected ${EXPECT}"
+
+  COUNT=$((COUNT + 1))
+  if [ -z "${WHY}" ]; then
+    printf 'ok    %-13s %-11s %s\n' 'service pass' "${SERVICE}" "${EXPECT}"
+  else
+    FAILED=$((FAILED + 1))
+    printf 'FAIL  %-13s %-11s %s\n' 'service pass' "${SERVICE}" "${WHY}"
+    echo "${OUT}" | sed 's/^/      | /'
+  fi
+}
+
 # The same container has to start a second time, as it does after a
 # reboot of the host. This asks slapd itself and leaves FreeRADIUS out.
 function check_restart() {
@@ -280,11 +307,7 @@ for FILE in \
   CA/openldap_server.crt \
   CA/freeradius_client.crt \
   CA/openssh_client.crt \
-  openssh/hostkeys/ssh_host_ed25519_key \
-  secrets/openssh_service_account_password \
-  openldap/ldif/100-People.ldif \
-  openldap/ldif/400-PPolicy.ldif \
-  freeradius/config/mods-available/ldap_openldap
+  openssh/hostkeys/ssh_host_ed25519_key
 do
   if [ ! -e "${FILE}" ]; then
     echo "${FILE} is missing. Run 'make' first, then 'make test'."
@@ -297,6 +320,17 @@ printf '#!/bin/sh\necho "${SSH_TEST_PASS}"\n' > "${ASKPASS}"
 chmod 700 "${ASKPASS}"
 
 trap cleanup EXIT
+
+# The same scripts as make runs, on passwords of the test's own
+rm -rf "${KOITOHAN_GENERATED_ROOT}"
+mkdir -p "${KOITOHAN_GENERATED_ROOT}"/{secrets,openldap/ldif,freeradius/config/mods-available}
+if ! { scripts/generate_service_account_password.sh freeradius \
+       && scripts/generate_service_account_password.sh openssh \
+       && scripts/generate_ldap_base.sh \
+       && scripts/generate_freeradius_ldap.sh; }; then
+  echo 'could not generate the files of the test stack'
+  exit 1
+fi
 
 echo 'starting the test stack'
 if ! "${COMPOSE[@]}" up -d --build openldap freeradius openssh > /dev/null 2>&1; then
@@ -496,6 +530,37 @@ check_ssh 'users delete' smoke01 "${NEW_PASS2}" denied 'id -Gn' < /dev/null
 check 'users delete' 127.0.0.1 smoke01 "${NEW_PASS2}" Reject '-'
 check_users 'users delete' 'no such user' '' delete smoke01
 check_users 'users add' 'uidNumber 10005' "${NEW_PASS}" add smoke02 readonly
+
+# The passwords of the service accounts. Each change recreates the
+# container, which then has to bind with the new password: the old one
+# is gone from the directory. The file of the running stack stays.
+check_service_password bogus 'usage:'
+FREERADIUS_ACCOUNT=$(source .env && echo "${FREERADIUS_SERVICE_ACCOUNT_NAME}")
+OLD_FREERADIUS=$(cat "${KOITOHAN_GENERATED_ROOT}/secrets/freeradius_service_account_password")
+check_service_password freeradius 'recreated freeradius'
+if ! wait_ready; then
+  echo 'FreeRADIUS did not become ready with the new password'
+  "${COMPOSE[@]}" logs --tail 30 freeradius
+  exit 1
+fi
+check 'service pass' 127.0.0.1 operator01 "${PASS_OPERATOR}" Accept 'AVPair = "shell:priv-lvl=7"'
+check_ldap 'service pass' 'old' 'Invalid credentials' \
+  "ldapwhoami -x -H ldapi:/// -D \"uid=${FREERADIUS_ACCOUNT},ou=ServiceAccounts,\${SUFFIX}\" -w '${OLD_FREERADIUS}'"
+check_service_password openssh 'recreated openssh'
+# the new container has another address
+if ! wait_ssh_ready; then
+  echo 'the openssh container did not become ready with the new password'
+  "${COMPOSE[@]}" logs --tail 30 openssh
+  exit 1
+fi
+check_ssh 'service pass' admin01 "${PASS_ADMIN}" 'koitohan admin' 'id -Gn' < /dev/null
+COUNT=$((COUNT + 1))
+if [ -n "$(find secrets -newer "${ASKPASS}" 2> /dev/null)" ]; then
+  FAILED=$((FAILED + 1))
+  printf 'FAIL  %-13s %-11s %s\n' 'service pass' 'secrets/' 'expected the files of the running stack to stay'
+else
+  printf 'ok    %-13s %-11s %s\n' 'service pass' 'secrets/' 'untouched'
+fi
 
 check_restart
 

@@ -236,29 +236,27 @@ cat secrets/freeradius_service_account_password; echo
 
 すでにあるファイルは作り直されず、`make clean` でも消えません。ディレクトリが覚えているパスワードと食い違うと、すべてのユーザーの認証が止まるためです。
 
-パスワードを変えるときは、新しいものを生成し、ディレクトリに書き込んでから、コンテナを作り直します。FreeRADIUS の例です。DN の `uid` とサフィックスは、自分の環境に合わせてください。
+パスワードを変えるときは、Docker ホストで `bin/change_service_account_password.sh` を使います。スタックが起動している状態で実行してください。
 
 ```sh
-rm secrets/freeradius_service_account_password
-make secrets            # 新しいパスワードを生成
-docker compose exec -T openldap ldappasswd -Q -Y EXTERNAL -H ldapi:/// -T /dev/stdin \
-  'uid=radius,ou=ServiceAccounts,dc=example,dc=com' < secrets/freeradius_service_account_password
-make ldap_dir freeradius_conf
-docker compose up -d --force-recreate freeradius
+bin/change_service_account_password.sh freeradius
+bin/change_service_account_password.sh openssh
 ```
 
-OpenSSH のときは、ファイル名の `freeradius` を `openssh` に、DN の `uid` を OpenSSH のアカウントに、最後の行のサービス名を `openssh` に読み替えます。OpenSSH のコンテナを作り直すと、ログイン中のセッションは切れます。
+スクリプトは、新しいパスワードを生成してディレクトリに書き込み、`secrets/` のファイルを差し替え、LDIF と FreeRADIUS の LDAP 設定を生成し直して、そのコンテナを作り直します。OpenSSH のコンテナを作り直すと、ログイン中のセッションは切れます。
 
-`.env` にこのパスワードを書いていたバージョンから更新するときは、`.env` をそのままにして `make secrets` を実行してください。`.env` の値が `secrets/` に引き継がれるので、ディレクトリを書き換える必要はありません。
+途中で止まったときは、もう一度実行してください。いまのパスワードを必要としないので、`secrets/` のファイルとディレクトリが食い違ってしまったときも、同じコマンドで直せます。
+
+`.env` にこのパスワードを書いていたバージョンから更新するときも、このスクリプトを使います。`.env` の値は読まれなくなり、`make` が生成したパスワードはディレクトリと食い違うので、スクリプトで書き込み直します。終わるまでのあいだ、SSH のログインは失敗します。
 
 ```sh
-make secrets            # .env の値を secrets/ に引き継ぐ
-# ここで、.env から FREERADIUS_SERVICE_ACCOUNT_PASSWORD と OPENSSH_SERVICE_ACCOUNT_PASSWORD の行を消す
+# 先に、.env から FREERADIUS_SERVICE_ACCOUNT_PASSWORD と OPENSSH_SERVICE_ACCOUNT_PASSWORD の行を消す
+make
 docker compose build openssh
 make up
+bin/change_service_account_password.sh freeradius
+bin/change_service_account_password.sh openssh
 ```
-
-引き継いだ値が `.env.sample` のままや短いものであれば、上の手順で変えてください。
 
 ### ディレクトリの初期データを変更する
 
@@ -443,6 +441,7 @@ make up                 # スタックを起動
 make down               # スタックを停止
 make clean              # 生成した証明書、LDIF、設定を削除
 bin/manage_users.sh     # ユーザーの登録、削除、ロールの変更、パスワードの再発行、ロックの解除
+bin/change_service_account_password.sh   # サービスアカウントのパスワードの変更
 ```
 
 スタックを起動せずに FreeRADIUS の設定を検査する:
@@ -457,7 +456,7 @@ docker compose run --rm --no-deps freeradius radiusd -XC
 make test
 ```
 
-`make test` は、OpenLDAP、FreeRADIUS、OpenSSH を別のプロジェクト(`koitohan-test`)として起動し、`bin/manage_users.sh` でテストユーザーを登録して認証し、機器種別とロールの組み合わせごとに応答属性を照合します。続いて、各ロールのユーザーで SSH でログインし、ディレクトリの権限とパスワードの変更を確かめます。そのあと、`bin/manage_users.sh` の各操作と、パスワードポリシー(最小の長さ、ロックとその解除)を確かめます。最後に OpenLDAP のコンテナを再起動し、起動し直せることを確かめます。ポートを公開せず、データも残さないので、稼働中のスタックには影響しません。事前に `make` を済ませておいてください。失敗した項目は `KEEP=1 tests/smoke.sh` でテスト用のスタックを残して調べられます。
+`make test` は、OpenLDAP、FreeRADIUS、OpenSSH を別のプロジェクト(`koitohan-test`)として起動し、`bin/manage_users.sh` でテストユーザーを登録して認証し、機器種別とロールの組み合わせごとに応答属性を照合します。続いて、各ロールのユーザーで SSH でログインし、ディレクトリの権限とパスワードの変更を確かめます。そのあと、`bin/manage_users.sh` の各操作と、パスワードポリシー(最小の長さ、ロックとその解除)、サービスアカウントのパスワードの変更を確かめます。最後に OpenLDAP のコンテナを再起動し、起動し直せることを確かめます。ポートを公開せず、データも残さず、サービスアカウントのパスワードもテスト用に生成する(`tests/generated/`)ので、稼働中のスタックには影響しません。事前に `make` を済ませておいてください。失敗した項目は `KEEP=1 tests/smoke.sh` でテスト用のスタックを残して調べられます。
 
 tftpd-hpa と OpenSSH のイメージは、最初の `make up` で自動的にビルドされます。`tftpd-hpa/build/` や `openssh/build/` を変更したときは、ビルドし直してから起動します。
 

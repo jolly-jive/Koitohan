@@ -5,7 +5,10 @@ ROOT_DIR="$(dirname "${SCRIPT_DIR}")"
 
 source "${ROOT_DIR}/.env"
 
-OUT_DIR="${ROOT_DIR}/freeradius/config/mods-available"
+# tests/smoke.sh keeps its own generated files apart
+GENERATED_ROOT="${KOITOHAN_GENERATED_ROOT:-${ROOT_DIR}}"
+
+OUT_DIR="${GENERATED_ROOT}/freeradius/config/mods-available"
 
 function domain2dn() {
   local DOMAIN=${1}
@@ -20,7 +23,7 @@ LDAP_SUFFIX=$(domain2dn ${LDAP_DOMAIN})
 
 LDAP_MODULE="${OUT_DIR}/ldap_openldap"
 
-PASSWORD_FILE="${ROOT_DIR}/secrets/freeradius_service_account_password"
+PASSWORD_FILE="${GENERATED_ROOT}/secrets/freeradius_service_account_password"
 if [ ! -s "${PASSWORD_FILE}" ]; then
   echo "${PASSWORD_FILE} is missing or empty. Run 'make secrets' first." >&2
   exit 1

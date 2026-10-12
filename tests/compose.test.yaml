@@ -1,6 +1,8 @@
 # Overrides compose.yaml for the smoke test (see tests/smoke.sh).
 # The test stack runs as a separate project next to the real one. It
-# publishes no ports and keeps no data.
+# publishes no ports and keeps no data. The files that carry the
+# passwords of the service accounts come from tests/generated, which
+# the test makes for itself.
 
 services:
 
@@ -12,11 +14,11 @@ services:
       # anonymous volumes take the place of the persistent directories
       - /var/lib/ldap
       - /etc/ldap/slapd.d
-      - ./openldap/ldif/100-People.ldif:/root/ldif-test/100-People.ldif:ro
-      - ./openldap/ldif/200-Roles.ldif:/root/ldif-test/200-Roles.ldif:ro
-      - ./openldap/ldif/300-ServiceAccounts.ldif:/root/ldif-test/300-ServiceAccounts.ldif:ro
-      - ./openldap/ldif/400-PPolicy.ldif:/root/ldif-test/400-PPolicy.ldif:ro
-      - ./openldap/ldif/900-ACL.ldif:/root/ldif-test/900-ACL.ldif:ro
+      - ./tests/generated/openldap/ldif/100-People.ldif:/root/ldif-test/100-People.ldif:ro
+      - ./tests/generated/openldap/ldif/200-Roles.ldif:/root/ldif-test/200-Roles.ldif:ro
+      - ./tests/generated/openldap/ldif/300-ServiceAccounts.ldif:/root/ldif-test/300-ServiceAccounts.ldif:ro
+      - ./tests/generated/openldap/ldif/400-PPolicy.ldif:/root/ldif-test/400-PPolicy.ldif:ro
+      - ./tests/generated/openldap/ldif/900-ACL.ldif:/root/ldif-test/900-ACL.ldif:ro
     networks:
       default:
         aliases:
@@ -32,6 +34,7 @@ services:
     container_name: !reset null
     volumes:
       - ./tests/clients.conf:/etc/freeradius/clients.conf:ro
+      - ./tests/generated/freeradius/config/mods-available/ldap_openldap:/etc/freeradius/mods-available/ldap_openldap:ro
       # keeps the test out of freeradius/log
       - /var/log/freeradius
     ports: !reset []
@@ -45,6 +48,7 @@ services:
       - /tftpboot/configs
       - /tftpboot/firmware
       - ./tests/sshd_test.conf:/etc/ssh/sshd_config.d/test.conf:ro
+      - ./tests/generated/secrets/openssh_service_account_password:/etc/koitohan/secrets/bindpw:ro
     ports: !reset []
     restart: "no"
 

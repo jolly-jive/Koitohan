@@ -236,29 +236,27 @@ cat secrets/freeradius_service_account_password; echo
 
 A file that already exists is kept, and `make clean` keeps it too. If it differed from the password the directory knows, the logins of every user would stop.
 
-To change a password, generate a new one, write it to the directory, then recreate the container. This is the example for FreeRADIUS. Adjust the `uid` and the suffix of the DN to your installation.
+To change a password, use `bin/change_service_account_password.sh` on the Docker host. Run it while the stack is up.
 
 ```sh
-rm secrets/freeradius_service_account_password
-make secrets            # generate a new password
-docker compose exec -T openldap ldappasswd -Q -Y EXTERNAL -H ldapi:/// -T /dev/stdin \
-  'uid=radius,ou=ServiceAccounts,dc=example,dc=com' < secrets/freeradius_service_account_password
-make ldap_dir freeradius_conf
-docker compose up -d --force-recreate freeradius
+bin/change_service_account_password.sh freeradius
+bin/change_service_account_password.sh openssh
 ```
 
-For OpenSSH, replace `freeradius` in the file name with `openssh`, the `uid` of the DN with the account of OpenSSH, and the service name in the last line with `openssh`. Recreating the OpenSSH container cuts the sessions of the users who are logged in.
+The script generates a new password, writes it to the directory, replaces the file in `secrets/`, generates the LDIFs and the LDAP configuration of FreeRADIUS again, and recreates the container. Recreating the OpenSSH container cuts the sessions of the users who are logged in.
 
-When you update from a version that kept these passwords in `.env`, leave `.env` as it is and run `make secrets`. It takes the values of `.env` over to `secrets/`, so the directory needs no change.
+If the script stops halfway, run it again. It does not need the current password, so the same command also repairs a file in `secrets/` that no longer matches the directory.
+
+Use the script as well when you update from a version that kept these passwords in `.env`. The values of `.env` are not read any more, and the passwords that `make` generates do not match the directory, so the script writes them to it. SSH logins fail until it has finished.
 
 ```sh
-make secrets            # takes the values of .env over to secrets/
-# now remove the lines of FREERADIUS_SERVICE_ACCOUNT_PASSWORD and OPENSSH_SERVICE_ACCOUNT_PASSWORD from .env
+# first remove the lines of FREERADIUS_SERVICE_ACCOUNT_PASSWORD and OPENSSH_SERVICE_ACCOUNT_PASSWORD from .env
+make
 docker compose build openssh
 make up
+bin/change_service_account_password.sh freeradius
+bin/change_service_account_password.sh openssh
 ```
-
-If a value taken over is still the one of `.env.sample`, or a short one, change it with the steps above.
 
 ### Changing the directory seed
 
@@ -443,6 +441,7 @@ make up                 # start the stack
 make down               # stop the stack
 make clean              # delete generated certificates, LDIF files and config
 bin/manage_users.sh     # add and delete users, change a role, set a new password, unlock
+bin/change_service_account_password.sh   # change the password of a service account
 ```
 
 Check the FreeRADIUS configuration without starting the stack:
@@ -457,7 +456,7 @@ Check authentication and authorization end to end:
 make test
 ```
 
-`make test` starts OpenLDAP, FreeRADIUS and OpenSSH as a separate project (`koitohan-test`), adds test users with `bin/manage_users.sh`, authenticates as them, and compares the reply attributes for every combination of device type and role. It then logs in over SSH as a user of each role and checks the permissions on the directories and a password change. After that it runs each operation of `bin/manage_users.sh` and checks the password policy (the minimum length, the lock and the unlock). At the end it restarts the OpenLDAP container and checks that it comes up again. It publishes no ports and keeps no data, so it does not affect a running stack. Run `make` beforehand. To look into a failed check, keep the test stack up with `KEEP=1 tests/smoke.sh`.
+`make test` starts OpenLDAP, FreeRADIUS and OpenSSH as a separate project (`koitohan-test`), adds test users with `bin/manage_users.sh`, authenticates as them, and compares the reply attributes for every combination of device type and role. It then logs in over SSH as a user of each role and checks the permissions on the directories and a password change. After that it runs each operation of `bin/manage_users.sh` and checks the password policy (the minimum length, the lock and the unlock) and the change of the service account passwords. At the end it restarts the OpenLDAP container and checks that it comes up again. It publishes no ports, keeps no data and generates service account passwords of its own (`tests/generated/`), so it does not affect a running stack. Run `make` beforehand. To look into a failed check, keep the test stack up with `KEEP=1 tests/smoke.sh`.
 
 The tftpd-hpa and OpenSSH images are built automatically by the first `make up`. After you change `tftpd-hpa/build/` or `openssh/build/`, rebuild them before you start the stack.
 
