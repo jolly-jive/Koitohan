@@ -29,6 +29,8 @@ bin/manage_users.sh add|delete|role|passwd|unlock <ユーザー> ...   # ユー�
 
 生成スクリプトにはホスト側に `openssl`、`slappasswd`(`userPassword` のハッシュ化に使用)、`ssh-keygen` が必要。`make test` は OpenSSH 8.4 以降の `ssh` も使う。
 
+プルリクエストの前: コミットメッセージやプルリクエストの本文を用意する前に `make test` を実行し、すべての項目が合格することを確かめる。ドキュメントだけの変更でも省かない。失敗が1つでもあれば、変更と関係がなさそうに見えても先へ進まず、出力を添えて報告する。
+
 デバッグ: FreeRADIUS のデバッグモードは `compose.yaml` でコメントアウトされている `command: ["radiusd", "-X"]`。それ以外は `docker compose logs -f <service>` を使う。
 
 ## アーキテクチャ
