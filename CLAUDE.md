@@ -16,7 +16,7 @@ make                         # = certs + ldap_dir + freeradius_conf
 make certs                   # CA、OpenLDAP サーバー証明書、FreeRADIUS クライアント証明書、dhparam -> CA/
 make ldap_dir                # OU / ロール / サービスアカウント / ACL の LDIF -> openldap/ldif/
 make freeradius_conf         # ldap_openldap を .env から生成、clients.conf がなければ .sample からコピー
-make ldap_testaccounts       # テストユーザー admin01/operator01/readonly01 の LDIF(all には含まれない)
+make ldap_testaccounts       # テストユーザー admin01/operator01/readonly01/norole01 の LDIF(all には含まれない)
 make test                    # スモークテスト(別プロジェクト koitohan-test で起動。稼働中のスタックには触れない)
 make up / make down          # docker compose up -d / down(up は freeradius_conf に依存)
 make clean                   # 生成した証明書・鍵、LDIF、ldap_openldap を削除
@@ -43,7 +43,7 @@ docker compose build tftpd-hpa   # tftpd-hpa/build/ を変更したらビルド�
 - 利用者が環境に合わせて書く: `clients.conf`(ignore)。`clients.conf.sample` を追跡する。
 - `.env` から生成: `mods-available/ldap_openldap`(ignore)。`scripts/generate_freeradius_ldap.sh` が書き出すので、直接編集しない。
 
-認証の流れ: 仮想サーバー `ldap-pap` が LDAP バインドで認証し、`memberOf` を `control.LDAP-Group` に取り込む。`authz_vendor_role` が `clients.conf` の `nas_type` を `Koitohan-Reply-Type`(`Koitohan.dict` で定義)に正規化し、ロール(`admin` / `operator` / `readonly`)との組み合わせでベンダー固有の応答属性を返す。新しいベンダーを足すときは、辞書の enum、`nas_type` の正規表現、各ロールの `case`、スモークテスト(`tests/clients.conf` と `tests/smoke.sh` の期待値)の4か所を揃える。
+認証の流れ: 仮想サーバー `ldap-pap` が LDAP バインドで認証し、`memberOf` を `control.LDAP-Group` に取り込む。`authz_vendor_role` は、ロールのないユーザーをバインドの前に拒否する(理由は応答に付けず、`%log.warn` で出す。これは `radiusd -X` のときしか見えない)。続いて `clients.conf` の `nas_type` を `Koitohan-Reply-Type`(`Koitohan.dict` で定義)に正規化し、ロール(`admin` / `operator` / `readonly`)との組み合わせでベンダー固有の応答属性を返す。新しいベンダーを足すときは、辞書の enum、`nas_type` の正規表現、各ロールの `case`、スモークテスト(`tests/clients.conf` と `tests/smoke.sh` の期待値)の4か所を揃える。
 
 **スモークテスト(`tests/`)。** `make test` は `compose.yaml` に `tests/compose.test.yaml` を重ね、OpenLDAP と FreeRADIUS だけをプロジェクト `koitohan-test` として起動する。差し替えるのはポート(公開しない)、永続データ(匿名ボリューム)、`clients.conf`、ログの書き込み先だけで、イメージとその他のマウントは本番と同じ。テストアカウントの LDIF は `tests/ldif/` に生成し、`openldap/ldif/` には置かない(本番の初期投入に混ざらないようにするため)。要求は FreeRADIUS のコンテナ内から `radclient` で送り、`Net.Src.IP` で送信元を `127.0.0.N` に変えて `tests/clients.conf` のクライアント(= `nas_type`)を選ぶ。最後に OpenLDAP のコンテナを再起動し、`ldapi:///` 経由の `ldapwhoami` でバインドできることを確かめる(`LDAP_REMOVE_CONFIG_AFTER_SETUP` の退行の検出)。この確認は FreeRADIUS を通さない。OpenLDAP の再起動後、FreeRADIUS は再接続の途中で SIGSEGV で落ちるため(未解決)。`test` は `all` に依存させていない。`.env` がスタンプより新しいと、テストのついでに CA を作り直してしまうため。FreeRADIUS のログのマウント先を変えたときは、`tests/compose.test.yaml` の匿名ボリュームのパスも合わせること。合わせないと、テストが `freeradius/log/` に書き込む。
 

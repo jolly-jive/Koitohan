@@ -128,11 +128,11 @@ FreeRADIUS accepts requests only from private address ranges (`10.0.0.0/8`, `172
 
 ### Users and roles
 
-Users live under `ou=People`. Roles are `groupOfUniqueNames` entries under `ou=Roles`. Add a user to a role by adding the user's DN to the role's `uniqueMember`.
+Users live under `ou=People`. Roles are `groupOfUniqueNames` entries under `ou=Roles`. Add a user to a role by adding the user's DN to the role's `uniqueMember`. A user who belongs to no role is rejected on every device.
 
 Koitohan does not include a tool for managing users.
 
-For a quick trial, `make ldap_testaccounts` generates three test users (`admin01`, `operator01`, `readonly01`), one per role. Their passwords are written in `scripts/generate_ldap_test_accounts.sh`. Run it before the first `make up`, and do not use it outside a lab.
+For a quick trial, `make ldap_testaccounts` generates four test users: `admin01`, `operator01` and `readonly01`, one per role, and `norole01`, which belongs to no role. Their passwords are written in `scripts/generate_ldap_test_accounts.sh`. Run it before the first `make up`, and do not use it outside a lab.
 
 ### Changing the directory seed
 
@@ -261,7 +261,6 @@ docker compose logs -f freeradius
 
 ## Known limitations
 
-- A user who belongs to no role is still accepted, with no privilege attribute. What happens next depends on the device.
 - A user who belongs to more than one role has no defined precedence.
 - The TFTP server does not restrict the addresses it accepts requests from.
 - When OpenLDAP restarts while FreeRADIUS keeps running, for example after `docker compose restart openldap`, FreeRADIUS rejects the logins that follow and then crashes with a segmentation fault. Docker starts it again, and logins work after that. This is a bug in FreeRADIUS 4.x, which is a development version. To avoid the rejected logins, restart FreeRADIUS right after OpenLDAP with `docker compose restart freeradius`. This item will be removed when FreeRADIUS fixes the bug.

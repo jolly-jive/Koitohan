@@ -128,11 +128,11 @@ FreeRADIUS は、プライベートアドレス(`10.0.0.0/8`、`172.16.0.0/12`�
 
 ### ユーザーとロール
 
-ユーザーは `ou=People` の下に置きます。ロールは `ou=Roles` の下の `groupOfUniqueNames` です。ユーザーをロールに所属させるには、ロールの `uniqueMember` にユーザーの DN を追加します。
+ユーザーは `ou=People` の下に置きます。ロールは `ou=Roles` の下の `groupOfUniqueNames` です。ユーザーをロールに所属させるには、ロールの `uniqueMember` にユーザーの DN を追加します。どのロールにも所属していないユーザーは、すべての機器で拒否されます。
 
 Koitohan にユーザー管理用のツールは含まれていません。
 
-手早く試すには、`make ldap_testaccounts` でテストユーザー3名(`admin01`、`operator01`、`readonly01`)を各ロールに1名ずつ生成できます。パスワードは `scripts/generate_ldap_test_accounts.sh` に書いてあります。最初の `make up` の前に実行してください。検証環境以外では使わないでください。
+手早く試すには、`make ldap_testaccounts` でテストユーザー4名を生成できます。`admin01`、`operator01`、`readonly01` は各ロールに1名ずつ、`norole01` はどのロールにも所属しません。パスワードは `scripts/generate_ldap_test_accounts.sh` に書いてあります。最初の `make up` の前に実行してください。検証環境以外では使わないでください。
 
 ### ディレクトリの初期データを変更する
 
@@ -261,7 +261,6 @@ docker compose logs -f freeradius
 
 ## 既知の制限
 
-- どのロールにも所属していないユーザーも、権限属性なしで認証に成功します。その後の扱いは機器によって異なります。
 - 複数のロールに所属するユーザーについて、優先順位を定めていません。
 - TFTP サーバーは、接続元のアドレスを制限していません。
 - FreeRADIUS を動かしたまま OpenLDAP が再起動すると(`docker compose restart openldap` など)、FreeRADIUS はその後のログインを拒否し、やがてセグメンテーション違反で異常終了します。Docker が起動し直すので、それ以降のログインは通ります。開発バージョンである FreeRADIUS 4.x の不具合です。ログインが拒否される時間をなくすには、OpenLDAP の再起動に続けて `docker compose restart freeradius` で FreeRADIUS も再起動してください。FreeRADIUS 側で修正されたら、この項目は削除します。
