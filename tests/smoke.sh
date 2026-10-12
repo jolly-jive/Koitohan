@@ -5,8 +5,9 @@
 #
 # Starts openldap, freeradius and openssh as a separate compose project,
 # seeded with the test accounts. Checks the reply for every combination
-# of reply type and role, then logs in over ssh as each role. The
-# running stack is left alone.
+# of reply type and role, then logs in over ssh as each role, then
+# manages a user with bin/manage_users.sh. The running stack is left
+# alone.
 #
 #   KEEP=1 tests/smoke.sh    leave the test stack up for a closer look
 
@@ -168,6 +169,30 @@ function check_ssh() {
   fi
 }
 
+# Runs bin/manage_users.sh against the test stack. EXPECT is a fixed
+# string to find in the output. INPUT is the password it reads.
+function check_users() {
+  local NAME=${1}
+  local EXPECT=${2}
+  local INPUT=${3}
+  shift 3
+  local OUT WHY=''
+
+  OUT=$(echo "${INPUT}" \
+        | COMPOSE_PROJECT_NAME=koitohan-test COMPOSE_FILE=compose.yaml:tests/compose.test.yaml \
+          bin/manage_users.sh "$@" 2>&1)
+  echo "${OUT}" | grep -q -F -- "${EXPECT}" || WHY="expected ${EXPECT}"
+
+  COUNT=$((COUNT + 1))
+  if [ -z "${WHY}" ]; then
+    printf 'ok    %-13s %-11s %s\n' "${NAME}" "${2}" "${EXPECT}"
+  else
+    FAILED=$((FAILED + 1))
+    printf 'FAIL  %-13s %-11s %s\n' "${NAME}" "${2}" "${WHY}"
+    echo "${OUT}" | sed 's/^/      | /'
+  fi
+}
+
 # The same container has to start a second time, as it does after a
 # reboot of the host. This asks slapd itself and leaves FreeRADIUS out.
 function check_restart() {
@@ -289,6 +314,7 @@ if ! wait_ssh_ready; then
 fi
 
 NEW_PASS='x9#Kq!vT2m@Lz7Pw'
+NEW_PASS2='Gh4$wN8^rB1&yD6s'
 TOUCH='2> /dev/null && echo written || echo refused'
 
 # name | user | password | expected output | command
@@ -319,6 +345,46 @@ check_ssh 'passwd' readonly01 passreadonly 'password updated successfully' passw
   "passreadonly\n${NEW_PASS}\n${NEW_PASS}\n"
 check_ssh 'new password' readonly01 "${NEW_PASS}" 'koitohan readonly' 'id -Gn' < /dev/null
 check_ssh 'old password' readonly01 passreadonly denied 'id -Gn' < /dev/null
+
+# bin/manage_users.sh. The test accounts hold 10000 to 10003, so the
+# numbers start at 10004 and a deleted one does not come back.
+check_users 'users add' 'not usable as a login name' "${NEW_PASS}" add Smoke.01 operator
+check_users 'users add' 'no such role' "${NEW_PASS}" add smoke01 root
+check_users 'users add' 'the user exists' "${NEW_PASS}" add admin01 admin
+check_users 'users add' 'belongs to an account' "${NEW_PASS}" add nobody admin
+check_users 'users add' 'the password was refused' 'Password1' add smoke01 operator
+check_users 'users add' 'uidNumber 10004' "${NEW_PASS}" add smoke01 operator
+check_ssh 'users add' smoke01 "${NEW_PASS}" 'koitohan operator' 'id -Gn' < /dev/null
+check 'users add' 127.0.0.1 smoke01 "${NEW_PASS}" Accept 'AVPair = "shell:priv-lvl=7"'
+
+# the session that is open has to end with the change of the role
+ssh_run smoke01 "${NEW_PASS}" 'sleep 30' < /dev/null > /dev/null &
+sleep 3
+check_users 'users role' 'smoke01 is admin now' '' role smoke01 admin
+SECONDS=0
+wait
+COUNT=$((COUNT + 1))
+if [ ${SECONDS} -lt 10 ]; then
+  printf 'ok    %-13s %-11s %s\n' 'users role' smoke01 'session cut'
+else
+  FAILED=$((FAILED + 1))
+  printf 'FAIL  %-13s %-11s %s\n' 'users role' smoke01 'expected the session to be cut'
+fi
+check_ssh 'users role' smoke01 "${NEW_PASS}" 'koitohan admin' 'id -Gn' < /dev/null
+
+check_users 'users passwd' 'the password was refused' 'Password1' passwd smoke01
+check_users 'users passwd' 'set the password' "${NEW_PASS2}" passwd smoke01
+check_ssh 'users passwd' smoke01 "${NEW_PASS2}" 'koitohan admin' 'id -Gn' < /dev/null
+check_ssh 'users passwd' smoke01 "${NEW_PASS}" denied 'id -Gn' < /dev/null
+
+# without ppolicy, nobody is ever locked
+check_users 'users unlock' 'smoke01 is not locked' '' unlock smoke01
+
+check_users 'users delete' 'deleted smoke01' '' delete smoke01
+check_ssh 'users delete' smoke01 "${NEW_PASS2}" denied 'id -Gn' < /dev/null
+check 'users delete' 127.0.0.1 smoke01 "${NEW_PASS2}" Reject '-'
+check_users 'users delete' 'no such user' '' delete smoke01
+check_users 'users add' 'uidNumber 10005' "${NEW_PASS}" add smoke02 readonly
 
 check_restart
 

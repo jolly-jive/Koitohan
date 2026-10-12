@@ -4,9 +4,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 概要
 
-ネットワーク機器向けの AAA、ログ収集、ファイル配布を提供する Docker Compose スタック(Raspberry Pi 上で稼働)。OpenLDAP がユーザーディレクトリ、FreeRADIUS がそれを参照して認証し、syslog-ng が機器のログを収集し、tftpd-hpa がファームウェアの配布とコンフィグのバックアップの受け取りを行い、OpenSSH がユーザに作業用のシェル(利用者作業用コンテナ)を提供する。アプリケーションコードはなく、リポジトリの中身は `compose.yaml`、`Makefile`、`scripts/` の生成スクリプト、バインドマウントされる各サービスの設定、tftpd-hpa と OpenSSH のイメージの Dockerfile と起動スクリプトのみ。
+ネットワーク機器向けの AAA、ログ収集、ファイル配布を提供する Docker Compose スタック(Raspberry Pi 上で稼働)。OpenLDAP がユーザーディレクトリ、FreeRADIUS がそれを参照して認証し、syslog-ng が機器のログを収集し、tftpd-hpa がファームウェアの配布とコンフィグのバックアップの受け取りを行い、OpenSSH がユーザに作業用のシェル(利用者作業用コンテナ)を提供する。アプリケーションコードはなく、リポジトリの中身は `compose.yaml`、`Makefile`、`scripts/` の生成スクリプト、`bin/` の運用スクリプト、バインドマウントされる各サービスの設定、tftpd-hpa と OpenSSH のイメージの Dockerfile と起動スクリプトのみ。
 
-設計の背景、実装予定(ログローテーション、ユーザ管理のスクリプトとパスワードポリシー、利用者作業用コンテナの公開鍵認証)、未決定事項(DHCP / DNS)は `docs/basic-design.md` を参照。`README.md`(英語)と `README.ja.md`(日本語)は同じ内容なので、片方を直したらもう片方も直すこと。
+設計の背景、実装予定(ログローテーション、OpenLDAP の ppolicy によるパスワードポリシー、利用者作業用コンテナの公開鍵認証)、未決定事項(DHCP / DNS)は `docs/basic-design.md` を参照。`README.md`(英語)と `README.ja.md`(日本語)は同じ内容なので、片方を直したらもう片方も直すこと。
 
 ## コマンド
 
@@ -24,6 +24,7 @@ make clean                   # 生成した証明書・鍵、LDIF、ldap_openlda
 docker compose run --rm --no-deps freeradius radiusd -XC   # FreeRADIUS 設定の構文チェック(スタックは起動しない)
 docker compose build tftpd-hpa openssh   # tftpd-hpa/build/ や openssh/build/ を変更したらビルドし直す(初回は up が自動でビルドする)
 docker compose exec openssh koitohan-update-users   # LDAP のユーザーとロールの変更を、SSH のログインに反映する
+bin/manage_users.sh add|delete|role|passwd|unlock <ユーザー> ...   # ユーザーの管理(稼働中のスタックの LDAP を書き換える)
 ```
 
 生成スクリプトにはホスト側に `openssl`、`slappasswd`(`userPassword` のハッシュ化に使用)、`ssh-keygen` が必要。`make test` は OpenSSH 8.4 以降の `ssh` も使う。
@@ -38,6 +39,8 @@ docker compose exec openssh koitohan-update-users   # LDAP のユーザーとロ
 
 **LDAP の初期投入。** `openldap/ldif/` は `LDAP_SEED_INTERNAL_LDIF_PATH` として読み取り専用でマウントされ、osixia/openldap が**空のデータベースでの初回起動時にのみ**ファイル名順に適用する。数字のプレフィックスがその順序を表す: `100-People`、`200-Roles`(`admin` / `operator` / `readonly` の `groupOfUniqueNames`)、`250` / `260` はテストアカウントとそのロール所属、`300-ServiceAccounts`(`FREERADIUS_SERVICE_ACCOUNT_*` と `OPENSSH_SERVICE_ACCOUNT_*` による、FreeRADIUS と OpenSSH のバインド用アカウント)、`900-ACL`(`{1}mdb` の `olcAccess` を置き換え。`ou=ServiceAccounts` にツリーの読み取り権限を付与)。`LDAP_REMOVE_CONFIG_AFTER_SETUP: "false"` は外さないこと。イメージの起動スクリプトは LDIF のコピーを毎回の起動で行うが、既定(`true`)では初回起動の最後にコピー先(`assets/config`)を消すので、同じコンテナの2回目以降の起動(ホストの再起動、`docker restart`)が `cp` の失敗で終了し、`restart: unless-stopped` と合わさって再起動ループになる。LDIF や `.env` を変更して再投入するには、`openldap/data/` と `openldap/config/` の永続データを消す必要がある。ディレクトリの中身が失われるので、必ず事前に確認すること。データを消さずに足すときは、コンテナ内の `ldapi:///` から適用する(`docker compose exec -T openldap ldapadd -c -Q -Y EXTERNAL -H ldapi:/// < openldap/ldif/300-ServiceAccounts.ldif`。`-c` で、すでにあるエントリを飛ばす)。
 
+**ユーザーの管理(`bin/manage_users.sh`)。** `scripts/` は構築のための生成スクリプト(`make` から呼ぶ)、`bin/` は稼働中のスタックに対する運用のスクリプト(こいとはん管理者が直接実行する)と、性格で分けている。Docker ホストで実行し、OpenLDAP のコンテナの `ldapi:///` と、OpenSSH のコンテナの `pwqcheck`、`koitohan-update-users`、`pkill` を `docker compose exec` で使う。対象のスタックは `COMPOSE_PROJECT_NAME` と `COMPOSE_FILE` で変えられ、指定しなければ稼働中のスタックを書き換える。試すときはテスト用のスタックに向けること(`KEEP=1 make test` で残せる)。パスワードは `ldappasswd -T /dev/stdin` で渡す。エントリに `userPassword` を平文で書かないこと(ppolicy がないあいだは、ハッシュ化されずに保存される)。`uidNumber` は `cn=nextUidNumber,<サフィックス>`(`device` の `serialNumber`)から取り、再利用しない。このエントリは最初の `add` が作る。`unlock` は ppolicy のロックを解除するもので、ppolicy は未実装。設計は `docs/basic-design.md` の 4.7 節と 4.9 節。
+
 **FreeRADIUS。** イメージ(`cayenneryo/freeradius-server`。v4 の開発ブランチを `jolly-jive/freeradius-server-image` でビルドしたもので、タグで固定している)標準の `/etc/freeradius` をそのまま使い、Koitohan として書いたものだけを `freeradius/config/` に置いて `:ro` で重ねる。追加ファイル(`dictionary.d/`、`mods-available/ldap_openldap`、`policy.d/authz_vendor_role`、`sites-available/ldap-pap`、`clients.conf`)は個別にマウントし、`mods-enabled/` と `sites-enabled/` はディレクトリごと置き換える。この2つの中身はシンボリックリンクで、`../mods-available/xxx` はコンテナ内でイメージ側のファイルに解決される(ホスト上ではリンク切れに見えるのが正常)。イメージ標準のモジュールを有効・無効にするときは、このリンクを増減する。
 
 設定ファイルは3種類に分かれる。
@@ -47,7 +50,7 @@ docker compose exec openssh koitohan-update-users   # LDAP のユーザーとロ
 
 認証の流れ: 仮想サーバー `ldap-pap` が LDAP バインドで認証し、`memberOf` を `control.LDAP-Group` に取り込む。`authz_vendor_role` は、ロールのないユーザーをバインドの前に拒否する(理由は応答に付けず、`%log.warn` で出す。これは `radiusd -X` のときしか見えない)。続いて `clients.conf` の `nas_type` を `Koitohan-Reply-Type`(`Koitohan.dict` で定義)に正規化し、ロール(`admin` / `operator` / `readonly`)との組み合わせでベンダー固有の応答属性を返す。新しいベンダーを足すときは、辞書の enum、`nas_type` の正規表現、各ロールの `case`、スモークテスト(`tests/clients.conf` と `tests/smoke.sh` の期待値)の4か所を揃える。
 
-**スモークテスト(`tests/`)。** `make test` は `compose.yaml` に `tests/compose.test.yaml` を重ね、OpenLDAP、FreeRADIUS、OpenSSH だけをプロジェクト `koitohan-test` として起動する。差し替えるのはポート(公開しない)、永続データ(匿名ボリューム)、`clients.conf`、ログの書き込み先、OpenSSH に見せるログと TFTP のディレクトリ(匿名ボリューム)、sshd の `PerSourcePenalties`(`tests/sshd_test.conf` で無効にする)だけで、イメージとその他のマウントは本番と同じ。テストアカウントの LDIF は `tests/ldif/` に生成し、`openldap/ldif/` には置かない(本番の初期投入に混ざらないようにするため)。要求は FreeRADIUS のコンテナ内から `radclient` で送り、`Net.Src.IP` で送信元を `127.0.0.N` に変えて `tests/clients.conf` のクライアント(= `nas_type`)を選ぶ。最後に OpenLDAP のコンテナを再起動し、`ldapi:///` 経由の `ldapwhoami` でバインドできることを確かめる(`LDAP_REMOVE_CONFIG_AFTER_SETUP` の退行の検出)。この確認は FreeRADIUS を通さない。OpenLDAP の再起動後、FreeRADIUS は再接続の途中で SIGSEGV で落ちるため(未解決)。SSH の確認は RADIUS のあとに行う。ポートを公開しないので、Docker ホストからコンテナのアドレスへ直接 `ssh` し、パスワードは `SSH_ASKPASS` で渡す。ロールごとのログイン、`/tftpboot` の権限、`passwd` による変更と拒否、OpenLDAP の再起動のあとのログインを確かめる。`passwd` の確認は `readonly01` のパスワードを変えるので、そのあとに `readonly01` を使う確認を足すときは新しいパスワードを使う。`test` は `all` に依存させていない。`.env` がスタンプより新しいと、テストのついでに CA を作り直してしまうため。FreeRADIUS のログのマウント先を変えたときは、`tests/compose.test.yaml` の匿名ボリュームのパスも合わせること。合わせないと、テストが `freeradius/log/` に書き込む。
+**スモークテスト(`tests/`)。** `make test` は `compose.yaml` に `tests/compose.test.yaml` を重ね、OpenLDAP、FreeRADIUS、OpenSSH だけをプロジェクト `koitohan-test` として起動する。差し替えるのはポート(公開しない)、永続データ(匿名ボリューム)、`clients.conf`、ログの書き込み先、OpenSSH に見せるログと TFTP のディレクトリ(匿名ボリューム)、sshd の `PerSourcePenalties`(`tests/sshd_test.conf` で無効にする)だけで、イメージとその他のマウントは本番と同じ。テストアカウントの LDIF は `tests/ldif/` に生成し、`openldap/ldif/` には置かない(本番の初期投入に混ざらないようにするため)。要求は FreeRADIUS のコンテナ内から `radclient` で送り、`Net.Src.IP` で送信元を `127.0.0.N` に変えて `tests/clients.conf` のクライアント(= `nas_type`)を選ぶ。最後に OpenLDAP のコンテナを再起動し、`ldapi:///` 経由の `ldapwhoami` でバインドできることを確かめる(`LDAP_REMOVE_CONFIG_AFTER_SETUP` の退行の検出)。この確認は FreeRADIUS を通さない。OpenLDAP の再起動後、FreeRADIUS は再接続の途中で SIGSEGV で落ちるため(未解決)。SSH の確認は RADIUS のあとに行う。ポートを公開しないので、Docker ホストからコンテナのアドレスへ直接 `ssh` し、パスワードは `SSH_ASKPASS` で渡す。ロールごとのログイン、`/tftpboot` の権限、`passwd` による変更と拒否、OpenLDAP の再起動のあとのログインを確かめる。`passwd` の確認は `readonly01` のパスワードを変えるので、そのあとに `readonly01` を使う確認を足すときは新しいパスワードを使う。そのあと `bin/manage_users.sh` の確認が続く(テストアカウントが 10000〜10003 を持つので、番号は 10004 から始まる)。OpenLDAP の再起動は最後に置く。再起動のあとは FreeRADIUS が使えないので、RADIUS を通す確認はその前に足すこと。`test` は `all` に依存させていない。`.env` がスタンプより新しいと、テストのついでに CA を作り直してしまうため。FreeRADIUS のログのマウント先を変えたときは、`tests/compose.test.yaml` の匿名ボリュームのパスも合わせること。合わせないと、テストが `freeradius/log/` に書き込む。
 
 **syslog-ng。** コンテナ内で 1514 udp/tcp を待ち受ける(ホストの 514 として公開)。`syslog-ng/config/syslog-ng.conf` は機器ごとのファイルを `/var/log/Hosts/${HOST}/${HOST}.log`(ホスト側: `syslog-ng/log/Hosts/`)に書き出し、加えて生メッセージとホスト系マクロを記録する `debug.log` を出力する。`syslog-ng.conf.dist` はイメージのデフォルト設定。
 
