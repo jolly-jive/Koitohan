@@ -144,14 +144,26 @@ FreeRADIUS は、プライベートアドレス(`10.0.0.0/8`、`172.16.0.0/12`�
 
 ### ユーザーとロール
 
-ユーザーは `ou=People` の下に置きます。ロールは `ou=Roles` の下の `groupOfUniqueNames` です。ユーザーをロールに所属させるには、ロールの `uniqueMember` にユーザーの DN を追加します。どのロールにも所属していないユーザーは、すべての機器で拒否されます。
+ユーザーの登録、削除、ロールの変更、パスワードの再発行、ロックの解除は、Docker ホストで `bin/manage_users.sh` を使って行います。スタックが起動している状態で実行してください。
 
-Koitohan にユーザー管理用のツールは含まれていません。
+```sh
+bin/manage_users.sh add alice operator            # 登録。3つ目の引数に氏名を付けられます
+bin/manage_users.sh role alice admin              # ロールの変更
+bin/manage_users.sh passwd alice                  # パスワードの再発行
+bin/manage_users.sh unlock alice                  # ロックの解除
+bin/manage_users.sh delete alice                  # 削除
+```
 
-SSH でログインさせるユーザーには、`posixAccount` も持たせます(「[SSH での作業](#ssh-での作業)」を参照)。
+- ユーザーに割り当てるロールは、`admin`、`operator`、`readonly` のうちの1つです。どのロールにも所属していないユーザーは、すべての機器で拒否されます。
+- `add` と `passwd` は、パスワードを端末から尋ねます。パスワードは、ユーザーが `passwd` で変更するときと同じ規則で判定します(「[パスワードの変更](#パスワードの変更)」を参照)。発行したパスワードは、ユーザー本人に SSH でログインして変更してもらってください。
+- ユーザー名に使えるのは、英小文字、数字、`_`、`-` で、32 文字までです。
+- `uidNumber` は 10000 から順に割り当てます。一度使った番号は、ユーザーを削除したあとも再利用しません。ユーザーが置いたファイルの所有者は、番号で残るためです。次に割り当てる番号は、ディレクトリの `cn=nextUidNumber` に記録しています。
+- 変更は、SSH のログインにもすぐに反映されます。`delete` と `role` は、そのユーザーのログイン中のセッションを切ります。
+- `unlock` が解除するのは、パスワードポリシー(ppolicy)によるロックです。ppolicy はまだ組み込んでいないので、いまはロックされるユーザーはいません。
 
-- `uidNumber` は 10000〜59999 の範囲で、ユーザーごとに別の番号にします。一度使った番号は、ユーザーを削除したあとも再利用しないでください。ユーザーが置いたファイルの所有者は、番号で残るためです。
-- `gidNumber` は 10000 にします。
+ディレクトリの中では、ユーザーは `ou=People` の下にあり、ロールは `ou=Roles` の下の `groupOfUniqueNames` です。ロールへの所属は、ロールの `uniqueMember` にユーザーの DN があることで表します。
+
+スクリプトを使わずに登録したユーザーも、`delete`、`role`、`passwd`、`unlock` で扱えます。そうしたユーザーに SSH でログインさせるには、`posixAccount` を持たせます。`uidNumber` は 10000〜59999 の範囲で、ほかのユーザーと重ならず、過去に使っていない番号にします。`gidNumber` は 10000 にします。スクリプトを初めて `add` で使うとき、次に割り当てる番号は、その時点で使われている最大の番号の次から始まります。
 
 既存のユーザーに持たせる例:
 
@@ -283,7 +295,7 @@ scp -P 2222 image.bin alice@<ホスト>:/tftpboot/firmware/
 
 ### ユーザーとロールの変更を反映する
 
-OpenSSH のコンテナは、起動時にディレクトリを読んで、ログインできるユーザーの一覧を作ります。ユーザーの追加、削除、ロールの変更をしたあとは、一覧を作り直してください。
+OpenSSH のコンテナは、起動時にディレクトリを読んで、ログインできるユーザーの一覧を作ります。`bin/manage_users.sh` は、変更のたびにこの一覧を作り直すので、ふだんは何もしなくて構いません。スクリプトを使わずにディレクトリを書き換えたときは、一覧を作り直してください。
 
 ```sh
 docker compose exec openssh koitohan-update-users
@@ -358,6 +370,7 @@ make test               # スモークテスト
 make up                 # スタックを起動
 make down               # スタックを停止
 make clean              # 生成した証明書、LDIF、設定を削除
+bin/manage_users.sh     # ユーザーの登録、削除、ロールの変更、パスワードの再発行、ロックの解除
 ```
 
 スタックを起動せずに FreeRADIUS の設定を検査する:
@@ -393,7 +406,7 @@ docker compose logs -f freeradius
 
 - 複数のロールに所属するユーザーについて、優先順位を定めていません。
 - TFTP サーバーは、接続元のアドレスを制限していません。
-- ユーザーとロールの変更は、`koitohan-update-users` を実行するまで、SSH のログインに反映されません。
+- `bin/manage_users.sh` を使わずに行ったユーザーとロールの変更は、`koitohan-update-users` を実行するまで、SSH のログインに反映されません。
 - `passwd` によるパスワードの判定は、ログインしたユーザーが迂回できます。この判定は、不注意で弱いパスワードを設定することを防ぐためのものです。OpenLDAP 自身は判定しません。
 - SSH でログインしたユーザーは、OpenSSH のコンテナから、Docker ホストや外部のネットワークへ接続できます。Docker のネットワークで届かなくしているのは、OpenLDAP 以外のコンテナだけです。
 - FreeRADIUS を動かしたまま OpenLDAP が再起動すると(`docker compose restart openldap` など)、FreeRADIUS はその後のログインを拒否し、やがてセグメンテーション違反で異常終了します。Docker が起動し直すので、それ以降のログインは通ります。開発バージョンである FreeRADIUS 4.x の不具合です。ログインが拒否される時間をなくすには、OpenLDAP の再起動に続けて `docker compose restart freeradius` で FreeRADIUS も再起動してください。FreeRADIUS 側で修正されたら、この項目は削除します。

@@ -144,14 +144,26 @@ FreeRADIUS accepts requests only from private address ranges (`10.0.0.0/8`, `172
 
 ### Users and roles
 
-Users live under `ou=People`. Roles are `groupOfUniqueNames` entries under `ou=Roles`. Add a user to a role by adding the user's DN to the role's `uniqueMember`. A user who belongs to no role is rejected on every device.
+Add and delete users, change a role, set a new password and unlock a user with `bin/manage_users.sh` on the Docker host. Run it while the stack is up.
 
-Koitohan does not include a tool for managing users.
+```sh
+bin/manage_users.sh add alice operator            # add. A third argument gives the full name
+bin/manage_users.sh role alice admin              # change the role
+bin/manage_users.sh passwd alice                  # set a new password
+bin/manage_users.sh unlock alice                  # unlock
+bin/manage_users.sh delete alice                  # delete
+```
 
-A user who is to log in over SSH also needs `posixAccount` (see [Working over SSH](#working-over-ssh)).
+- A user has one role: `admin`, `operator` or `readonly`. A user who belongs to no role is rejected on every device.
+- `add` and `passwd` ask for the password on the terminal. It is checked by the same rules as when a user changes it with `passwd` (see [Changing a password](#changing-a-password)). Ask the user to log in over SSH and change the password you set.
+- A user name takes lowercase letters, digits, `_` and `-`, up to 32 characters.
+- `uidNumber` is handed out in order from 10000. A number is never reused, even after its user is deleted. The files a user leaves behind keep the number as their owner. The next number to hand out is kept in `cn=nextUidNumber` in the directory.
+- A change reaches SSH logins at once. `delete` and `role` close the sessions of that user.
+- `unlock` lifts the lock of the password policy (ppolicy). ppolicy is not built in yet, so no user gets locked for now.
 
-- Give each user a different `uidNumber` from 10000 to 59999. Never reuse a number, even after you delete its user. The files a user leaves behind keep the number as their owner.
-- Set `gidNumber` to 10000.
+In the directory, users live under `ou=People`, and roles are `groupOfUniqueNames` entries under `ou=Roles`. A user belongs to a role when the role's `uniqueMember` holds the user's DN.
+
+`delete`, `role`, `passwd` and `unlock` also work on users who were added without the script. Such a user needs `posixAccount` to log in over SSH. Give a `uidNumber` from 10000 to 59999 that no other user has and that was never used before, and set `gidNumber` to 10000. The first `add` starts the numbers after the highest one in use at that time.
 
 An example that adds it to an existing user:
 
@@ -283,7 +295,7 @@ An upper case letter at the beginning and a digit at the end do not count as cla
 
 ### Applying changes to users and roles
 
-The OpenSSH container reads the directory when it starts and builds the list of users who can log in. Rebuild the list after you add or delete a user or change a role.
+The OpenSSH container reads the directory when it starts and builds the list of users who can log in. `bin/manage_users.sh` rebuilds the list after every change, so there is usually nothing to do. Rebuild the list yourself after you change the directory without the script.
 
 ```sh
 docker compose exec openssh koitohan-update-users
@@ -358,6 +370,7 @@ make test               # smoke test
 make up                 # start the stack
 make down               # stop the stack
 make clean              # delete generated certificates, LDIF files and config
+bin/manage_users.sh     # add and delete users, change a role, set a new password, unlock
 ```
 
 Check the FreeRADIUS configuration without starting the stack:
@@ -393,7 +406,7 @@ docker compose logs -f freeradius
 
 - A user who belongs to more than one role has no defined precedence.
 - The TFTP server does not restrict the addresses it accepts requests from.
-- Changes to users and roles do not reach SSH logins until you run `koitohan-update-users`.
+- Changes to users and roles made without `bin/manage_users.sh` do not reach SSH logins until you run `koitohan-update-users`.
 - A logged-in user can get around the password check of `passwd`. The check is there to prevent weak passwords set by carelessness. OpenLDAP itself does not check passwords.
 - A user logged in over SSH can connect from the OpenSSH container to the Docker host and to outside networks. The Docker network keeps them only from the containers other than OpenLDAP.
 - When OpenLDAP restarts while FreeRADIUS keeps running, for example after `docker compose restart openldap`, FreeRADIUS rejects the logins that follow and then crashes with a segmentation fault. Docker starts it again, and logins work after that. This is a bug in FreeRADIUS 4.x, which is a development version. To avoid the rejected logins, restart FreeRADIUS right after OpenLDAP with `docker compose restart freeradius`. This item will be removed when FreeRADIUS fixes the bug.
