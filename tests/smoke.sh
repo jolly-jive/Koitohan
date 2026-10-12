@@ -3,11 +3,12 @@
 # Smoke test for the AAA path (FreeRADIUS -> LDAPS -> OpenLDAP) and for
 # the workspace container (ssh -> OpenSSH -> LDAPS -> OpenLDAP).
 #
-# Starts openldap, freeradius and openssh as a separate compose project,
-# seeded with the test accounts. Checks the reply for every combination
-# of reply type and role, then logs in over ssh as each role, then
-# manages a user with bin/manage_users.sh, then runs into the password
-# policy of OpenLDAP. The running stack is left alone.
+# Starts openldap, freeradius and openssh as a separate compose project
+# on an empty directory, and makes the test accounts with
+# bin/manage_users.sh. Checks the reply for every combination of reply
+# type and role, then logs in over ssh as each role, then manages a user
+# with bin/manage_users.sh, then runs into the password policy of
+# OpenLDAP. The running stack is left alone.
 #
 #   KEEP=1 tests/smoke.sh    leave the test stack up for a closer look
 
@@ -29,12 +30,20 @@ function cleanup() {
   fi
 }
 
+# The test accounts. The passwords have to pass passwdqc (PASSWDQC_MIN).
+# They go into the tables of cases and into quoted commands, so keep
+# them free of quotes, backslashes, '$' and '|'.
+PASS_ADMIN='Kd7-wPq2.Xm9+Rt4z'
+PASS_OPERATOR='Vb3_hJy8=Ns5.Lc6w'
+PASS_READONLY='Tz6+mGf4-Qr9_Hk2x'
+PASS_NOROLE='Wn8.cDs3+Yp7=Fj5v'
+
 function password_of() {
   case ${1} in
-    admin01)    echo 'passadmin' ;;
-    operator01) echo 'passoperator' ;;
-    readonly01) echo 'passreadonly' ;;
-    norole01)   echo 'passnorole' ;;
+    admin01)    echo "${PASS_ADMIN}" ;;
+    operator01) echo "${PASS_OPERATOR}" ;;
+    readonly01) echo "${PASS_READONLY}" ;;
+    norole01)   echo "${PASS_NOROLE}" ;;
     *)          echo 'nopass' ;;
   esac
 }
@@ -55,12 +64,26 @@ function reply_attrs() {
   | grep -v -e '^Received ' -e '^(' -e 'Message-Authenticator'
 }
 
-# the test accounts appear once OpenLDAP has loaded the seed LDIFs
+# OpenLDAP listens on LDAPS once it has loaded the seed LDIFs, and the
+# openssh container can read the users from then on
+function wait_ldap_ready() {
+  local TRY
+
+  for TRY in $(seq ${WAIT_TRIES}); do
+    if "${COMPOSE[@]}" exec -T openssh koitohan-update-users > /dev/null 2>&1; then
+      return 0
+    fi
+    sleep 3
+  done
+  return 1
+}
+
+# FreeRADIUS answers once it has started and reached OpenLDAP
 function wait_ready() {
   local TRY
 
   for TRY in $(seq ${WAIT_TRIES}); do
-    if send_request 127.0.0.1 admin01 passadmin | grep -q '^Received Access-Accept'; then
+    if send_request 127.0.0.1 admin01 "${PASS_ADMIN}" | grep -q '^Received Access-Accept'; then
       return 0
     fi
     sleep 3
@@ -127,14 +150,14 @@ function ssh_run() {
   ssh "${SSH_OPTS[@]}" "${USER}@${SSH_ADDR}" "$@" 2>&1
 }
 
-# the users appear once the container has read them from OpenLDAP
+# sshd starts once the container has read the users from OpenLDAP
 function wait_ssh_ready() {
   local TRY
 
   for TRY in $(seq ${WAIT_TRIES}); do
     SSH_ADDR=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' \
       "$("${COMPOSE[@]}" ps -q openssh)" 2> /dev/null)
-    if [ -n "${SSH_ADDR}" ] && ssh_run admin01 passadmin true < /dev/null > /dev/null; then
+    if [ -n "${SSH_ADDR}" ] && ssh_run admin01 "${PASS_ADMIN}" true < /dev/null > /dev/null; then
       return 0
     fi
     sleep 3
@@ -226,7 +249,7 @@ function check_ldap() {
 function check_restart() {
   local TRY WHY='expected a bind to succeed'
   local DN='uid=admin01,ou=People,dc=${LDAP_DOMAIN//./,dc=}'
-  local BIND="ldapwhoami -x -H ldapi:/// -w passadmin -D \"${DN}\""
+  local BIND="ldapwhoami -x -H ldapi:/// -w '${PASS_ADMIN}' -D \"${DN}\""
 
   "${COMPOSE[@]}" restart openldap > /dev/null 2>&1
   for TRY in $(seq ${WAIT_TRIES}); do
@@ -260,8 +283,7 @@ for FILE in \
   openssh/hostkeys/ssh_host_ed25519_key \
   openldap/ldif/100-People.ldif \
   openldap/ldif/400-PPolicy.ldif \
-  freeradius/config/mods-available/ldap_openldap \
-  tests/ldif/250-TestAccounts.ldif
+  freeradius/config/mods-available/ldap_openldap
 do
   if [ ! -e "${FILE}" ]; then
     echo "${FILE} is missing. Run 'make' first, then 'make test'."
@@ -282,8 +304,32 @@ if ! "${COMPOSE[@]}" up -d --build openldap freeradius openssh > /dev/null 2>&1;
   exit 1
 fi
 
-if ! wait_ready; then
+if ! wait_ldap_ready; then
   echo 'the test stack did not become ready'
+  "${COMPOSE[@]}" logs --tail 30 openldap openssh
+  exit 1
+fi
+
+# The test accounts. bin/manage_users.sh does not make a user without a
+# role, so norole01 is made by hand, and first: the numbers of the
+# script have to start after it.
+AS_MANAGER='-Q -Y EXTERNAL -H ldapi:///'
+check_ldap 'by hand' norole01 'made norole01' "
+  printf 'dn: uid=norole01,ou=People,%s\nobjectClass: inetOrgPerson\nobjectClass: posixAccount\nuid: norole01\nuidNumber: 10000\ngidNumber: 10000\nhomeDirectory: /home/norole01\nloginShell: /bin/sh\ncn: norole01\nsn: norole01\n' \"\${SUFFIX}\" \\
+  | ldapadd ${AS_MANAGER} > /dev/null \\
+  && ldappasswd ${AS_MANAGER} -s '${PASS_NOROLE}' \"uid=norole01,ou=People,\${SUFFIX}\" \\
+  && echo 'made norole01'"
+check_users 'users add' 'uidNumber 10001' "${PASS_ADMIN}" add admin01 admin
+check_users 'users add' 'uidNumber 10002' "${PASS_OPERATOR}" add operator01 operator
+check_users 'users add' 'uidNumber 10003' "${PASS_READONLY}" add readonly01 readonly
+
+if [ ${FAILED} -ne 0 ]; then
+  echo 'could not make the test accounts'
+  exit 1
+fi
+
+if ! wait_ready; then
+  echo 'FreeRADIUS did not become ready'
   "${COMPOSE[@]}" logs --tail 30 freeradius
   exit 1
 fi
@@ -350,30 +396,30 @@ TOUCH='2> /dev/null && echo written || echo refused'
 while IFS='|' read -r NAME USER PASS EXPECT COMMAND; do
   check_ssh "${NAME}" "${USER}" "${PASS}" "${EXPECT}" "${COMMAND}" < /dev/null
 done <<CASES
-ssh login|admin01|passadmin|koitohan admin|id -Gn
-ssh login|operator01|passoperator|koitohan operator|id -Gn
-ssh login|readonly01|passreadonly|koitohan readonly|id -Gn
-ssh login|norole01|passnorole|denied|id -Gn
+ssh login|admin01|${PASS_ADMIN}|koitohan admin|id -Gn
+ssh login|operator01|${PASS_OPERATOR}|koitohan operator|id -Gn
+ssh login|readonly01|${PASS_READONLY}|koitohan readonly|id -Gn
+ssh login|norole01|${PASS_NOROLE}|denied|id -Gn
 ssh login|admin01|wrong|denied|id -Gn
 ssh login|nobody01|nopass|denied|id -Gn
 ssh login|root|nopass|denied|id -Gn
-firmware|admin01|passadmin|written|touch /tftpboot/firmware/smoke ${TOUCH}
-firmware|operator01|passoperator|refused|touch /tftpboot/firmware/smoke ${TOUCH}
-firmware|readonly01|passreadonly|refused|touch /tftpboot/firmware/smoke ${TOUCH}
-configs|admin01|passadmin|written|touch /tftpboot/configs/smoke ${TOUCH}
-configs|operator01|passoperator|refused|ls /tftpboot/configs ${TOUCH}
-configs|readonly01|passreadonly|refused|ls /tftpboot/configs ${TOUCH}
-root fs|admin01|passadmin|refused|touch /smoke ${TOUCH}
-secrets|admin01|passadmin|refused|cat /run/koitohan/bindpw /etc/koitohan/certs/client.key ${TOUCH}
+firmware|admin01|${PASS_ADMIN}|written|touch /tftpboot/firmware/smoke ${TOUCH}
+firmware|operator01|${PASS_OPERATOR}|refused|touch /tftpboot/firmware/smoke ${TOUCH}
+firmware|readonly01|${PASS_READONLY}|refused|touch /tftpboot/firmware/smoke ${TOUCH}
+configs|admin01|${PASS_ADMIN}|written|touch /tftpboot/configs/smoke ${TOUCH}
+configs|operator01|${PASS_OPERATOR}|refused|ls /tftpboot/configs ${TOUCH}
+configs|readonly01|${PASS_READONLY}|refused|ls /tftpboot/configs ${TOUCH}
+root fs|admin01|${PASS_ADMIN}|refused|touch /smoke ${TOUCH}
+secrets|admin01|${PASS_ADMIN}|refused|cat /run/koitohan/bindpw /etc/koitohan/certs/client.key ${TOUCH}
 CASES
 
 # passwd reads the current password, then the new one twice
-check_ssh 'weak password' readonly01 passreadonly 'Weak password' passwd \
-  'passreadonly\nPassword1\nPassword1\n'
-check_ssh 'passwd' readonly01 passreadonly 'password updated successfully' passwd \
-  "passreadonly\n${NEW_PASS}\n${NEW_PASS}\n"
+check_ssh 'weak password' readonly01 "${PASS_READONLY}" 'Weak password' passwd \
+  "${PASS_READONLY}\nPassword1\nPassword1\n"
+check_ssh 'passwd' readonly01 "${PASS_READONLY}" 'password updated successfully' passwd \
+  "${PASS_READONLY}\n${NEW_PASS}\n${NEW_PASS}\n"
 check_ssh 'new password' readonly01 "${NEW_PASS}" 'koitohan readonly' 'id -Gn' < /dev/null
-check_ssh 'old password' readonly01 passreadonly denied 'id -Gn' < /dev/null
+check_ssh 'old password' readonly01 "${PASS_READONLY}" denied 'id -Gn' < /dev/null
 
 # bin/manage_users.sh. The test accounts hold 10000 to 10003, so the
 # numbers start at 10004 and a deleted one does not come back.
@@ -409,12 +455,12 @@ check_ssh 'users passwd' smoke01 "${NEW_PASS}" denied 'id -Gn' < /dev/null
 # The password policy of OpenLDAP (ppolicy). A user who goes around
 # passwd still meets the least length, and cannot store a hash, which
 # would hide the length.
-AS_OPERATOR01='-x -H ldapi:/// -D "uid=operator01,ou=People,${SUFFIX}" -w passoperator'
+AS_OPERATOR01='-x -H ldapi:/// -D "uid=operator01,ou=People,${SUFFIX}" -w '"'${PASS_OPERATOR}'"
 check_ldap 'min length' operator01 'Password fails quality checking policy' \
   "ldappasswd ${AS_OPERATOR01} -s 'x9#Kq!v'"
 check_ldap 'hashed' operator01 'Password fails quality checking policy' \
   "printf 'dn: uid=operator01,ou=People,%s\nchangetype: modify\nreplace: userPassword\nuserPassword: {SSHA}c21va2Vfc21va2Vfc21va2Vfc21va2U=\n' \"\${SUFFIX}\" | ldapmodify ${AS_OPERATOR01}"
-check 'min length' 127.0.0.1 operator01 passoperator Accept 'AVPair = "shell:priv-lvl=7"'
+check 'min length' 127.0.0.1 operator01 "${PASS_OPERATOR}" Accept 'AVPair = "shell:priv-lvl=7"'
 
 # The lock. The failures come in over RADIUS and lock ssh as well.
 check_users 'users unlock' 'smoke01 is not locked' '' unlock smoke01
@@ -453,7 +499,7 @@ check_users 'users add' 'uidNumber 10005' "${NEW_PASS}" add smoke02 readonly
 check_restart
 
 # nslcd has to find the restarted OpenLDAP again
-check_ssh 'ldap restart' admin01 passadmin 'koitohan admin' 'id -Gn' < /dev/null
+check_ssh 'ldap restart' admin01 "${PASS_ADMIN}" 'koitohan admin' 'id -Gn' < /dev/null
 
 echo
 if [ ${FAILED} -ne 0 ]; then
