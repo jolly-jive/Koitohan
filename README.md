@@ -452,7 +452,9 @@ make down && make up
 | 69/udp           | TFTP                  |
 | 636/tcp          | LDAPS                 |
 
-Port 1813/udp is also published, but RADIUS accounting is not implemented yet.
+Every port is published on IPv4 only. IPv6 is not supported.
+
+RADIUS accounting (1813/udp) is not provided. The logins are recorded in the detail logs of FreeRADIUS, and the logouts and the operations in the syslog of the devices.
 
 ## Logs
 
