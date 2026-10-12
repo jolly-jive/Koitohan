@@ -1,8 +1,8 @@
 ENV_FILE := .env
 
-.PHONY: all certs secrets ldap_dir freeradius_conf ssh_hostkeys test clean up down
+.PHONY: all certs secrets ldap_dir freeradius_conf ssh_hostkeys logrotate_conf test clean up down
 
-all: certs secrets ldap_dir freeradius_conf ssh_hostkeys
+all: certs secrets ldap_dir freeradius_conf ssh_hostkeys logrotate_conf
 
 ### keys and certs
 CERT_STAMP := CA/.certs.stamp
@@ -62,6 +62,15 @@ ssh_hostkeys: $(SSH_HOSTKEYS)
 openssh/hostkeys/ssh_host_%_key:
 	ssh-keygen -q -t $* -N '' -C koitohan -f $@
 
+### logrotate config
+# installed by hand, with sudo: logrotate runs on the Docker host
+LOGROTATE_CONF := logrotate/koitohan
+
+logrotate_conf: $(LOGROTATE_CONF)
+
+$(LOGROTATE_CONF): $(ENV_FILE) scripts/generate_logrotate.sh
+	./scripts/generate_logrotate.sh
+
 ### smoke test
 # does not depend on all, so that a test never regenerates the certificates
 test:
@@ -72,6 +81,7 @@ clean:
 	rm -f $(CERT_STAMP) $(CERT_FILES)
 	rm -f $(LDAP_BASE_LDIFS)
 	rm -f $(FREERADIUS_LDAP)
+	rm -f $(LOGROTATE_CONF)
 
 ### up and down
 # Docker would create a missing source of a bind mount as root

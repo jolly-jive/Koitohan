@@ -33,7 +33,7 @@ Koitohan is at the verification stage. It is not hardened for production use.
 | Log collection                   | syslog-ng (`linuxserver/syslog-ng`)             | Working   |
 | File distribution                | tftpd-hpa (built here from Alpine)              | Working   |
 | Workspace for the users          | OpenSSH (built here from Alpine)                | Working   |
-| Log rotation                     | logrotate on the Docker host                    | Planned   |
+| Log rotation                     | logrotate on the Docker host                    | Working   |
 | DHCP and DNS                     | Kea, BIND9                                      | Undecided |
 
 FreeRADIUS 4.x is a development version. Koitohan uses it ahead of its official release. The image is built from the development branch in [freeradius-server-image](https://github.com/jolly-jive/freeradius-server-image), and `compose.yaml` pins it to one build.
@@ -45,6 +45,7 @@ FreeRADIUS 4.x is a development version. Koitohan uses it ahead of its official 
 - `openssl`
 - `slappasswd` (in the `slapd` package on Debian and Raspberry Pi OS)
 - `ssh-keygen`. `make test` also uses `ssh` from OpenSSH 8.4 or later.
+- `logrotate`, which rotates the logs
 
 ## Quick start
 
@@ -53,11 +54,12 @@ git clone <repository-url> koitohan
 cd koitohan
 
 cp .env.sample .env    # then edit .env
-make                   # generate certificates, the service account passwords, LDIF files, the FreeRADIUS LDAP config and the sshd host keys
+make                   # generate certificates, the service account passwords, LDIF files, the FreeRADIUS LDAP config, the sshd host keys and the logrotate config
 $EDITOR freeradius/config/clients.conf
 sudo chown -R 101:101 freeradius/log
 sudo chown 1000:10001 tftpd-hpa/tftpboot/firmware
 sudo chmod 2770 tftpd-hpa/tftpboot/firmware
+sudo install -m 644 -o root -g root logrotate/koitohan /etc/logrotate.d/koitohan
 make up
 ```
 
@@ -66,6 +68,8 @@ Change every password in `.env` before you run `make`. The values in `.env.sampl
 `make` creates `freeradius/config/clients.conf` from `clients.conf.sample`. Replace the sample clients with your own devices before you run `make up`.
 
 FreeRADIUS runs as uid 101 and writes its logs to `freeradius/log/`. Without the `chown`, it cannot record a login there and rejects every request.
+
+The `install` hands the configuration of the log rotation to logrotate on the Docker host (see [Rotation](#rotation)).
 
 The `chown` and `chmod` on `firmware/` open the directory to the users with the role `admin`, and to no other user who logs in over SSH (see [Working over SSH](#working-over-ssh)). The steps in [TFTP](#tftp) do the same for `configs/`.
 
@@ -325,8 +329,11 @@ Users log in to the OpenSSH container over SSH, with the same user name and pass
 ```sh
 ssh -p 2222 alice@<host>
 
-# pick one kind of message out of the logs of every device
+# pick one kind of message out of today's logs of every device
 ssh -p 2222 alice@<host> 'grep -h LINK-3 /logs/Hosts/*/*.log' > link.txt
+
+# the same for the logs of 2026-10-10 (logs two or more days old are compressed)
+ssh -p 2222 alice@<host> 'zgrep -h LINK-3 /logs/Hosts/*/*.log-2026-10-10.gz' > link.txt
 
 # put a firmware image in place (role admin only)
 scp -P 2222 image.bin alice@<host>:/tftpboot/firmware/
@@ -423,19 +430,65 @@ Port 1813/udp is also published, but RADIUS accounting is not implemented yet.
 
 The files under `freeradius/log/` belong to uid 101. Read them with `sudo`.
 
-Nothing rotates these files yet. `debug.log` in particular grows without limit.
-
 TFTP transfers are not logged to a file. See them with `docker compose logs tftpd-hpa`. The same goes for SSH logins, with `docker compose logs openssh`.
+
+### Rotation
+
+logrotate on the Docker host rotates the files in the table above once a day. `make` generates its configuration as `logrotate/koitohan`. Put it where logrotate reads it.
+
+```sh
+make logrotate_conf
+sudo install -m 644 -o root -g root logrotate/koitohan /etc/logrotate.d/koitohan
+```
+
+| File                                               | Name after the rotation               | Days kept |
+| -------------------------------------------------- | ------------------------------------- | --------- |
+| `syslog-ng/log/Hosts/<host>/<host>.log`            | `<host>.log-2026-10-10.gz`            | 1096 (three years) |
+| `syslog-ng/log/debug.log`                          | `debug.log-2026-10-10.gz`             | 7         |
+| `freeradius/log/radius.log`                        | `radius.log-2026-10-10.gz`            | 1096      |
+| `freeradius/log/radacct/<client>/auth-detail`, `reply-detail` | `auth-detail-2026-10-10.gz`, `reply-detail-2026-10-10.gz` | 1096 |
+
+- The date in the name is the date of the content. The rotation happens when logrotate runs after the date has changed.
+- The file of the day before stays uncompressed for one more day (`<host>.log-2026-10-10`).
+- A day without a single line leaves no file.
+- logrotate only takes note of a file it sees for the first time, and starts rotating it the day after.
+- The generated configuration contains the absolute path of the repository and the name of the syslog-ng container (`SYSLOG_CONTAINER_NAME` in `.env`). Run the two lines above again after you move the repository or change the container name.
+- To keep the files for another number of days, change the values at the top of `scripts/generate_logrotate.sh`, then run the same two lines.
+- To try the configuration, use `sudo logrotate -d /etc/logrotate.d/koitohan`. It changes nothing, and shows the files and what it would do with them.
+
+In earlier versions, FreeRADIUS split its detail logs (`auth-detail`, `reply-detail`) by day itself, with the date in the name (`auth-detail-2026-9-2`). When you update a running environment, recreate the FreeRADIUS and OpenSSH containers.
+
+```sh
+docker compose build openssh    # brings zgrep, which reads the compressed logs
+make up                         # recreates FreeRADIUS with the new detail log config, and OpenSSH from the new image
+```
+
+The files with the earlier names stay as they are. Delete them if you do not need them.
+
+### Standard output of the containers
+
+The logs you read with `docker compose logs` (TFTP transfers, SSH logins, OpenLDAP) are kept by the logging driver of Docker. `compose.yaml` names no driver and follows the configuration of the Docker host.
+
+The default driver of Docker (`json-file`) keeps logs without limit unless you set one. Choose a driver with a limit in `/etc/docker/daemon.json`. For example, this sends the logs to the journal of systemd.
+
+```json
+{
+  "log-driver": "journald"
+}
+```
+
+Other choices are `local`, which rotates by default, and `json-file` with `max-size` and `max-file`. The change applies to the containers created after Docker has restarted.
 
 ## Commands
 
 ```sh
-make                    # certs + secrets + ldap_dir + freeradius_conf + ssh_hostkeys
+make                    # certs + secrets + ldap_dir + freeradius_conf + ssh_hostkeys + logrotate_conf
 make certs              # private CA, server and client certificates
 make secrets            # passwords of the service accounts (kept if they already exist)
 make ldap_dir           # LDIF files for OUs, roles, the service accounts, the password policy and ACLs
 make freeradius_conf    # FreeRADIUS LDAP module config and clients.conf
 make ssh_hostkeys       # sshd host keys (kept if they already exist)
+make logrotate_conf     # config for logrotate on the Docker host
 make test               # smoke test
 make up                 # start the stack
 make down               # stop the stack
@@ -456,7 +509,7 @@ Check authentication and authorization end to end:
 make test
 ```
 
-`make test` starts OpenLDAP, FreeRADIUS and OpenSSH as a separate project (`koitohan-test`), adds test users with `bin/manage_users.sh`, authenticates as them, and compares the reply attributes for every combination of device type and role. It then logs in over SSH as a user of each role and checks the permissions on the directories and a password change. After that it runs each operation of `bin/manage_users.sh` and checks the password policy (the minimum length, the lock and the unlock) and the change of the service account passwords. At the end it restarts the OpenLDAP container and checks that it comes up again. It publishes no ports, keeps no data and generates service account passwords of its own (`tests/generated/`), so it does not affect a running stack. Run `make` beforehand. To look into a failed check, keep the test stack up with `KEEP=1 tests/smoke.sh`.
+`make test` starts OpenLDAP, FreeRADIUS and OpenSSH as a separate project (`koitohan-test`), adds test users with `bin/manage_users.sh`, authenticates as them, and compares the reply attributes for every combination of device type and role. It also checks that FreeRADIUS makes a detail log again after the rotation has moved it away. It then logs in over SSH as a user of each role and checks the permissions on the directories, the reading of a compressed log and a password change. After that it runs each operation of `bin/manage_users.sh` and checks the password policy (the minimum length, the lock and the unlock) and the change of the service account passwords. At the end it restarts the OpenLDAP container and checks that it comes up again. It publishes no ports, keeps no data and generates service account passwords of its own (`tests/generated/`), so it does not affect a running stack. Run `make` beforehand. To look into a failed check, keep the test stack up with `KEEP=1 tests/smoke.sh`.
 
 The tftpd-hpa and OpenSSH images are built automatically by the first `make up`. After you change `tftpd-hpa/build/` or `openssh/build/`, rebuild them before you start the stack.
 

@@ -6,7 +6,8 @@
 # Starts openldap, freeradius and openssh as a separate compose project
 # on an empty directory, and makes the test accounts with
 # bin/manage_users.sh. Checks the reply for every combination of reply
-# type and role, then logs in over ssh as each role, then manages a user
+# type and role, then that the detail logs survive a rotation, then
+# logs in over ssh as each role, then manages a user
 # with bin/manage_users.sh, then runs into the password policy of
 # OpenLDAP, then changes the passwords of the service accounts. The
 # running stack is left alone: the test generates its own passwords,
@@ -301,6 +302,33 @@ function check_restart() {
   fi
 }
 
+# logrotate on the Docker host moves the detail logs away and makes no
+# new ones (scripts/generate_logrotate.sh), so FreeRADIUS has to.
+function check_detail() {
+  local DIR=/var/log/freeradius/radacct/127.0.0.1
+  local OUT WHY=''
+
+  OUT=$("${COMPOSE[@]}" exec -T freeradius sh -c "
+    mv ${DIR}/auth-detail ${DIR}/auth-detail-moved \\
+    && mv ${DIR}/reply-detail ${DIR}/reply-detail-moved" 2>&1) \
+  || WHY='expected auth-detail and reply-detail'
+  if [ -z "${WHY}" ]; then
+    send_request 127.0.0.1 admin01 "${PASS_ADMIN}" > /dev/null
+    OUT=$("${COMPOSE[@]}" exec -T freeradius sh -c "
+      test -s ${DIR}/auth-detail && test -s ${DIR}/reply-detail || ls -l ${DIR}" 2>&1) \
+    && [ -z "${OUT}" ] || WHY='expected new files after the move'
+  fi
+
+  COUNT=$((COUNT + 1))
+  if [ -z "${WHY}" ]; then
+    printf 'ok    %-13s %-11s %s\n' 'detail log' admin01 'made again'
+  else
+    FAILED=$((FAILED + 1))
+    printf 'FAIL  %-13s %-11s %s\n' 'detail log' admin01 "${WHY}"
+    echo "${OUT}" | sed 's/^/      | /'
+  fi
+}
+
 # a missing source of a file bind mount would be created as a directory
 for FILE in \
   CA/default-ca.pem \
@@ -417,11 +445,18 @@ CASES
 check 'bad password' 127.0.0.1 admin01 wrong Reject '-'
 check 'unknown user' 127.0.0.1 nobody01 nopass Reject '-'
 
+check_detail
+
 if ! wait_ssh_ready; then
   echo 'the openssh container did not become ready'
   "${COMPOSE[@]}" logs --tail 30 openssh
   exit 1
 fi
+
+# a rotated log, as logrotate leaves it on the Docker host
+"${COMPOSE[@]}" exec -T openssh sh -c '
+  mkdir -p /logs/Hosts/smoke \
+  && echo "smoke LINK-3" | gzip > /logs/Hosts/smoke/smoke.log-2026-10-10.gz'
 
 NEW_PASS='x9#Kq!vT2m@Lz7Pw'
 NEW_PASS2='Gh4$wN8^rB1&yD6s'
@@ -444,6 +479,7 @@ firmware|readonly01|${PASS_READONLY}|refused|touch /tftpboot/firmware/smoke ${TO
 configs|admin01|${PASS_ADMIN}|written|touch /tftpboot/configs/smoke ${TOUCH}
 configs|operator01|${PASS_OPERATOR}|refused|ls /tftpboot/configs ${TOUCH}
 configs|readonly01|${PASS_READONLY}|refused|ls /tftpboot/configs ${TOUCH}
+logs|readonly01|${PASS_READONLY}|smoke LINK-3|zgrep -h LINK-3 /logs/Hosts/*/*.log-2026-10-10.gz
 root fs|admin01|${PASS_ADMIN}|refused|touch /smoke ${TOUCH}
 secrets|admin01|${PASS_ADMIN}|refused|cat /run/koitohan/bindpw /etc/koitohan/secrets/bindpw /etc/koitohan/certs/client.key ${TOUCH}
 CASES
