@@ -20,6 +20,13 @@ LDAP_SUFFIX=$(domain2dn ${LDAP_DOMAIN})
 
 LDAP_MODULE="${OUT_DIR}/ldap_openldap"
 
+PASSWORD_FILE="${ROOT_DIR}/secrets/freeradius_service_account_password"
+if [ ! -s "${PASSWORD_FILE}" ]; then
+  echo "${PASSWORD_FILE} is missing or empty. Run 'make secrets' first." >&2
+  exit 1
+fi
+PASSWORD=$(cat "${PASSWORD_FILE}")
+
 # contains the bind password
 umask 027
 
@@ -28,7 +35,7 @@ ldap {
     server = "ldaps://${OPENLDAP_CONTAINER_NAME}"
 
     identity = "uid=${FREERADIUS_SERVICE_ACCOUNT_NAME},ou=ServiceAccounts,${LDAP_SUFFIX}"
-    password = "${FREERADIUS_SERVICE_ACCOUNT_PASSWORD}"
+    password = "${PASSWORD}"
 
 
     # user retrieve

@@ -281,6 +281,7 @@ for FILE in \
   CA/freeradius_client.crt \
   CA/openssh_client.crt \
   openssh/hostkeys/ssh_host_ed25519_key \
+  secrets/openssh_service_account_password \
   openldap/ldif/100-People.ldif \
   openldap/ldif/400-PPolicy.ldif \
   freeradius/config/mods-available/ldap_openldap
@@ -410,7 +411,7 @@ configs|admin01|${PASS_ADMIN}|written|touch /tftpboot/configs/smoke ${TOUCH}
 configs|operator01|${PASS_OPERATOR}|refused|ls /tftpboot/configs ${TOUCH}
 configs|readonly01|${PASS_READONLY}|refused|ls /tftpboot/configs ${TOUCH}
 root fs|admin01|${PASS_ADMIN}|refused|touch /smoke ${TOUCH}
-secrets|admin01|${PASS_ADMIN}|refused|cat /run/koitohan/bindpw /etc/koitohan/certs/client.key ${TOUCH}
+secrets|admin01|${PASS_ADMIN}|refused|cat /run/koitohan/bindpw /etc/koitohan/secrets/bindpw /etc/koitohan/certs/client.key ${TOUCH}
 CASES
 
 # passwd reads the current password, then the new one twice

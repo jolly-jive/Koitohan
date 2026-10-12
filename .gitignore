@@ -14,6 +14,8 @@
 
 /openssh/hostkeys/*
 
+/secrets/*
+
 /syslog-ng/log/*
 /syslog-ng/config/*
 !/syslog-ng/config/syslog-ng.conf
