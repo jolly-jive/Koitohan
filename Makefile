@@ -1,8 +1,8 @@
 ENV_FILE := .env
 
-.PHONY: all certs ldap_dir freeradius_conf ssh_hostkeys test clean up down
+.PHONY: all certs secrets ldap_dir freeradius_conf ssh_hostkeys test clean up down
 
-all: certs ldap_dir freeradius_conf ssh_hostkeys
+all: certs secrets ldap_dir freeradius_conf ssh_hostkeys
 
 ### keys and certs
 CERT_STAMP := CA/.certs.stamp
@@ -15,6 +15,17 @@ $(CERT_STAMP): $(ENV_FILE) scripts/create_certs.sh
 	cd CA && ../scripts/create_certs.sh
 	touch $(CERT_STAMP)
 
+### passwords of the service accounts
+SECRETS := \
+	secrets/freeradius_service_account_password \
+	secrets/openssh_service_account_password
+
+secrets: $(SECRETS)
+
+# made once and kept, clean included: the directory knows no other
+secrets/%_service_account_password:
+	./scripts/generate_service_account_password.sh $*
+
 ### LDAP OUs
 LDAP_BASE_LDIFS := \
 	openldap/ldif/100-People.ldif \
@@ -25,7 +36,7 @@ LDAP_BASE_LDIFS := \
 
 ldap_dir: $(LDAP_BASE_LDIFS)
 
-$(LDAP_BASE_LDIFS) &: $(ENV_FILE) scripts/generate_ldap_base.sh
+$(LDAP_BASE_LDIFS) &: $(ENV_FILE) $(SECRETS) scripts/generate_ldap_base.sh
 	./scripts/generate_ldap_base.sh
 
 ### FreeRADIUS config
@@ -34,7 +45,7 @@ FREERADIUS_CLIENTS := freeradius/config/clients.conf
 
 freeradius_conf: $(FREERADIUS_LDAP) $(FREERADIUS_CLIENTS)
 
-$(FREERADIUS_LDAP): $(ENV_FILE) scripts/generate_freeradius_ldap.sh
+$(FREERADIUS_LDAP): $(ENV_FILE) secrets/freeradius_service_account_password scripts/generate_freeradius_ldap.sh
 	./scripts/generate_freeradius_ldap.sh
 
 $(FREERADIUS_CLIENTS):
@@ -70,7 +81,7 @@ OPENSSH_CERT := CA/openssh_client.crt
 $(SYSLOG_HOSTS_DIR):
 	mkdir -p $@
 
-up: freeradius_conf ssh_hostkeys | $(SYSLOG_HOSTS_DIR)
+up: secrets freeradius_conf ssh_hostkeys | $(SYSLOG_HOSTS_DIR)
 	@test -f $(OPENSSH_CERT) || { echo "$(OPENSSH_CERT) is missing. Run 'make' first."; exit 1; }
 	docker compose up -d
 

@@ -39,10 +39,10 @@ COPY update-users.sh /usr/local/sbin/koitohan-update-users
 
 # ルートファイルシステムは読み取り専用で使う。起動時に書くファイルは /run(tmpfs)に置き、
 # /etc からはシンボリックリンクで指す
-# /etc/koitohan は証明書とホスト鍵のマウント先で、root しか入れない
+# /etc/koitohan は証明書、ホスト鍵、bind 用のパスワードのマウント先で、root しか入れない
 # /tftpboot の2つは、マウント元(tftpd-hpa/tftpboot/)に求める所有者とパーミッションに揃えてある
 RUN mkdir -m 700 /etc/koitohan \
- && mkdir /etc/koitohan/certs /etc/koitohan/hostkeys \
+ && mkdir /etc/koitohan/certs /etc/koitohan/hostkeys /etc/koitohan/secrets \
  && mkdir -p /logs/Hosts /tftpboot/configs /tftpboot/firmware \
  && chown 1000:10001 /tftpboot/configs /tftpboot/firmware \
  && chmod 2770 /tftpboot/configs /tftpboot/firmware \

@@ -53,7 +53,7 @@ git clone <repository-url> koitohan
 cd koitohan
 
 cp .env.sample .env    # その後 .env を編集
-make                   # 証明書、LDIF、FreeRADIUS の LDAP 設定、sshd のホスト鍵を生成
+make                   # 証明書、サービスアカウントのパスワード、LDIF、FreeRADIUS の LDAP 設定、sshd のホスト鍵を生成
 $EDITOR freeradius/config/clients.conf
 sudo chown -R 101:101 freeradius/log
 sudo chown 1000:10001 tftpd-hpa/tftpboot/firmware
@@ -61,7 +61,7 @@ sudo chmod 2770 tftpd-hpa/tftpboot/firmware
 make up
 ```
 
-`make` を実行する前に、`.env` のパスワードをすべて変更してください。`.env.sample` の値は公開されています。
+`make` を実行する前に、`.env` のパスワードをすべて変更してください。`.env.sample` の値は公開されています。FreeRADIUS と OpenSSH のサービスアカウントのパスワードは `.env` にはなく、`make` が生成します(「[サービスアカウントのパスワード](#サービスアカウントのパスワード)」を参照)。
 
 `make` は `clients.conf.sample` から `freeradius/config/clients.conf` を作ります。`make up` の前に、サンプルのクライアントを自分の機器に書き換えてください。
 
@@ -84,7 +84,6 @@ FreeRADIUS は uid 101 で動作し、`freeradius/log/` にログを書き込み
 | `LDAP_ADMIN_PASSWORD`                 | LDAP のデータ管理者(`cn=admin,<サフィックス>`)のパスワード。                          |
 | `LDAP_CONFIG_PASSWORD`                | LDAP の設定管理者のパスワード。                                                       |
 | `FREERADIUS_SERVICE_ACCOUNT_NAME`     | FreeRADIUS がディレクトリの検索に使うアカウント。                                     |
-| `FREERADIUS_SERVICE_ACCOUNT_PASSWORD` | そのアカウントのパスワード。                                                          |
 | `OPENLDAP_CONTAINER_NAME`             | OpenLDAP のコンテナ名。                                                               |
 | `FREERADIUS_CONTAINER_NAME`           | FreeRADIUS のコンテナ名。                                                             |
 | `SYSLOG_CONTAINER_NAME`               | syslog-ng のコンテナ名。                                                              |
@@ -95,7 +94,6 @@ FreeRADIUS は uid 101 で動作し、`freeradius/log/` にログを書き込み
 | `OPENSSH_PORT`                        | SSH を公開する Docker ホストのポート番号。ホスト自身の sshd とは別の番号にします。    |
 | `OPENSSH_SUBNET`                      | OpenSSH と OpenLDAP だけをつなぐ Docker ネットワークのサブネット(CIDR 表記)。         |
 | `OPENSSH_SERVICE_ACCOUNT_NAME`        | OpenSSH のコンテナがディレクトリの検索に使うアカウント。                              |
-| `OPENSSH_SERVICE_ACCOUNT_PASSWORD`    | そのアカウントのパスワード。                                                          |
 | `PASSWDQC_MIN`                        | `passwd` が受け付けるパスワードの最小の長さ。「[パスワードの変更](#パスワードの変更)」を参照。 |
 | `PPOLICY_MIN_LENGTH`                  | OpenLDAP が受け付けるパスワードの最小の長さ。「[パスワードポリシー](#パスワードポリシー)」を参照。 |
 | `PPOLICY_MAX_FAILURE`                 | ユーザーをロックするまでの、認証の失敗の回数。                                        |
@@ -220,6 +218,47 @@ docker compose exec -T openldap ldapmodify -c -Q -Y EXTERNAL -H ldapi:/// < open
 ppolicy がなかったバージョンから更新するときも、同じ手順で追加できます。先に、`.env.sample` の `PPOLICY_*` を `.env` に書き足してください。このときはエラーは表示されません。すでにあるユーザーのパスワードは、そのまま使えます。
 
 適用したあとの OpenLDAP は、ハッシュ済みのパスワードの書き込みを受け付けません(長さを確かめられないためです)。ユーザーのパスワードは `bin/manage_users.sh` か `passwd` で設定してください。
+
+### サービスアカウントのパスワード
+
+FreeRADIUS と OpenSSH のコンテナは、それぞれのサービスアカウントでディレクトリを検索します。そのパスワードは `make`(`make secrets`)が生成し、`secrets/` に置きます。
+
+| ファイル                                      | アカウント                         |
+| --------------------------------------------- | ---------------------------------- |
+| `secrets/freeradius_service_account_password` | `FREERADIUS_SERVICE_ACCOUNT_NAME`  |
+| `secrets/openssh_service_account_password`    | `OPENSSH_SERVICE_ACCOUNT_NAME`     |
+
+通常の運用で、このパスワードを入力することはありません。値を確かめるときは、ファイルを読んでください。ファイルの末尾に改行はありません。
+
+```sh
+cat secrets/freeradius_service_account_password; echo
+```
+
+すでにあるファイルは作り直されず、`make clean` でも消えません。ディレクトリが覚えているパスワードと食い違うと、すべてのユーザーの認証が止まるためです。
+
+パスワードを変えるときは、新しいものを生成し、ディレクトリに書き込んでから、コンテナを作り直します。FreeRADIUS の例です。DN の `uid` とサフィックスは、自分の環境に合わせてください。
+
+```sh
+rm secrets/freeradius_service_account_password
+make secrets            # 新しいパスワードを生成
+docker compose exec -T openldap ldappasswd -Q -Y EXTERNAL -H ldapi:/// -T /dev/stdin \
+  'uid=radius,ou=ServiceAccounts,dc=example,dc=com' < secrets/freeradius_service_account_password
+make ldap_dir freeradius_conf
+docker compose up -d --force-recreate freeradius
+```
+
+OpenSSH のときは、ファイル名の `freeradius` を `openssh` に、DN の `uid` を OpenSSH のアカウントに、最後の行のサービス名を `openssh` に読み替えます。OpenSSH のコンテナを作り直すと、ログイン中のセッションは切れます。
+
+`.env` にこのパスワードを書いていたバージョンから更新するときは、`.env` をそのままにして `make secrets` を実行してください。`.env` の値が `secrets/` に引き継がれるので、ディレクトリを書き換える必要はありません。
+
+```sh
+make secrets            # .env の値を secrets/ に引き継ぐ
+# ここで、.env から FREERADIUS_SERVICE_ACCOUNT_PASSWORD と OPENSSH_SERVICE_ACCOUNT_PASSWORD の行を消す
+docker compose build openssh
+make up
+```
+
+引き継いだ値が `.env.sample` のままや短いものであれば、上の手順で変えてください。
 
 ### ディレクトリの初期データを変更する
 
@@ -393,8 +432,9 @@ TFTP の転送の記録はファイルには保存されません。`docker comp
 ## コマンド
 
 ```sh
-make                    # certs + ldap_dir + freeradius_conf + ssh_hostkeys
+make                    # certs + secrets + ldap_dir + freeradius_conf + ssh_hostkeys
 make certs              # プライベート CA、サーバー証明書、クライアント証明書
+make secrets            # サービスアカウントのパスワード(すでにあれば作り直さない)
 make ldap_dir           # OU、ロール、サービスアカウント、パスワードポリシー、ACL の LDIF
 make freeradius_conf    # FreeRADIUS の LDAP モジュール設定と clients.conf
 make ssh_hostkeys       # sshd のホスト鍵(すでにあれば作り直さない)
@@ -426,7 +466,7 @@ docker compose build tftpd-hpa openssh
 make up
 ```
 
-`make clean` は、sshd のホスト鍵(`openssh/hostkeys/`)を消しません。ホスト鍵が変わると、すべてのユーザーの手元で警告が出るためです。
+`make clean` は、sshd のホスト鍵(`openssh/hostkeys/`)を消しません。ホスト鍵が変わると、すべてのユーザーの手元で警告が出るためです。サービスアカウントのパスワード(`secrets/`)も消しません(「[サービスアカウントのパスワード](#サービスアカウントのパスワード)」を参照)。
 
 サービスのログを追う:
 
@@ -454,6 +494,7 @@ docker compose logs -f freeradius
 - `freeradius/config/mods-available/ldap_openldap`
 - `openldap/ldif/*.ldif`
 - `openssh/hostkeys/`
+- `secrets/`
 - `tftpd-hpa/tftpboot/configs/`(機器のコンフィグ。パスワードのハッシュや共有シークレットを含むことがあります)
 
 `CA/freeradius_client.key` は、Docker ホストのすべてのユーザーが読めます。FreeRADIUS がこの鍵を uid 101 で読み、ホスト側にはその uid が所有するものがないためです。

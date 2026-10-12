@@ -36,6 +36,16 @@ for NAME in PPOLICY_MIN_LENGTH PPOLICY_MAX_FAILURE PPOLICY_FAILURE_WINDOW PPOLIC
   fi
 done
 
+SECRETS_DIR="${ROOT_DIR}/secrets"
+for SERVICE in freeradius openssh; do
+  if [ ! -s "${SECRETS_DIR}/${SERVICE}_service_account_password" ]; then
+    echo "${SECRETS_DIR}/${SERVICE}_service_account_password is missing or empty. Run 'make secrets' first." >&2
+    exit 1
+  fi
+done
+FREERADIUS_PASSWORD=$(cat "${SECRETS_DIR}/freeradius_service_account_password")
+OPENSSH_PASSWORD=$(cat "${SECRETS_DIR}/openssh_service_account_password")
+
 # contains password hashes
 umask 077
 
@@ -77,13 +87,13 @@ dn: uid=${FREERADIUS_SERVICE_ACCOUNT_NAME},ou=ServiceAccounts,${LDAP_SUFFIX}
 objectClass: simpleSecurityObject
 objectClass: account
 uid: ${FREERADIUS_SERVICE_ACCOUNT_NAME}
-userPassword: $(slappasswd -s "${FREERADIUS_SERVICE_ACCOUNT_PASSWORD}")
+userPassword: $(slappasswd -s "${FREERADIUS_PASSWORD}")
 
 dn: uid=${OPENSSH_SERVICE_ACCOUNT_NAME},ou=ServiceAccounts,${LDAP_SUFFIX}
 objectClass: simpleSecurityObject
 objectClass: account
 uid: ${OPENSSH_SERVICE_ACCOUNT_NAME}
-userPassword: $(slappasswd -s "${OPENSSH_SERVICE_ACCOUNT_PASSWORD}")
+userPassword: $(slappasswd -s "${OPENSSH_PASSWORD}")
 EOF
 
 

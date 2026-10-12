@@ -21,7 +21,13 @@ install -d -m 700 -o nslcd -g nslcd "${NSLCD_CERT_DIR}"
 install -m 400 -o nslcd -g nslcd \
   "${CERT_DIR}/ca.crt" "${CERT_DIR}/client.crt" "${CERT_DIR}/client.key" "${NSLCD_CERT_DIR}/"
 
+# bind 用のパスワードは、環境変数ではなくファイルで受け取る(docker inspect に出さないため)
 # ldapsearch の -y は改行もパスワードに含めるので、改行を付けない
+SERVICE_ACCOUNT_PASSWORD=$(cat /etc/koitohan/secrets/bindpw)
+if [ -z "${SERVICE_ACCOUNT_PASSWORD}" ]; then
+  echo 'the password of the service account is empty' >&2
+  exit 1
+fi
 (umask 077; printf '%s' "${SERVICE_ACCOUNT_PASSWORD}" > "${RUN_DIR}/bindpw")
 
 (umask 077; cat <<EOF > "${RUN_DIR}/nslcd.conf")
