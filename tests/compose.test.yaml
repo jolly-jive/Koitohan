@@ -1,8 +1,8 @@
 # Overrides compose.yaml for the smoke test (see tests/smoke.sh).
 # The test stack runs as a separate project next to the real one. It
 # publishes no ports and keeps no data. The files that carry the
-# passwords of the service accounts come from tests/generated, which
-# the test makes for itself.
+# passwords of the service accounts and of the administrators of
+# OpenLDAP come from tests/generated, which the test makes for itself.
 
 services:
 
@@ -19,6 +19,8 @@ services:
       - ./tests/generated/openldap/ldif/300-ServiceAccounts.ldif:/root/ldif-test/300-ServiceAccounts.ldif:ro
       - ./tests/generated/openldap/ldif/400-PPolicy.ldif:/root/ldif-test/400-PPolicy.ldif:ro
       - ./tests/generated/openldap/ldif/900-ACL.ldif:/root/ldif-test/900-ACL.ldif:ro
+      - ./tests/generated/secrets/ldap_admin_password:/run/secrets/ldap_admin_password:ro
+      - ./tests/generated/secrets/ldap_config_password:/run/secrets/ldap_config_password:ro
     networks:
       default:
         aliases:

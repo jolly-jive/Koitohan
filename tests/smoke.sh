@@ -9,9 +9,10 @@
 # type and role, then that the detail logs survive a rotation, then
 # logs in over ssh as each role, then manages a user
 # with bin/manage_users.sh, then runs into the password policy of
-# OpenLDAP, then changes the passwords of the service accounts. The
-# running stack is left alone: the test generates its own passwords,
-# LDIFs and ldap_openldap into tests/generated.
+# OpenLDAP, then changes the passwords of the service accounts and of
+# the administrators of OpenLDAP. The running stack is left alone: the
+# test generates its own passwords, LDIFs and ldap_openldap into
+# tests/generated.
 #
 #   KEEP=1 tests/smoke.sh    leave the test stack up for a closer look
 
@@ -21,8 +22,9 @@ ROOT_DIR="$(dirname "${SCRIPT_DIR}")"
 cd "${ROOT_DIR}"
 
 COMPOSE=(docker compose -p koitohan-test -f compose.yaml -f tests/compose.test.yaml)
-# the scripts under scripts/ and bin/change_service_account_password.sh
-# write here instead of secrets/, openldap/ldif/ and freeradius/config/
+# the scripts under scripts/, bin/change_service_account_password.sh
+# and bin/change_ldap_admin_password.sh write here instead of secrets/,
+# openldap/ldif/ and freeradius/config/
 export KOITOHAN_GENERATED_ROOT="${ROOT_DIR}/tests/generated"
 SECRET='testing123'
 WAIT_TRIES=40
@@ -272,6 +274,20 @@ function check_service_password() {
   fi
 }
 
+# Binds as an administrator of OpenLDAP (admin or config). EXPECT is a
+# fixed string to find in the output.
+function check_admin_bind() {
+  local NAME=${1}
+  local WHICH=${2}
+  local PASS=${3}
+  local EXPECT=${4}
+  local DN='cn=admin,${SUFFIX}'
+
+  [ "${WHICH}" = 'config' ] && DN='cn=admin,cn=config'
+  check_ldap "${NAME}" "${WHICH}" "${EXPECT}" \
+    "ldapwhoami -x -H ldapi:/// -D \"${DN}\" -y /dev/stdin" "${PASS}"
+}
+
 # The same container has to start a second time, as it does after a
 # reboot of the host. This asks slapd itself and leaves FreeRADIUS out.
 function check_restart() {
@@ -354,6 +370,8 @@ rm -rf "${KOITOHAN_GENERATED_ROOT}"
 mkdir -p "${KOITOHAN_GENERATED_ROOT}"/{secrets,openldap/ldif,freeradius/config/mods-available}
 if ! { scripts/generate_service_account_password.sh freeradius \
        && scripts/generate_service_account_password.sh openssh \
+       && scripts/generate_ldap_admin_password.sh admin \
+       && scripts/generate_ldap_admin_password.sh config \
        && scripts/generate_ldap_base.sh \
        && scripts/generate_freeradius_ldap.sh; }; then
   echo 'could not generate the files of the test stack'
@@ -590,6 +608,33 @@ if ! wait_ssh_ready; then
   exit 1
 fi
 check_ssh 'service pass' admin01 "${PASS_ADMIN}" 'koitohan admin' 'id -Gn' < /dev/null
+
+# The passwords of the administrators of OpenLDAP. The change recreates
+# openldap, and FreeRADIUS does not get over that, so nothing below
+# goes through RADIUS.
+ADMIN_FILE="${KOITOHAN_GENERATED_ROOT}/secrets/ldap_admin_password"
+CONFIG_FILE="${KOITOHAN_GENERATED_ROOT}/secrets/ldap_config_password"
+OLD_ADMIN=$(cat "${ADMIN_FILE}")
+OLD_CONFIG=$(cat "${CONFIG_FILE}")
+check_admin_bind 'admin pass' admin "${OLD_ADMIN}" 'dn:cn=admin,dc='
+check_admin_bind 'admin pass' config "${OLD_CONFIG}" 'dn:cn=admin,cn=config'
+OUT=$(COMPOSE_PROJECT_NAME=koitohan-test COMPOSE_FILE=compose.yaml:tests/compose.test.yaml \
+      bin/change_ldap_admin_password.sh 2>&1 < /dev/null)
+COUNT=$((COUNT + 1))
+if echo "${OUT}" | grep -q -F 'recreated openldap'; then
+  printf 'ok    %-13s %-11s %s\n' 'admin pass' 'change' 'recreated openldap'
+else
+  FAILED=$((FAILED + 1))
+  printf 'FAIL  %-13s %-11s %s\n' 'admin pass' 'change' 'expected recreated openldap'
+  echo "${OUT}" | sed 's/^/      | /'
+fi
+NEW_ADMIN=$(cat "${ADMIN_FILE}")
+NEW_CONFIG=$(cat "${CONFIG_FILE}")
+check_admin_bind 'admin pass' admin "${NEW_ADMIN}" 'dn:cn=admin,dc='
+check_admin_bind 'admin pass' config "${NEW_CONFIG}" 'dn:cn=admin,cn=config'
+check_admin_bind 'admin pass' admin "${OLD_ADMIN}" 'Invalid credentials'
+check_admin_bind 'admin pass' config "${OLD_CONFIG}" 'Invalid credentials'
+
 COUNT=$((COUNT + 1))
 if [ -n "$(find secrets -newer "${ASKPASS}" 2> /dev/null)" ]; then
   FAILED=$((FAILED + 1))
@@ -599,6 +644,20 @@ else
 fi
 
 check_restart
+
+# the image sets the passwords on every start, from the files it has now
+check_admin_bind 'ldap restart' admin "${NEW_ADMIN}" 'dn:cn=admin,dc='
+check_admin_bind 'ldap restart' config "${NEW_CONFIG}" 'dn:cn=admin,cn=config'
+
+# At the log level debug the image would log the passwords it reads.
+# This container has read them twice by now.
+COUNT=$((COUNT + 1))
+if "${COMPOSE[@]}" logs openldap 2>&1 | grep -q -F -e "${NEW_ADMIN}" -e "${NEW_CONFIG}"; then
+  FAILED=$((FAILED + 1))
+  printf 'FAIL  %-13s %-11s %s\n' 'admin pass' 'logs' 'expected no password in the logs of openldap'
+else
+  printf 'ok    %-13s %-11s %s\n' 'admin pass' 'logs' 'no password'
+fi
 
 # nslcd has to find the restarted OpenLDAP again
 check_ssh 'ldap restart' admin01 "${PASS_ADMIN}" 'koitohan admin' 'id -Gn' < /dev/null

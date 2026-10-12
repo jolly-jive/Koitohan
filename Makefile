@@ -1,8 +1,16 @@
 ENV_FILE := .env
 
-.PHONY: all certs secrets ldap_dir freeradius_conf ssh_hostkeys logrotate_conf test clean up down
+.PHONY: all private_dirs certs secrets ldap_dir freeradius_conf ssh_hostkeys logrotate_conf test clean up down
 
-all: certs secrets ldap_dir freeradius_conf ssh_hostkeys logrotate_conf
+all: private_dirs certs secrets ldap_dir freeradius_conf ssh_hostkeys logrotate_conf
+
+### directories of keys and passwords
+# Closed to the other users of the Docker host. CA/freeradius_client.key
+# has to be 0644 for the container, and this is what keeps it in.
+PRIVATE_DIRS := CA secrets openssh/hostkeys
+
+private_dirs:
+	chmod 700 $(PRIVATE_DIRS)
 
 ### keys and certs
 CERT_STAMP := CA/.certs.stamp
@@ -20,11 +28,20 @@ SECRETS := \
 	secrets/freeradius_service_account_password \
 	secrets/openssh_service_account_password
 
-secrets: $(SECRETS)
+### passwords of the administrators of OpenLDAP
+LDAP_ADMIN_SECRETS := \
+	secrets/ldap_admin_password \
+	secrets/ldap_config_password
+
+secrets: $(SECRETS) $(LDAP_ADMIN_SECRETS)
 
 # made once and kept, clean included: the directory knows no other
 secrets/%_service_account_password:
 	./scripts/generate_service_account_password.sh $*
+
+# made once and kept, clean included: the containers that run hold these
+secrets/ldap_%_password:
+	./scripts/generate_ldap_admin_password.sh $*
 
 ### LDAP OUs
 LDAP_BASE_LDIFS := \
@@ -91,7 +108,7 @@ OPENSSH_CERT := CA/openssh_client.crt
 $(SYSLOG_HOSTS_DIR):
 	mkdir -p $@
 
-up: secrets freeradius_conf ssh_hostkeys | $(SYSLOG_HOSTS_DIR)
+up: private_dirs secrets freeradius_conf ssh_hostkeys | $(SYSLOG_HOSTS_DIR)
 	@test -f $(OPENSSH_CERT) || { echo "$(OPENSSH_CERT) is missing. Run 'make' first."; exit 1; }
 	docker compose up -d
 
