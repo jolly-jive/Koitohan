@@ -44,7 +44,7 @@ FreeRADIUS 4.x is a development version. Koitohan uses it ahead of its official 
 - GNU Make 4.3 or later
 - `openssl`
 - `slappasswd` (in the `slapd` package on Debian and Raspberry Pi OS)
-- `ssh-keygen`. `make test` also uses `ssh` from OpenSSH 8.4 or later.
+- `ssh-keygen`. `make test` also uses `ssh` from OpenSSH 8.4 or later and a `curl` that supports TFTP.
 - `logrotate`, which rotates the logs
 
 ## Quick start
@@ -102,13 +102,36 @@ Use `make up` instead of calling `docker compose up` directly on a fresh checkou
 | `PPOLICY_FAILURE_WINDOW`              | Time in which the failures are counted, in seconds.                            |
 | `PPOLICY_LOCKOUT_DURATION`            | Time a lock lasts, in seconds.                                                 |
 | `DOCKER_SUBNET`                       | Subnet of the Docker network that connects the containers, in CIDR notation.   |
+| `DEVICE_NETWORKS`                     | Networks that RADIUS, syslog and TFTP are accepted from. See [Device networks](#device-networks). |
 | `TZ`                                  | Time zone of every container, as a tz database name such as `Asia/Tokyo`.      |
 
 The container names of OpenLDAP, FreeRADIUS and OpenSSH are also the host names in their certificates. If you change them, regenerate the certificates with `make clean && make`.
 
 Set `DOCKER_SUBNET` and `OPENSSH_SUBNET` to ranges that do not overlap the networks your devices are on, any network the host reaches, or each other. Apply a change with `make down && make up`.
 
-Keep `DOCKER_SUBNET` inside a private address range. FreeRADIUS accepts requests only from private address ranges and loopback (see [RADIUS clients](#radius-clients)), so with any other range, RADIUS requests sent from the Docker host itself may be rejected.
+### Device networks
+
+FreeRADIUS, syslog-ng and the TFTP server accept traffic only from the networks listed in `DEVICE_NETWORKS`. List IPv4 addresses or prefixes, separated by spaces.
+
+```sh
+DEVICE_NETWORKS='10.0.0.0/8 172.16.0.0/12 192.168.0.0/16'
+```
+
+The default is all the private address ranges. If your devices are managed from known networks, list only those. Anything that arrives from elsewhere is dropped without a reply.
+
+- RADIUS is open only to the devices that are in these networks and also registered in `clients.conf` (see [RADIUS clients](#radius-clients)).
+- For TFTP, include the addresses that the devices use when they fetch firmware from their boot loader.
+- The containers see what the Docker host itself sends as coming from the gateway of `DOCKER_SUBNET`. Include `DOCKER_SUBNET` if you want to try the services from the host.
+- SSH (the workspace container) is not limited by this.
+
+Apply a change with `make down && make up`.
+
+To upgrade from a version without this variable, copy `DEVICE_NETWORKS` from `.env.sample` to `.env`, rebuild the image of the TFTP server and start the stack again.
+
+```sh
+docker compose build tftpd-hpa
+make down && make up
+```
 
 `OPENSSH_HOSTNAME` is the name that tells the users which server they are logged in to. The prompt looks like `alice@koitohan:/logs/Hosts$`. When you run more than one Koitohan, give each a different name. Apply a change with `make up`.
 
@@ -144,7 +167,7 @@ Any other value falls back to `Management-Privilege-Level`.
 
 The values for Fortinet, Juniper and Palo Alto are names of profiles or users on the device. Define matching ones on the device.
 
-FreeRADIUS accepts requests only from private address ranges (`10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`) and loopback.
+FreeRADIUS accepts requests only from the networks in `DEVICE_NETWORKS` (see [Device networks](#device-networks)) and loopback.
 
 ### Users and roles
 
@@ -518,12 +541,13 @@ Other choices are `local`, which rotates by default, and `json-file` with `max-s
 ## Commands
 
 ```sh
-make                    # private_dirs + certs + secrets + ldap_dir + freeradius_conf + ssh_hostkeys + logrotate_conf
+make                    # private_dirs + certs + secrets + ldap_dir + freeradius_conf + device_networks + ssh_hostkeys + logrotate_conf
 make private_dirs       # close the directories of keys and passwords to everyone but their owner
 make certs              # private CA, server and client certificates
 make secrets            # passwords of the service accounts and of the OpenLDAP administrators (kept if they already exist)
 make ldap_dir           # LDIF files for OUs, roles, the service accounts, the password policy and ACLs
 make freeradius_conf    # FreeRADIUS LDAP module config and clients.conf
+make device_networks    # the device networks, in the config of FreeRADIUS and of syslog-ng
 make ssh_hostkeys       # sshd host keys (kept if they already exist)
 make logrotate_conf     # config for logrotate on the Docker host
 make test               # smoke test
@@ -547,7 +571,7 @@ Check authentication and authorization end to end:
 make test
 ```
 
-`make test` starts OpenLDAP, FreeRADIUS and OpenSSH as a separate project (`koitohan-test`), adds test users with `bin/manage_users.sh`, authenticates as them, and compares the reply attributes for every combination of device type and role. It also checks that FreeRADIUS makes a detail log again after the rotation has moved it away. It then logs in over SSH as a user of each role and checks the permissions on the directories, the reading of a compressed log and a password change. After that it runs each operation of `bin/manage_users.sh` and checks the password policy (the minimum length, the lock and the unlock) and the change of the passwords of the service accounts and of the OpenLDAP administrators. At the end it restarts the OpenLDAP container and checks that it comes up again. It publishes no ports, keeps no data and generates passwords of its own (`tests/generated/`), so it does not affect a running stack. Run `make` beforehand. To look into a failed check, keep the test stack up with `KEEP=1 tests/smoke.sh`.
+`make test` starts every container as a separate project (`koitohan-test`), adds test users with `bin/manage_users.sh`, authenticates as them, and compares the reply attributes for every combination of device type and role. It also checks that FreeRADIUS makes a detail log again after the rotation has moved it away. For syslog and TFTP, it checks that traffic from the networks in `DEVICE_NETWORKS` arrives and that traffic from elsewhere does not. It then logs in over SSH as a user of each role and checks the permissions on the directories, the reading of a compressed log and a password change. After that it runs each operation of `bin/manage_users.sh` and checks the password policy (the minimum length, the lock and the unlock) and the change of the passwords of the service accounts and of the OpenLDAP administrators. At the end it restarts the OpenLDAP container and checks that it comes up again. It publishes no ports, keeps no data and generates passwords of its own (`tests/generated/`), so it does not affect a running stack. Run `make` beforehand. To look into a failed check, keep the test stack up with `KEEP=1 tests/smoke.sh`.
 
 The tftpd-hpa and OpenSSH images are built automatically by the first `make up`. After you change `tftpd-hpa/build/` or `openssh/build/`, rebuild them before you start the stack.
 
@@ -567,7 +591,6 @@ docker compose logs -f freeradius
 ## Known limitations
 
 - A user who belongs to more than one role has no defined precedence.
-- The TFTP server does not restrict the addresses it accepts requests from.
 - Changes to users and roles made without `bin/manage_users.sh` do not reach SSH logins until you run `koitohan-update-users`.
 - A logged-in user can get around the password check of `passwd`. The check is there to prevent weak passwords set by carelessness. Even then, the minimum length that OpenLDAP checks by itself (`PPOLICY_MIN_LENGTH`) holds.
 - Anyone who can reach the login prompt of a network device or the SSH port can lock a user whose name they know, by sending wrong passwords. A lock ends by itself when its time is over (see [Password policy](#password-policy)).

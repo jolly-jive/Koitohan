@@ -55,6 +55,7 @@ services:
       TZ: "${TZ}"
     volumes:
       - ./freeradius/config/clients.conf:/etc/freeradius/clients.conf:ro
+      - ./freeradius/config/device_networks:/etc/freeradius/device_networks:ro
       - ./freeradius/config/dictionary.d:/etc/freeradius/dictionary.d:ro
       - ./freeradius/config/mods-available/detail.log:/etc/freeradius/mods-available/detail.log:ro
       - ./freeradius/config/mods-available/ldap_openldap:/etc/freeradius/mods-available/ldap_openldap:ro
@@ -100,6 +101,7 @@ services:
     container_name: ${TFTP_CONTAINER_NAME}
     environment:
       TZ: "${TZ}"
+      DEVICE_NETWORKS: "${DEVICE_NETWORKS}"
     volumes:
       - ./tftpd-hpa/tftpboot/firmware:/tftpboot/firmware:ro
       - ./tftpd-hpa/tftpboot/configs:/tftpboot/configs
@@ -107,6 +109,10 @@ services:
       - "0.0.0.0:69:69/udp"
     ulimits:
       fsize: ${TFTP_UPLOAD_MAX_BYTES}
+    # the entrypoint filters the packets by their source, then gives this
+    # up before it starts in.tftpd
+    cap_add:
+      - NET_ADMIN
     security_opt:
       - no-new-privileges:true
     restart: unless-stopped

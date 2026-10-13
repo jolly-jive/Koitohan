@@ -44,7 +44,7 @@ FreeRADIUS 4.x は開発バージョンです。Koitohan は正式リリース�
 - GNU Make 4.3 以上
 - `openssl`
 - `slappasswd`(Debian と Raspberry Pi OS では `slapd` パッケージに含まれます)
-- `ssh-keygen`。`make test` は OpenSSH 8.4 以降の `ssh` も使います。
+- `ssh-keygen`。`make test` は OpenSSH 8.4 以降の `ssh` と、TFTP に対応した `curl` も使います。
 - `logrotate`(ログのローテーションに使います)
 
 ## クイックスタート
@@ -102,13 +102,36 @@ FreeRADIUS は uid 101 で動作し、`freeradius/log/` にログを書き込み
 | `PPOLICY_FAILURE_WINDOW`              | 失敗を数える期間(秒)。                                                                |
 | `PPOLICY_LOCKOUT_DURATION`            | ロックする時間(秒)。                                                                  |
 | `DOCKER_SUBNET`                       | コンテナ同士をつなぐ Docker ネットワークのサブネット(CIDR 表記)。                     |
+| `DEVICE_NETWORKS`                     | RADIUS、syslog、TFTP を受け付ける送信元のネットワーク。「[機器のネットワーク](#機器のネットワーク)」を参照。 |
 | `TZ`                                  | 全コンテナのタイムゾーン。`Asia/Tokyo` のような tz database の名前で指定します。      |
 
 OpenLDAP、FreeRADIUS、OpenSSH のコンテナ名は、証明書のホスト名を兼ねています。変更したら `make clean && make` で証明書を作り直してください。
 
 `DOCKER_SUBNET` と `OPENSSH_SUBNET` には、機器のいるネットワークやホストから到達するネットワークと重ならない範囲を、互いにも重ならないように指定してください。変更は `make down && make up` で反映されます。
 
-`DOCKER_SUBNET` にはプライベートアドレスの範囲を指定してください。FreeRADIUS はプライベートアドレスとループバックからの要求だけを受け付けるため(「[RADIUS クライアント](#radius-クライアント)」を参照)、それ以外の範囲を指定すると、Docker ホスト自身から送った RADIUS 要求が拒否されることがあります。
+### 機器のネットワーク
+
+FreeRADIUS、syslog-ng、TFTP サーバーは、`DEVICE_NETWORKS` に書いたネットワークからの通信だけを受け付けます。IPv4 のアドレスかプレフィックスを、空白で区切って並べます。
+
+```sh
+DEVICE_NETWORKS='10.0.0.0/8 172.16.0.0/12 192.168.0.0/16'
+```
+
+既定はプライベートアドレスの全体です。機器の管理用のネットワークが決まっているなら、その範囲だけにしてください。範囲の外から届いたものは、応答を返さずに捨てます。
+
+- RADIUS は、この範囲に加えて `clients.conf` にも登録された機器だけが使えます(「[RADIUS クライアント](#radius-クライアント)」を参照)。
+- TFTP は、機器がブートローダーからファームウェアを取りにくるときのアドレスも、範囲に含めてください。
+- Docker ホスト自身から送ったものは、コンテナからは `DOCKER_SUBNET` のゲートウェイから届いたように見えます。ホストから動作を確かめるなら、`DOCKER_SUBNET` も範囲に含めてください。
+- SSH(利用者作業用コンテナ)には、この制限は掛かりません。
+
+変更は `make down && make up` で反映されます。
+
+この変数がなかったバージョンから更新するときは、`.env.sample` の `DEVICE_NETWORKS` を `.env` に書き足し、TFTP サーバーのイメージをビルドし直してから起動し直します。
+
+```sh
+docker compose build tftpd-hpa
+make down && make up
+```
 
 `OPENSSH_HOSTNAME` は、ユーザーがどのサーバーにログインしているかを見分けるための名前です。プロンプトは `alice@koitohan:/logs/Hosts$` の形になります。Koitohan を複数台で動かすときは、台ごとに別の名前にしてください。変更は `make up` で反映されます。
 
@@ -144,7 +167,7 @@ client core-switch {
 
 Fortinet、Juniper、Palo Alto の値は、機器側のプロファイル名やユーザー名です。機器側に同じ名前のものを定義してください。
 
-FreeRADIUS は、プライベートアドレス(`10.0.0.0/8`、`172.16.0.0/12`、`192.168.0.0/16`)とループバックからの要求だけを受け付けます。
+FreeRADIUS は、`DEVICE_NETWORKS` のネットワーク(「[機器のネットワーク](#機器のネットワーク)」を参照)とループバックからの要求だけを受け付けます。
 
 ### ユーザーとロール
 
@@ -518,12 +541,13 @@ Docker の既定のドライバ(`json-file`)は、上限を指定しないかぎ
 ## コマンド
 
 ```sh
-make                    # private_dirs + certs + secrets + ldap_dir + freeradius_conf + ssh_hostkeys + logrotate_conf
+make                    # private_dirs + certs + secrets + ldap_dir + freeradius_conf + device_networks + ssh_hostkeys + logrotate_conf
 make private_dirs       # 鍵とパスワードのディレクトリを、所有者しか入れないようにする
 make certs              # プライベート CA、サーバー証明書、クライアント証明書
 make secrets            # サービスアカウントと OpenLDAP の管理者のパスワード(すでにあれば作り直さない)
 make ldap_dir           # OU、ロール、サービスアカウント、パスワードポリシー、ACL の LDIF
 make freeradius_conf    # FreeRADIUS の LDAP モジュール設定と clients.conf
+make device_networks    # FreeRADIUS と syslog-ng に渡す、機器のネットワークの設定
 make ssh_hostkeys       # sshd のホスト鍵(すでにあれば作り直さない)
 make logrotate_conf     # Docker ホストの logrotate に渡す設定
 make test               # スモークテスト
@@ -547,7 +571,7 @@ docker compose run --rm --no-deps freeradius radiusd -XC
 make test
 ```
 
-`make test` は、OpenLDAP、FreeRADIUS、OpenSSH を別のプロジェクト(`koitohan-test`)として起動し、`bin/manage_users.sh` でテストユーザーを登録して認証し、機器種別とロールの組み合わせごとに応答属性を照合します。FreeRADIUS が、ローテーションで移動された detail ログを作り直すことも確かめます。続いて、各ロールのユーザーで SSH でログインし、ディレクトリの権限、圧縮されたログの読み取り、パスワードの変更を確かめます。そのあと、`bin/manage_users.sh` の各操作と、パスワードポリシー(最小の長さ、ロックとその解除)、サービスアカウントと OpenLDAP の管理者のパスワードの変更を確かめます。最後に OpenLDAP のコンテナを再起動し、起動し直せることを確かめます。ポートを公開せず、データも残さず、パスワードもテスト用に生成する(`tests/generated/`)ので、稼働中のスタックには影響しません。事前に `make` を済ませておいてください。失敗した項目は `KEEP=1 tests/smoke.sh` でテスト用のスタックを残して調べられます。
+`make test` は、すべてのコンテナを別のプロジェクト(`koitohan-test`)として起動し、`bin/manage_users.sh` でテストユーザーを登録して認証し、機器種別とロールの組み合わせごとに応答属性を照合します。FreeRADIUS が、ローテーションで移動された detail ログを作り直すことも確かめます。syslog と TFTP については、`DEVICE_NETWORKS` の範囲からは届き、範囲の外からは届かないことを確かめます。続いて、各ロールのユーザーで SSH でログインし、ディレクトリの権限、圧縮されたログの読み取り、パスワードの変更を確かめます。そのあと、`bin/manage_users.sh` の各操作と、パスワードポリシー(最小の長さ、ロックとその解除)、サービスアカウントと OpenLDAP の管理者のパスワードの変更を確かめます。最後に OpenLDAP のコンテナを再起動し、起動し直せることを確かめます。ポートを公開せず、データも残さず、パスワードもテスト用に生成する(`tests/generated/`)ので、稼働中のスタックには影響しません。事前に `make` を済ませておいてください。失敗した項目は `KEEP=1 tests/smoke.sh` でテスト用のスタックを残して調べられます。
 
 tftpd-hpa と OpenSSH のイメージは、最初の `make up` で自動的にビルドされます。`tftpd-hpa/build/` や `openssh/build/` を変更したときは、ビルドし直してから起動します。
 
@@ -567,7 +591,6 @@ docker compose logs -f freeradius
 ## 既知の制限
 
 - 複数のロールに所属するユーザーについて、優先順位を定めていません。
-- TFTP サーバーは、接続元のアドレスを制限していません。
 - `bin/manage_users.sh` を使わずに行ったユーザーとロールの変更は、`koitohan-update-users` を実行するまで、SSH のログインに反映されません。
 - `passwd` によるパスワードの判定は、ログインしたユーザーが迂回できます。この判定は、不注意で弱いパスワードを設定することを防ぐためのものです。迂回しても、OpenLDAP 自身が確かめる最小の長さ(`PPOLICY_MIN_LENGTH`)は守られます。
 - ネットワーク機器のログイン画面や SSH のポートに到達できる相手は、誤ったパスワードを送り続けることで、名前を知っているユーザーをロックできます。ロックは時間が過ぎると解除されます(「[パスワードポリシー](#パスワードポリシー)」を参照)。
