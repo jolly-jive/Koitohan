@@ -640,6 +640,25 @@ check_users 'users add' 'uidNumber 10004' "${NEW_PASS}" add smoke01 operator
 check_ssh 'users add' smoke01 "${NEW_PASS}" 'koitohan operator' 'id -Gn' < /dev/null
 check 'users add' 127.0.0.1 smoke01 "${NEW_PASS}" Accept 'AVPair = "shell:priv-lvl=7"'
 
+# More than one role, which only a change by hand gives: the weakest
+# counts, for RADIUS and for ssh. readonly comes last in memberOf
+# here, so neither the first value nor the strongest would do. "role"
+# below puts smoke01 back into one role.
+function add_role_by_hand() {
+  "${COMPOSE[@]}" exec -T openldap bash -c "${LDAP_SUFFIX_SET};"'
+    printf "dn: cn=%s,ou=Roles,%s\nchangetype: modify\nadd: uniqueMember\nuniqueMember: uid=%s,ou=People,%s\n" \
+      '"${2}"' "${SUFFIX}" '"${1}"' "${SUFFIX}" \
+    | ldapmodify '"${AS_MANAGER}" > /dev/null 2>&1 \
+  && "${COMPOSE[@]}" exec -T openssh koitohan-update-users > /dev/null 2>&1
+}
+add_role_by_hand smoke01 admin
+check 'two roles' 127.0.0.1 smoke01 "${NEW_PASS}" Accept 'AVPair = "shell:priv-lvl=7"'
+check_ssh 'two roles' smoke01 "${NEW_PASS}" 'koitohan operator' 'id -Gn' < /dev/null
+check_ssh 'two roles' smoke01 "${NEW_PASS}" 'refused' "touch /tftpboot/firmware/smoke ${TOUCH}" < /dev/null
+add_role_by_hand smoke01 readonly
+check 'three roles' 127.0.0.1 smoke01 "${NEW_PASS}" Accept 'AVPair = "shell:priv-lvl=1"'
+check_ssh 'three roles' smoke01 "${NEW_PASS}" 'koitohan readonly' 'id -Gn' < /dev/null
+
 # the session that is open has to end with the change of the role
 ssh_run smoke01 "${NEW_PASS}" 'sleep 30' < /dev/null > /dev/null &
 sleep 3

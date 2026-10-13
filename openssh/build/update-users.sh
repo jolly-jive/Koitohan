@@ -34,10 +34,18 @@ function skip(why) {
   print "skipped " dn ": " why > "/dev/stderr"
 }
 
-function flush(   role, has_role) {
+# a user in more than one role gets the weakest of them, as from FreeRADIUS
+function weakest() {
+  if ("readonly" in roles) return "readonly"
+  if ("operator" in roles) return "operator"
+  if ("admin" in roles) return "admin"
+  return ""
+}
+
+function flush(   role) {
   if (dn == "") return
 
-  for (role in gid) if (role in roles) has_role = 1
+  role = weakest()
 
   if (uid !~ /^[a-z_][a-z0-9_-]*$/ || length(uid) > 32)
     skip("uid is not usable as a login name")
@@ -47,12 +55,11 @@ function flush(   role, has_role) {
     skip("uidNumber is out of 10000-59999")
   else if (num + 0 in numbers)
     skip("uidNumber " num " is already taken")
-  else if (!has_role)
+  else if (role == "")
     skip("no role")
   else {
     printf "%s:x:%d:10000::/:/bin/sh\n", uid, num > passwd
-    for (role in gid) if (role in roles)
-      members[role] = members[role] (members[role] == "" ? "" : ",") uid
+    members[role] = members[role] (members[role] == "" ? "" : ",") uid
     taken[uid] = 1
     numbers[num + 0] = 1
     count++
