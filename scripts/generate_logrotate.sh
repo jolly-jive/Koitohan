@@ -26,9 +26,12 @@ KEEP_DAYS_DEBUG=7
 # compose.yaml, and freerad of the FreeRADIUS image
 SYSLOG_OWNER='1000 1000'
 FREERADIUS_OWNER='101 101'
+# syslogd in the tftpd-hpa container stays root
+TFTP_OWNER='0 0'
 
 SYSLOG_LOG_DIR="${ROOT_DIR}/syslog-ng/log"
 FREERADIUS_LOG_DIR="${ROOT_DIR}/freeradius/log"
+TFTP_LOG_DIR="${ROOT_DIR}/tftpd-hpa/log"
 
 if [ -z "${SYSLOG_CONTAINER_NAME}" ]; then
   echo "SYSLOG_CONTAINER_NAME is not set in .env." >&2
@@ -106,6 +109,22 @@ cat <<EOF > "${LOGROTATE_CONF}"
 # file when the old one has been moved away.
 "${FREERADIUS_LOG_DIR}/radacct/*/auth-detail" "${FREERADIUS_LOG_DIR}/radacct/*/reply-detail" {
     su ${FREERADIUS_OWNER}
+    daily
+    dateext
+    dateyesterday
+    dateformat -%Y-%m-%d
+    rotate ${KEEP_DAYS}
+    compress
+    delaycompress
+    missingok
+    notifempty
+    nocreate
+}
+
+# The transfers over TFTP (tftpd-hpa/build/syslog.conf). syslogd of
+# busybox makes a new file when the old one has been moved away.
+"${TFTP_LOG_DIR}/tftpd.log" {
+    su ${TFTP_OWNER}
     daily
     dateext
     dateyesterday

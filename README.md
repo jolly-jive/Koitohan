@@ -378,7 +378,7 @@ If you start the stack without these steps, Docker creates `configs/` owned by r
 - Transfer files in binary mode. Some clients, such as the `tftp` command on Linux, default to text (netascii) mode.
 - The server replies from a UDP port other than 69. If a transfer from a PC fails, check that the firewall on the PC is not blocking those replies.
 - `firmware/` sits directly on the disk of the Docker host. Check the free space before you put large firmware images there.
-- `docker compose logs tftpd-hpa` shows the transfers, with the address of the requester and the file name.
+- The transfers are recorded in `tftpd-hpa/log/tftpd.log`, with the kind of the request (`RRQ` for a download, `WRQ` for an upload), the address of the requester and the file name. `docker compose logs tftpd-hpa` shows the same.
 
 ## Working over SSH
 
@@ -510,10 +510,11 @@ RADIUS accounting (1813/udp) is not provided. The logins are recorded in the det
 | `syslog-ng/log/Hosts/<host>/<host>.log` | Syslog from each device                |
 | `syslog-ng/log/debug.log`               | Every raw message, for troubleshooting |
 | `freeradius/log/`                       | FreeRADIUS authentication logs         |
+| `tftpd-hpa/log/tftpd.log`               | TFTP transfers                         |
 
 The files under `freeradius/log/` belong to uid 101. Read them with `sudo`.
 
-TFTP transfers are not logged to a file. See them with `docker compose logs tftpd-hpa`. The same goes for SSH logins, with `docker compose logs openssh`.
+SSH logins are not logged to a file. See them with `docker compose logs openssh`.
 
 ### Rotation
 
@@ -530,6 +531,7 @@ sudo install -m 644 -o root -g root logrotate/koitohan /etc/logrotate.d/koitohan
 | `syslog-ng/log/debug.log`                          | `debug.log-2026-10-10.gz`             | 7         |
 | `freeradius/log/radius.log`                        | `radius.log-2026-10-10.gz`            | 1096      |
 | `freeradius/log/radacct/<client>/auth-detail`, `reply-detail` | `auth-detail-2026-10-10.gz`, `reply-detail-2026-10-10.gz` | 1096 |
+| `tftpd-hpa/log/tftpd.log`                          | `tftpd.log-2026-10-10.gz`             | 1096      |
 
 - The date in the name is the date of the content. The rotation happens when logrotate runs after the date has changed.
 - The file of the day before stays uncompressed for one more day (`<host>.log-2026-10-10`).
@@ -548,9 +550,18 @@ make up                         # recreates FreeRADIUS with the new detail log c
 
 The files with the earlier names stay as they are. Delete them if you do not need them.
 
+Earlier versions did not keep the TFTP transfers in a file. When you update a running environment, rebuild the image of the TFTP server, start it again, and install the logrotate configuration again.
+
+```sh
+docker compose build tftpd-hpa
+make up
+make logrotate_conf
+sudo install -m 644 -o root -g root logrotate/koitohan /etc/logrotate.d/koitohan
+```
+
 ### Standard output of the containers
 
-The logs you read with `docker compose logs` (TFTP transfers, SSH logins, OpenLDAP) are kept by the logging driver of Docker. `compose.yaml` names no driver and follows the configuration of the Docker host.
+The logs you read with `docker compose logs` (SSH logins, OpenLDAP, TFTP transfers) are kept by the logging driver of Docker. Of these, only the TFTP transfers are kept in a file as well. `compose.yaml` names no driver and follows the configuration of the Docker host.
 
 The default driver of Docker (`json-file`) keeps logs without limit unless you set one. Choose a driver with a limit in `/etc/docker/daemon.json`. For example, this sends the logs to the journal of systemd.
 
@@ -595,7 +606,7 @@ Check authentication and authorization end to end:
 make test
 ```
 
-`make test` starts every container as a separate project (`koitohan-test`), adds test users with `bin/manage_users.sh`, authenticates as them, and compares the reply attributes for every combination of device type and role. It also checks that FreeRADIUS makes a detail log again after the rotation has moved it away. For syslog and TFTP, it checks that traffic from the networks in `DEVICE_NETWORKS` arrives and that traffic from elsewhere does not. It then logs in over SSH as a user of each role and checks the permissions on the directories, the reading of a compressed log and a password change. After that it runs each operation of `bin/manage_users.sh` and checks the password policy (the minimum length, the lock and the unlock) and the change of the passwords of the service accounts and of the OpenLDAP administrators. At the end it restarts the OpenLDAP container and checks that it comes up again. It publishes no ports, keeps no data and generates passwords of its own (`tests/generated/`), so it does not affect a running stack. Run `make` beforehand. To look into a failed check, keep the test stack up with `KEEP=1 tests/smoke.sh`.
+`make test` starts every container as a separate project (`koitohan-test`), adds test users with `bin/manage_users.sh`, authenticates as them, and compares the reply attributes for every combination of device type and role. It also checks that FreeRADIUS makes a detail log again after the rotation has moved it away. For syslog and TFTP, it checks that traffic from the networks in `DEVICE_NETWORKS` arrives and that traffic from elsewhere does not. It also checks that a TFTP transfer is recorded in the file. It then logs in over SSH as a user of each role and checks the permissions on the directories, the reading of a compressed log and a password change. After that it runs each operation of `bin/manage_users.sh` and checks the password policy (the minimum length, the lock and the unlock) and the change of the passwords of the service accounts and of the OpenLDAP administrators. At the end it restarts the OpenLDAP container and checks that it comes up again. It publishes no ports, keeps no data and generates passwords of its own (`tests/generated/`), so it does not affect a running stack. Run `make` beforehand. To look into a failed check, keep the test stack up with `KEEP=1 tests/smoke.sh`.
 
 The tftpd-hpa and OpenSSH images are built automatically by the first `make up`. After you change `tftpd-hpa/build/` or `openssh/build/`, rebuild them before you start the stack.
 

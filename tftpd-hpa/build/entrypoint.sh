@@ -31,8 +31,12 @@ EOF
 # busybox の setpriv には --bounding-set がないので、util-linux のものを使う
 drop="setpriv --bounding-set -net_admin"
 
-# in.tftpd は syslog にしか出力しないので、コンテナの標準出力へ流す
+# in.tftpd は syslog にしか出力しないので、コンテナの標準出力と、ファイル
+# (/var/log/tftpd/tftpd.log)へ流す。出力先は /etc/syslog.conf に書いてある
 # musl の syslog() は時刻を UTC で付けるので、-t で捨てて syslogd に TZ の時刻を付け直させる
-$drop syslogd -n -t -O - &
+# ファイルの切り替えは Docker ホストの logrotate が行うので、syslogd 自身の切り替え
+# (既定は 200KB)は -s 0 で止める。syslogd は、移動されたファイルを次の書き込みで作り直す
+mkdir -p /var/log/tftpd
+$drop syslogd -n -t -s 0 -f /etc/syslog.conf -O - &
 
 exec $drop in.tftpd --foreground --user tftpd --secure --create --permissive --umask 022 --verbose /tftpboot

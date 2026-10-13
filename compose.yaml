@@ -105,6 +105,7 @@ services:
     volumes:
       - ./tftpd-hpa/tftpboot/firmware:/tftpboot/firmware:ro
       - ./tftpd-hpa/tftpboot/configs:/tftpboot/configs
+      - ./tftpd-hpa/log:/var/log/tftpd
     ports:
       - "0.0.0.0:69:69/udp"
     ulimits:
