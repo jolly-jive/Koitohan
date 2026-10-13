@@ -34,7 +34,7 @@ syslogd -n -t -O - &
 # slapd は降格したあとで証明書と秘密鍵を読む。マウント元は root しか入れないので、専用のディレクトリへ写す
 install -d -m 700 -o ldap -g ldap "${SLAPD_CERT_DIR}"
 install -m 400 -o ldap -g ldap \
-  "${CERT_DIR}/ca.crt" "${CERT_DIR}/ldap.crt" "${CERT_DIR}/ldap.key" "${CERT_DIR}/dhparam.pem" "${SLAPD_CERT_DIR}/"
+  "${CERT_DIR}/ca.crt" "${CERT_DIR}/ldap.crt" "${CERT_DIR}/ldap.key" "${SLAPD_CERT_DIR}/"
 
 chown ldap:ldap "${SOCKET_DIR}"
 
@@ -50,7 +50,7 @@ if [ ! -e "${SEEDED}" ]; then
   echo 'seeding the empty directory'
 
   # 待ち受けは ldaps:/// と ldapi:/// だけにする(389 は開けない)
-  # クライアント証明書を必ず求め、TLS は 1.2 以上に限る
+  # クライアント証明書を必ず求め、TLS は 1.3 に限る
   slapadd -n 0 -F "${CONF_DIR}" <<EOF
 dn: cn=config
 objectClass: olcGlobal
@@ -62,8 +62,7 @@ olcSecurity: ssf=128
 olcTLSCACertificateFile: ${SLAPD_CERT_DIR}/ca.crt
 olcTLSCertificateFile: ${SLAPD_CERT_DIR}/ldap.crt
 olcTLSCertificateKeyFile: ${SLAPD_CERT_DIR}/ldap.key
-olcTLSDHParamFile: ${SLAPD_CERT_DIR}/dhparam.pem
-olcTLSProtocolMin: 3.3
+olcTLSProtocolMin: 3.4
 olcTLSVerifyClient: demand
 
 dn: cn=module{0},cn=config
@@ -179,11 +178,18 @@ EOF
 fi
 
 # 管理者のパスワードとログのレベルは、起動のたびに入れ直す。正はファイルと環境変数にある
+# TLS の2つは、以前の初期投入が作った設定を直す(下限は 1.2 で、DH パラメータのファイルを指していた)
+# 値のない replace は、属性があれば消し、なければ何もしない
 slapmodify -n 0 -F "${CONF_DIR}" <<EOF
 dn: cn=config
 changetype: modify
 replace: olcLogLevel
 olcLogLevel: ${LDAP_LOG_LEVEL:-stats}
+-
+replace: olcTLSProtocolMin
+olcTLSProtocolMin: 3.4
+-
+replace: olcTLSDHParamFile
 
 dn: olcDatabase={0}config,cn=config
 changetype: modify

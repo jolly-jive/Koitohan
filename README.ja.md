@@ -334,6 +334,14 @@ sudo find openldap/data openldap/config -mindepth 1 ! -name .gitkeep -delete
 make up
 ```
 
+OpenLDAP が TLS 1.2 も受け付け、DH パラメータのファイル(`CA/dhparam.pem`)を使っていたバージョンから更新するときは、OpenLDAP のイメージをビルドし直してから起動し直します。ディレクトリのデータは消しません。新しいイメージが、起動のときに設定を直します。古いイメージのまま起動すると、マウントされなくなったファイルを探して止まります。`CA/dhparam.pem` はもう使われないので、消して構いません。
+
+```sh
+docker compose build openldap
+make down
+make up
+```
+
 ## TFTP
 
 tftpd-hpa が、`tftpd-hpa/tftpboot/` を TFTP のルートとして公開します。役割の違うディレクトリが2つあります。
