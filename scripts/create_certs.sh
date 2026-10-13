@@ -180,11 +180,6 @@ echo -e "\n## SIGN CRT: ${OPENSSH_CLIENT_CRT_FILE}"
 issue_cert client_cert  ${OPENSSH_CLIENT_CSR_FILE}  ${OPENSSH_CLIENT_CRT_FILE}
 
 
-DHPARAM="${OUT_DIR}/dhparam.pem"
-echo -e "\n# CREATE DH PARAM: ${DHPARAM}"
-openssl dhparam -text -out ${DHPARAM} 2048
-
-
 # Every run makes a new CA, so its key has no use once the certificates
 # are signed. Left behind, it could sign a certificate that OpenLDAP takes.
 echo -e "\n# REMOVE CA KEY AND CSRS"

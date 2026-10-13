@@ -21,7 +21,6 @@ services:
       - ./CA/default-ca.pem:/etc/koitohan/certs/ca.crt:ro
       - ./CA/openldap_server.crt:/etc/koitohan/certs/ldap.crt:ro
       - ./CA/openldap_server.key:/etc/koitohan/certs/ldap.key:ro
-      - ./CA/dhparam.pem:/etc/koitohan/certs/dhparam.pem:ro
       # loaded once, when the directory is empty
       - ./openldap/ldif:/etc/koitohan/ldif:ro
       # set again on every start

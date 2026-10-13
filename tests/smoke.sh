@@ -482,6 +482,36 @@ function check_tftp_log() {
   fi
 }
 
+# OpenLDAP takes TLS 1.3 and nothing older. The handshake comes from
+# the Docker host, with the client certificate of FreeRADIUS.
+function check_tls() {
+  local VERSION=${1}
+  local EXPECT=${2}
+  local ADDR OUT GOT WHY=''
+
+  ADDR=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}} {{end}}' \
+    "$("${COMPOSE[@]}" ps -q openldap)" 2> /dev/null | cut -d ' ' -f 1)
+  OUT=$(timeout 10 openssl s_client -connect "${ADDR}:636" "-${VERSION}" \
+    -CAfile CA/default-ca.pem \
+    -cert CA/freeradius_client.crt -key CA/freeradius_client.key < /dev/null 2>&1)
+
+  if echo "${OUT}" | grep -q '^New, TLSv'; then
+    GOT='accepted'
+  else
+    GOT='refused'
+  fi
+  [ "${GOT}" = "${EXPECT}" ] || WHY="expected ${EXPECT}"
+
+  COUNT=$((COUNT + 1))
+  if [ -z "${WHY}" ]; then
+    printf 'ok    %-13s %-11s %s\n' 'tls' "${VERSION}" "${GOT}"
+  else
+    FAILED=$((FAILED + 1))
+    printf 'FAIL  %-13s %-11s %s\n' 'tls' "${VERSION}" "${WHY}"
+    echo "${OUT}" | grep -v -e '^-----' -e '^[A-Za-z0-9+/=]\{64\}$' | head -n 20 | sed 's/^/      | /'
+  fi
+}
+
 # a missing source of a file bind mount would be created as a directory
 for FILE in \
   CA/default-ca.pem \
@@ -602,6 +632,9 @@ check 'bad password' 127.0.0.1 admin01 wrong Reject '-'
 check 'unknown user' 127.0.0.1 nobody01 nopass Reject '-'
 
 check_detail
+
+check_tls tls1_3 accepted
+check_tls tls1_2 refused
 
 # The limit on the source of syslog and TFTP. The same message and the
 # same file, first from a network that is allowed, then with the

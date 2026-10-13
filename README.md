@@ -334,6 +334,14 @@ sudo find openldap/data openldap/config -mindepth 1 ! -name .gitkeep -delete
 make up
 ```
 
+When you upgrade from a version in which OpenLDAP also took TLS 1.2 and used a file of DH parameters (`CA/dhparam.pem`), build the OpenLDAP image again, then start again. Keep the data of the directory. The new image corrects the configuration when it starts. The old image would stop on start, looking for the file that is no longer mounted. `CA/dhparam.pem` is no longer used, so you can delete it.
+
+```sh
+docker compose build openldap
+make down
+make up
+```
+
 ## TFTP
 
 tftpd-hpa serves `tftpd-hpa/tftpboot/` as the TFTP root. It holds two directories with different roles.
