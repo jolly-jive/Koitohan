@@ -28,7 +28,7 @@ Koitohan is at the verification stage. It is not hardened for production use.
 
 | Function                         | Component                                       | Status    |
 | -------------------------------- | ----------------------------------------------- | --------- |
-| Directory                        | OpenLDAP (`osixia/openldap`)                    | Working   |
+| Directory                        | OpenLDAP 2.6 (built here from Alpine)           | Working   |
 | Authentication and authorization | FreeRADIUS 4.x (`cayenneryo/freeradius-server`) | Working   |
 | Log collection                   | syslog-ng (`linuxserver/syslog-ng`)             | Working   |
 | File distribution                | tftpd-hpa (built here from Alpine)              | Working   |
@@ -309,8 +309,6 @@ make up
 docker compose restart freeradius
 ```
 
-Do not run OpenLDAP with `--loglevel debug` in `compose.yaml`. The image would write the passwords it reads from the files to its log.
-
 ```sh
 # first remove the lines of FREERADIUS_SERVICE_ACCOUNT_PASSWORD and OPENSSH_SERVICE_ACCOUNT_PASSWORD from .env
 make
@@ -323,6 +321,18 @@ bin/change_service_account_password.sh openssh
 ### Changing the directory seed
 
 OpenLDAP loads the generated LDIF files only on its first start with an empty database. To apply changes to `.env` or the LDIF files afterwards, you have to delete `openldap/data/` and `openldap/config/` and start again. This deletes every user and role in the directory. A change of `PPOLICY_*` is the exception and needs no deletion (see [Password policy](#password-policy)).
+
+OpenLDAP does not start when it fails to load an LDIF file. Look at `docker compose logs openldap` for the cause, correct the LDIF file and start again.
+
+### Upgrading from an earlier version
+
+Earlier versions ran OpenLDAP from `osixia/openldap` (OpenLDAP 2.4). The new image cannot use that data, and OpenLDAP does not start while it is left in `openldap/data/` and `openldap/config/`. Delete what is in the two directories and start again. This deletes every user and role in the directory, so add them again with `bin/manage_users.sh` once the stack is up. The passwords of the service accounts and of the administrators in `secrets/` stay in use.
+
+```sh
+make down
+sudo find openldap/data openldap/config -mindepth 1 ! -name .gitkeep -delete
+make up
+```
 
 ## TFTP
 
@@ -608,10 +618,10 @@ make test
 
 `make test` starts every container as a separate project (`koitohan-test`), adds test users with `bin/manage_users.sh`, authenticates as them, and compares the reply attributes for every combination of device type and role. It also checks that FreeRADIUS makes a detail log again after the rotation has moved it away. For syslog and TFTP, it checks that traffic from the networks in `DEVICE_NETWORKS` arrives and that traffic from elsewhere does not. It also checks that a TFTP transfer is recorded in the file. It then logs in over SSH as a user of each role and checks the permissions on the directories, the reading of a compressed log and a password change. After that it runs each operation of `bin/manage_users.sh` and checks the password policy (the minimum length, the lock and the unlock) and the change of the passwords of the service accounts and of the OpenLDAP administrators. At the end it restarts the OpenLDAP container and checks that it comes up again. It publishes no ports, keeps no data and generates passwords of its own (`tests/generated/`), so it does not affect a running stack. Run `make` beforehand. To look into a failed check, keep the test stack up with `KEEP=1 tests/smoke.sh`.
 
-The tftpd-hpa and OpenSSH images are built automatically by the first `make up`. After you change `tftpd-hpa/build/` or `openssh/build/`, rebuild them before you start the stack.
+The OpenLDAP, tftpd-hpa and OpenSSH images are built automatically by the first `make up`. After you change `openldap/build/`, `tftpd-hpa/build/` or `openssh/build/`, rebuild them before you start the stack.
 
 ```sh
-docker compose build tftpd-hpa openssh
+docker compose build openldap tftpd-hpa openssh
 make up
 ```
 

@@ -6,39 +6,32 @@
 services:
 
   openldap:
-    image: osixia/openldap:1.5.0
+    build: ./openldap/build
+    image: koitohan/openldap
     container_name: ${OPENLDAP_CONTAINER_NAME}
+    read_only: true
     environment:
       TZ: "${TZ}"
       LDAP_ORGANISATION: "${LDAP_ORGANISATION}"
       LDAP_DOMAIN: "${LDAP_DOMAIN}"
-      # The image sets these passwords again on every start. Do not run
-      # it with --loglevel debug: it would log what it reads here.
-      LDAP_ADMIN_PASSWORD_FILE: /run/secrets/ldap_admin_password
-      LDAP_CONFIG_PASSWORD_FILE: /run/secrets/ldap_config_password
-      LDAP_LOG_LEVEL: "256"
-      LDAP_TLS: "true"
-      # refuses anything without TLS on 389. The image keeps this on once
-      # it has been set, until openldap/config is deleted.
-      LDAP_TLS_ENFORCE: "true"
-      LDAP_READONLY_USER: "false"
-      LDAP_ENABLE_MEMBEROF: "true"
-      LDAP_ENABLE_REFERRALS: "false"
-      LDAP_SEED_INTERNAL_LDIF_PATH: /root/ldif
-      # the seed is copied on every start, so its destination has to stay
-      LDAP_REMOVE_CONFIG_AFTER_SETUP: "false"
+      LDAP_LOG_LEVEL: "stats"
     volumes:
-      - ./openldap/data:/var/lib/ldap
-      - ./openldap/config:/etc/ldap/slapd.d
-      - ./CA/default-ca.pem:/container/service/slapd/assets/certs/ca.crt
-      - ./CA/openldap_server.crt:/container/service/slapd/assets/certs/ldap.crt
-      - ./CA/openldap_server.key:/container/service/slapd/assets/certs/ldap.key
-      - ./CA/dhparam.pem:/container/service/slapd/assets/certs/dhparam.pem
-      - ./openldap/ldif:/root/ldif:ro
-      - ./secrets/ldap_admin_password:/run/secrets/ldap_admin_password:ro
-      - ./secrets/ldap_config_password:/run/secrets/ldap_config_password:ro
+      - ./openldap/data:/var/lib/openldap/openldap-data
+      - ./openldap/config:/etc/openldap/slapd.d
+      - ./CA/default-ca.pem:/etc/koitohan/certs/ca.crt:ro
+      - ./CA/openldap_server.crt:/etc/koitohan/certs/ldap.crt:ro
+      - ./CA/openldap_server.key:/etc/koitohan/certs/ldap.key:ro
+      - ./CA/dhparam.pem:/etc/koitohan/certs/dhparam.pem:ro
+      # loaded once, when the directory is empty
+      - ./openldap/ldif:/etc/koitohan/ldif:ro
+      # set again on every start
+      - ./secrets/ldap_admin_password:/etc/koitohan/secrets/ldap_admin_password:ro
+      - ./secrets/ldap_config_password:/etc/koitohan/secrets/ldap_config_password:ro
+    tmpfs:
+      - /run:mode=755,size=1m
+      # the socket of ldapi:///
+      - /var/lib/openldap/run:mode=755,size=1m
     ports:
-#      - "0.0.0.0:389:389"
       - "0.0.0.0:636:636"
     networks:
       - default
