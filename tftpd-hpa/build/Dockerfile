@@ -5,6 +5,7 @@ RUN apk add --no-cache tftp-hpa nftables setpriv tzdata \
  && adduser -D -H -u 1000 -G tftpd -s /sbin/nologin tftpd
 
 COPY entrypoint.sh /entrypoint.sh
+COPY syslog.conf /etc/syslog.conf
 
 EXPOSE 69/udp
 

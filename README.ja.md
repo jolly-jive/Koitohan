@@ -378,7 +378,7 @@ sudo chmod 2770 tftpd-hpa/tftpboot/configs
 - バイナリモードで転送してください。Linux の `tftp` コマンドのように、既定がテキスト(netascii)モードのクライアントがあります。
 - サーバーは、69 番とは別の UDP ポートから応答します。PC から試して失敗するときは、PC 側のファイアウォールがその応答を遮断していないか確認してください。
 - `firmware/` は Docker ホストのディスクにそのまま置かれます。大きなファームウェアを置く前に、空き容量を確認してください。
-- 転送の記録は `docker compose logs tftpd-hpa` で確認できます。要求元のアドレスとファイル名が残ります。
+- 転送の記録は `tftpd-hpa/log/tftpd.log` に保存されます。要求の種類(取得は `RRQ`、アップロードは `WRQ`)、要求元のアドレス、ファイル名が残ります。同じものを `docker compose logs tftpd-hpa` でも確認できます。
 
 ## SSH での作業
 
@@ -510,10 +510,11 @@ RADIUS アカウンティング(1813/udp)は提供していません。ログイ
 | `syslog-ng/log/Hosts/<host>/<host>.log` | 各機器の syslog              |
 | `syslog-ng/log/debug.log`               | すべての生メッセージ(調査用) |
 | `freeradius/log/`                       | FreeRADIUS の認証ログ        |
+| `tftpd-hpa/log/tftpd.log`               | TFTP の転送の記録            |
 
 `freeradius/log/` のファイルは uid 101 の所有です。読むときは `sudo` を使ってください。
 
-TFTP の転送の記録はファイルには保存されません。`docker compose logs tftpd-hpa` で確認します。SSH のログインの記録も同様で、`docker compose logs openssh` で確認します。
+SSH のログインの記録はファイルには保存されません。`docker compose logs openssh` で確認します。
 
 ### ローテーション
 
@@ -530,6 +531,7 @@ sudo install -m 644 -o root -g root logrotate/koitohan /etc/logrotate.d/koitohan
 | `syslog-ng/log/debug.log`                          | `debug.log-2026-10-10.gz`             | 7        |
 | `freeradius/log/radius.log`                        | `radius.log-2026-10-10.gz`            | 1096     |
 | `freeradius/log/radacct/<client>/auth-detail`、`reply-detail` | `auth-detail-2026-10-10.gz`、`reply-detail-2026-10-10.gz` | 1096 |
+| `tftpd-hpa/log/tftpd.log`                          | `tftpd.log-2026-10-10.gz`             | 1096     |
 
 - 名前の日付は、中身の日付です。切り替えは、日付が変わったあとに logrotate が動いたときに起きます。
 - 前日のファイルは、もう1日だけ圧縮されずに残ります(`<host>.log-2026-10-10`)。
@@ -548,9 +550,18 @@ make up                         # FreeRADIUS は detail ログの新しい設定
 
 以前の名前のファイルは、そのまま残ります。要らなければ削除してください。
 
+TFTP の転送の記録は、以前のバージョンではファイルに保存していませんでした。稼働中の環境を更新するときは、TFTP サーバーのイメージをビルドし直して起動し直し、logrotate の設定を置き直してください。
+
+```sh
+docker compose build tftpd-hpa
+make up
+make logrotate_conf
+sudo install -m 644 -o root -g root logrotate/koitohan /etc/logrotate.d/koitohan
+```
+
 ### コンテナの標準出力
 
-`docker compose logs` で読むログ(TFTP の転送、SSH のログイン、OpenLDAP)は、Docker のログドライバが保存します。`compose.yaml` はドライバを指定せず、Docker ホストの設定に従います。
+`docker compose logs` で読むログ(SSH のログイン、OpenLDAP、TFTP の転送)は、Docker のログドライバが保存します。このうち TFTP の転送だけは、同じものがファイルにも残ります。`compose.yaml` はドライバを指定せず、Docker ホストの設定に従います。
 
 Docker の既定のドライバ(`json-file`)は、上限を指定しないかぎり、ログを際限なく残します。`/etc/docker/daemon.json` で、上限のあるドライバにしておいてください。たとえば、systemd の journal に送るには次のようにします。
 
@@ -595,7 +606,7 @@ docker compose run --rm --no-deps freeradius radiusd -XC
 make test
 ```
 
-`make test` は、すべてのコンテナを別のプロジェクト(`koitohan-test`)として起動し、`bin/manage_users.sh` でテストユーザーを登録して認証し、機器種別とロールの組み合わせごとに応答属性を照合します。FreeRADIUS が、ローテーションで移動された detail ログを作り直すことも確かめます。syslog と TFTP については、`DEVICE_NETWORKS` の範囲からは届き、範囲の外からは届かないことを確かめます。続いて、各ロールのユーザーで SSH でログインし、ディレクトリの権限、圧縮されたログの読み取り、パスワードの変更を確かめます。そのあと、`bin/manage_users.sh` の各操作と、パスワードポリシー(最小の長さ、ロックとその解除)、サービスアカウントと OpenLDAP の管理者のパスワードの変更を確かめます。最後に OpenLDAP のコンテナを再起動し、起動し直せることを確かめます。ポートを公開せず、データも残さず、パスワードもテスト用に生成する(`tests/generated/`)ので、稼働中のスタックには影響しません。事前に `make` を済ませておいてください。失敗した項目は `KEEP=1 tests/smoke.sh` でテスト用のスタックを残して調べられます。
+`make test` は、すべてのコンテナを別のプロジェクト(`koitohan-test`)として起動し、`bin/manage_users.sh` でテストユーザーを登録して認証し、機器種別とロールの組み合わせごとに応答属性を照合します。FreeRADIUS が、ローテーションで移動された detail ログを作り直すことも確かめます。syslog と TFTP については、`DEVICE_NETWORKS` の範囲からは届き、範囲の外からは届かないことを確かめます。TFTP の転送がファイルに記録されることも確かめます。続いて、各ロールのユーザーで SSH でログインし、ディレクトリの権限、圧縮されたログの読み取り、パスワードの変更を確かめます。そのあと、`bin/manage_users.sh` の各操作と、パスワードポリシー(最小の長さ、ロックとその解除)、サービスアカウントと OpenLDAP の管理者のパスワードの変更を確かめます。最後に OpenLDAP のコンテナを再起動し、起動し直せることを確かめます。ポートを公開せず、データも残さず、パスワードもテスト用に生成する(`tests/generated/`)ので、稼働中のスタックには影響しません。事前に `make` を済ませておいてください。失敗した項目は `KEEP=1 tests/smoke.sh` でテスト用のスタックを残して調べられます。
 
 tftpd-hpa と OpenSSH のイメージは、最初の `make up` で自動的にビルドされます。`tftpd-hpa/build/` や `openssh/build/` を変更したときは、ビルドし直してから起動します。
 

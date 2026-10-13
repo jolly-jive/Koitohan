@@ -65,6 +65,8 @@ services:
       # empty volumes. The test puts the file to fetch into firmware.
       - /tftpboot/firmware
       - /tftpboot/configs
+      # keeps the test out of tftpd-hpa/log
+      - /var/log/tftpd
     ports: !reset []
     restart: "no"
 

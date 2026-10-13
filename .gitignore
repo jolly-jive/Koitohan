@@ -25,6 +25,7 @@
 /syslog-ng/config/*
 !/syslog-ng/config/syslog-ng.conf
 
+/tftpd-hpa/log/*
 /tftpd-hpa/configs.img
 /tftpd-hpa/tftpboot/*
 !/tftpd-hpa/tftpboot/firmware/

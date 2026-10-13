@@ -8,7 +8,7 @@
 # bin/manage_users.sh. Checks the reply for every combination of reply
 # type and role, then that the detail logs survive a rotation, then
 # that syslog-ng and tftpd-hpa take nothing from outside the networks
-# of the devices, then
+# of the devices, and that tftpd-hpa records a transfer in a file, then
 # logs in over ssh as each role, then manages a user
 # with bin/manage_users.sh, then runs into the password policy of
 # OpenLDAP, then changes the passwords of the service accounts and of
@@ -449,6 +449,39 @@ function check_detail() {
   fi
 }
 
+# The record of a transfer goes to a file as well as to the standard
+# output. logrotate on the Docker host moves the file away and makes no
+# new one (scripts/generate_logrotate.sh), so syslogd has to.
+function check_tftp_log() {
+  local LOG=/var/log/tftpd/tftpd.log
+  local RECORD='RRQ from .* filename firmware/smoke.txt'
+  local ADDR OUT WHY=''
+
+  ADDR=$(address_of tftpd-hpa)
+  OUT=$("${COMPOSE[@]}" exec -T tftpd-hpa sh -c "
+    grep -q '${RECORD}' ${LOG} && mv ${LOG} ${LOG}-moved" 2>&1) \
+  || WHY='expected the record of the transfer in tftpd.log'
+  if [ -z "${WHY}" ]; then
+    # syslogd opens the file again once a second, not for every line.
+    # What it writes within the second of the move goes to the old file.
+    sleep 2
+    curl -s -S -m 5 -o /dev/null "tftp://${ADDR}/firmware/smoke.txt" 2> /dev/null
+    OUT=$("${COMPOSE[@]}" exec -T tftpd-hpa sh -c "
+      grep -q '${RECORD}' ${LOG} || ls -l /var/log/tftpd" 2>&1) \
+    && [ -z "${OUT}" ] || WHY='expected a new file after the move'
+  fi
+
+  COUNT=$((COUNT + 1))
+  if [ -z "${WHY}" ]; then
+    printf 'ok    %-13s %-11s %s\n' 'tftp log' 'smoke.txt' 'recorded, made again'
+  else
+    FAILED=$((FAILED + 1))
+    printf 'FAIL  %-13s %-11s %s\n' 'tftp log' 'smoke.txt' "${WHY}"
+    echo "${OUT}" | sed 's/^/      | /'
+    "${COMPOSE[@]}" logs --tail 5 tftpd-hpa 2>&1 | sed 's/^/      | /'
+  fi
+}
+
 # a missing source of a file bind mount would be created as a directory
 for FILE in \
   CA/default-ca.pem \
@@ -572,11 +605,13 @@ check_detail
 
 # The limit on the source of syslog and TFTP. The same message and the
 # same file, first from a network that is allowed, then with the
-# containers made again for another network. FreeRADIUS takes the same
+# containers made again for another network. In between, the file
+# that keeps the record of the transfer. FreeRADIUS takes the same
 # list (it has started with it), but every request of this test comes
 # from the loopback, which it always allows.
 "${COMPOSE[@]}" exec -T tftpd-hpa sh -c 'echo koitohan-smoke > /tftpboot/firmware/smoke.txt'
 check_device_networks allowed 'received' 'koitohan-smoke'
+check_tftp_log
 if ! { DEVICE_NETWORKS="${OTHER_NETWORKS}" scripts/generate_device_networks.sh \
        && DEVICE_NETWORKS="${OTHER_NETWORKS}" "${COMPOSE[@]}" up -d --force-recreate syslog-ng tftpd-hpa > /dev/null 2>&1; }; then
   echo 'could not make syslog-ng and tftpd-hpa again'
