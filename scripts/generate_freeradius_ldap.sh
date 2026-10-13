@@ -55,7 +55,9 @@ ldap {
     # LDAP attribute → FreeRADIUS attribute
     update {
         #control.Password.With-Header += 'userPassword'
-        control.LDAP-Group := 'memberOf'
+        # += takes every value. := would keep the first one only, and
+        # authz_vendor_role has to see all the roles of the user.
+        control.LDAP-Group += 'memberOf'
     }
 
     # TLS

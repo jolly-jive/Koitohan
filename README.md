@@ -182,7 +182,7 @@ bin/manage_users.sh unlock alice                  # unlock
 bin/manage_users.sh delete alice                  # delete
 ```
 
-- A user has one role: `admin`, `operator` or `readonly`. A user who belongs to no role is rejected on every device.
+- A user has one role: `admin`, `operator` or `readonly`. A user who belongs to no role is rejected on every device. A user put into more than one role without the script is treated as the weakest of them (`readonly`, then `operator`, then `admin`), both on the devices and over SSH.
 - `add` and `passwd` ask for the password on the terminal. It is checked by the same rules as when a user changes it with `passwd` (see [Changing a password](#changing-a-password)). Ask the user to log in over SSH and change the password you set.
 - A user name takes lowercase letters, digits, `_` and `-`, up to 32 characters.
 - `uidNumber` is handed out in order from 10000. A number is never reused, even after its user is deleted. The files a user leaves behind keep the number as their owner. The next number to hand out is kept in `cn=nextUidNumber` in the directory.
@@ -614,7 +614,6 @@ docker compose logs -f freeradius
 
 ## Known limitations
 
-- A user who belongs to more than one role has no defined precedence.
 - Changes to users and roles made without `bin/manage_users.sh` do not reach SSH logins until you run `koitohan-update-users`.
 - A logged-in user can get around the password check of `passwd`. The check is there to prevent weak passwords set by carelessness. Even then, the minimum length that OpenLDAP checks by itself (`PPOLICY_MIN_LENGTH`) holds.
 - Anyone who can reach the login prompt of a network device or the SSH port can lock a user whose name they know, by sending wrong passwords. A lock ends by itself when its time is over (see [Password policy](#password-policy)).
