@@ -114,8 +114,8 @@ function wait_ready() {
 FAILED=0
 COUNT=0
 
-# for bash in the openldap container, which has LDAP_DOMAIN
-LDAP_SUFFIX_SET='SUFFIX="dc=${LDAP_DOMAIN//./,dc=}"'
+# for sh in the openldap container, which has LDAP_DOMAIN
+LDAP_SUFFIX_SET='SUFFIX="dc=$(echo "${LDAP_DOMAIN}" | sed "s/\./,dc=/g")"'
 
 # EXPECT is a fixed string to find in the reply. '-' means that the
 # reply carries no attributes.
@@ -239,7 +239,7 @@ function check_users() {
   fi
 }
 
-# Runs COMMAND with bash in the openldap container, where SUFFIX is the
+# Runs COMMAND with sh in the openldap container, where SUFFIX is the
 # suffix of the directory. EXPECT is a fixed string to find in the
 # output. INPUT goes to the standard input of the command.
 function check_ldap() {
@@ -251,7 +251,7 @@ function check_ldap() {
   local OUT WHY=''
 
   OUT=$(printf '%b' "${INPUT}" \
-        | "${COMPOSE[@]}" exec -T openldap bash -c "${LDAP_SUFFIX_SET}; ${COMMAND}" 2>&1)
+        | "${COMPOSE[@]}" exec -T openldap sh -c "${LDAP_SUFFIX_SET}; ${COMMAND}" 2>&1)
   echo "${OUT}" | grep -q -F -- "${EXPECT}" || WHY="expected ${EXPECT}"
 
   COUNT=$((COUNT + 1))
@@ -303,8 +303,8 @@ function check_admin_bind() {
 # reboot of the host. This asks slapd itself and leaves FreeRADIUS out.
 function check_restart() {
   local TRY WHY='expected a bind to succeed'
-  local DN='uid=admin01,ou=People,dc=${LDAP_DOMAIN//./,dc=}'
-  local BIND="ldapwhoami -x -H ldapi:/// -w '${PASS_ADMIN}' -D \"${DN}\""
+  local DN='uid=admin01,ou=People,${SUFFIX}'
+  local BIND="${LDAP_SUFFIX_SET}; ldapwhoami -x -H ldapi:/// -w '${PASS_ADMIN}' -D \"${DN}\""
 
   "${COMPOSE[@]}" restart openldap > /dev/null 2>&1
   for TRY in $(seq ${WAIT_TRIES}); do
@@ -312,7 +312,7 @@ function check_restart() {
       WHY='openldap exited'
       break
     fi
-    if "${COMPOSE[@]}" exec -T openldap bash -c "${BIND}" > /dev/null 2>&1; then
+    if "${COMPOSE[@]}" exec -T openldap sh -c "${BIND}" > /dev/null 2>&1; then
       WHY=''
       break
     fi
@@ -680,7 +680,7 @@ check 'users add' 127.0.0.1 smoke01 "${NEW_PASS}" Accept 'AVPair = "shell:priv-l
 # here, so neither the first value nor the strongest would do. "role"
 # below puts smoke01 back into one role.
 function add_role_by_hand() {
-  "${COMPOSE[@]}" exec -T openldap bash -c "${LDAP_SUFFIX_SET};"'
+  "${COMPOSE[@]}" exec -T openldap sh -c "${LDAP_SUFFIX_SET};"'
     printf "dn: cn=%s,ou=Roles,%s\nchangetype: modify\nadd: uniqueMember\nuniqueMember: uid=%s,ou=People,%s\n" \
       '"${2}"' "${SUFFIX}" '"${1}"' "${SUFFIX}" \
     | ldapmodify '"${AS_MANAGER}" > /dev/null 2>&1 \
@@ -726,7 +726,7 @@ check 'min length' 127.0.0.1 operator01 "${PASS_OPERATOR}" Accept 'AVPair = "she
 
 # The lock. The failures come in over RADIUS and lock ssh as well.
 check_users 'users unlock' 'smoke01 is not locked' '' unlock smoke01
-MAX_FAILURE=$("${COMPOSE[@]}" exec -T openldap bash -c "${LDAP_SUFFIX_SET};"'
+MAX_FAILURE=$("${COMPOSE[@]}" exec -T openldap sh -c "${LDAP_SUFFIX_SET};"'
   ldapsearch -Q -Y EXTERNAL -H ldapi:/// -LLL -b "cn=default,ou=Policies,${SUFFIX}" -s base pwdMaxFailure' \
   2> /dev/null | awk '$1 == "pwdMaxFailure:" { print $2 }')
 for TRY in $(seq ${MAX_FAILURE:-0}); do
@@ -826,8 +826,8 @@ check_restart
 check_admin_bind 'ldap restart' admin "${NEW_ADMIN}" 'dn:cn=admin,dc='
 check_admin_bind 'ldap restart' config "${NEW_CONFIG}" 'dn:cn=admin,cn=config'
 
-# At the log level debug the image would log the passwords it reads.
-# This container has read them twice by now.
+# The entrypoint must not log the passwords it reads. This container
+# has read them twice by now.
 COUNT=$((COUNT + 1))
 if "${COMPOSE[@]}" logs openldap 2>&1 | grep -q -F -e "${NEW_ADMIN}" -e "${NEW_CONFIG}"; then
   FAILED=$((FAILED + 1))

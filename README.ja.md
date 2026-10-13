@@ -28,7 +28,7 @@ Koitohan は検証段階です。本番利用に耐える堅牢化はしてい�
 
 | 機能               | コンポーネント                                 | 状況     |
 | ------------------ | ---------------------------------------------- | -------- |
-| ディレクトリ       | OpenLDAP(`osixia/openldap`)                    | 動作中   |
+| ディレクトリ       | OpenLDAP 2.6(Alpine から自前でビルド)          | 動作中   |
 | 認証・認可         | FreeRADIUS 4.x(`cayenneryo/freeradius-server`) | 動作中   |
 | ログ収集           | syslog-ng(`linuxserver/syslog-ng`)             | 動作中   |
 | ファイル配布       | tftpd-hpa(Alpine から自前でビルド)             | 動作中   |
@@ -309,8 +309,6 @@ make up
 docker compose restart freeradius
 ```
 
-`compose.yaml` の OpenLDAP に `--loglevel debug` を付けないでください。イメージが、ファイルから読んだパスワードをログに書き出します。
-
 ```sh
 # 先に、.env から FREERADIUS_SERVICE_ACCOUNT_PASSWORD と OPENSSH_SERVICE_ACCOUNT_PASSWORD の行を消す
 make
@@ -323,6 +321,18 @@ bin/change_service_account_password.sh openssh
 ### ディレクトリの初期データを変更する
 
 OpenLDAP が生成済みの LDIF を読み込むのは、データベースが空の状態での初回起動時だけです。その後に `.env` や LDIF の変更を反映するには、`openldap/data/` と `openldap/config/` を削除して起動し直す必要があります。このとき、ディレクトリ内のユーザーとロールはすべて失われます。`PPOLICY_*` の変更は例外で、データを消さずに反映できます(「[パスワードポリシー](#パスワードポリシー)」を参照)。
+
+LDIF の読み込みが途中で失敗したときは、OpenLDAP は起動しません。`docker compose logs openldap` で原因を確かめ、LDIF を直してから起動し直してください。
+
+### 以前のバージョンから更新する
+
+以前のバージョンは、OpenLDAP に `osixia/openldap`(OpenLDAP 2.4)を使っていました。そのデータは新しいイメージでは使えず、`openldap/data/` と `openldap/config/` に残っていると、OpenLDAP は起動しません。2つのディレクトリの中身を削除して、起動し直してください。ディレクトリ内のユーザーとロールはすべて失われるので、起動したあとで `bin/manage_users.sh` で登録し直します。サービスアカウントと管理者のパスワードは `secrets/` のものがそのまま使われます。
+
+```sh
+make down
+sudo find openldap/data openldap/config -mindepth 1 ! -name .gitkeep -delete
+make up
+```
 
 ## TFTP
 
@@ -608,10 +618,10 @@ make test
 
 `make test` は、すべてのコンテナを別のプロジェクト(`koitohan-test`)として起動し、`bin/manage_users.sh` でテストユーザーを登録して認証し、機器種別とロールの組み合わせごとに応答属性を照合します。FreeRADIUS が、ローテーションで移動された detail ログを作り直すことも確かめます。syslog と TFTP については、`DEVICE_NETWORKS` の範囲からは届き、範囲の外からは届かないことを確かめます。TFTP の転送がファイルに記録されることも確かめます。続いて、各ロールのユーザーで SSH でログインし、ディレクトリの権限、圧縮されたログの読み取り、パスワードの変更を確かめます。そのあと、`bin/manage_users.sh` の各操作と、パスワードポリシー(最小の長さ、ロックとその解除)、サービスアカウントと OpenLDAP の管理者のパスワードの変更を確かめます。最後に OpenLDAP のコンテナを再起動し、起動し直せることを確かめます。ポートを公開せず、データも残さず、パスワードもテスト用に生成する(`tests/generated/`)ので、稼働中のスタックには影響しません。事前に `make` を済ませておいてください。失敗した項目は `KEEP=1 tests/smoke.sh` でテスト用のスタックを残して調べられます。
 
-tftpd-hpa と OpenSSH のイメージは、最初の `make up` で自動的にビルドされます。`tftpd-hpa/build/` や `openssh/build/` を変更したときは、ビルドし直してから起動します。
+OpenLDAP、tftpd-hpa、OpenSSH のイメージは、最初の `make up` で自動的にビルドされます。`openldap/build/`、`tftpd-hpa/build/`、`openssh/build/` を変更したときは、ビルドし直してから起動します。
 
 ```sh
-docker compose build tftpd-hpa openssh
+docker compose build openldap tftpd-hpa openssh
 make up
 ```
 

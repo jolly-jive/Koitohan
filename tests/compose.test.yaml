@@ -8,19 +8,13 @@ services:
 
   openldap:
     container_name: !reset null
-    environment:
-      LDAP_SEED_INTERNAL_LDIF_PATH: /root/ldif-test
     volumes:
       # anonymous volumes take the place of the persistent directories
-      - /var/lib/ldap
-      - /etc/ldap/slapd.d
-      - ./tests/generated/openldap/ldif/100-People.ldif:/root/ldif-test/100-People.ldif:ro
-      - ./tests/generated/openldap/ldif/200-Roles.ldif:/root/ldif-test/200-Roles.ldif:ro
-      - ./tests/generated/openldap/ldif/300-ServiceAccounts.ldif:/root/ldif-test/300-ServiceAccounts.ldif:ro
-      - ./tests/generated/openldap/ldif/400-PPolicy.ldif:/root/ldif-test/400-PPolicy.ldif:ro
-      - ./tests/generated/openldap/ldif/900-ACL.ldif:/root/ldif-test/900-ACL.ldif:ro
-      - ./tests/generated/secrets/ldap_admin_password:/run/secrets/ldap_admin_password:ro
-      - ./tests/generated/secrets/ldap_config_password:/run/secrets/ldap_config_password:ro
+      - /var/lib/openldap/openldap-data
+      - /etc/openldap/slapd.d
+      - ./tests/generated/openldap/ldif:/etc/koitohan/ldif:ro
+      - ./tests/generated/secrets/ldap_admin_password:/etc/koitohan/secrets/ldap_admin_password:ro
+      - ./tests/generated/secrets/ldap_config_password:/etc/koitohan/secrets/ldap_config_password:ro
     networks:
       default:
         aliases:

@@ -28,7 +28,7 @@ if [ -e "${OUT_FILE}" ]; then
   exit 1
 fi
 
-# letters and digits only: the image puts the hash of the value into sed
+# letters and digits only, like the passwords of the service accounts
 PASSWORD=$(openssl rand -hex 24)
 if [ ${#PASSWORD} -ne 48 ]; then
   echo 'could not make a password' >&2
