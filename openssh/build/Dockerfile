@@ -20,10 +20,12 @@ FROM alpine:3.24
 RUN apk add --no-cache \
       gzip \
       linux-pam \
+      nftables \
       nss-pam-ldapd \
       openldap-clients \
       openssh-client-common \
       openssh-server-pam \
+      setpriv \
       shadow \
       tzdata
 

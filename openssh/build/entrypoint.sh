@@ -1,6 +1,38 @@
 #!/bin/sh
 set -eu
 
+# sshd の設定で接続元を絞ると、接続を受けて認証まで進んでから断ることになるので、
+# その手前のパケットフィルタで捨てる。入れられなければ起動しない(制限のないまま待ち受けない)
+if [ "${1:-}" != filtered ]; then
+  networks=$(printf '%s' "${OPENSSH_ALLOWED_NETWORKS:-}" | tr -s ' \t\n' ',,,' | sed 's/^,//; s/,$//')
+  if [ -z "$networks" ]; then
+    echo "OPENSSH_ALLOWED_NETWORKS is empty" >&2
+    exit 1
+  fi
+  if ! printf '%s' "$networks" | grep -Eq '^[0-9./,]+$'; then
+    echo "OPENSSH_ALLOWED_NETWORKS must be IPv4 addresses or prefixes separated by spaces: $OPENSSH_ALLOWED_NETWORKS" >&2
+    exit 1
+  fi
+
+  # OpenLDAP からの応答は確立済みの通信として、Docker の内蔵 DNS はループバックとして通る
+  # inet のテーブルなので、IPv6 もここで捨てる
+  nft -f - <<EOF
+table inet koitohan {
+	chain input {
+		type filter hook input priority filter; policy drop;
+		iif "lo" accept
+		ct state established,related accept
+		ip saddr { $networks } tcp dport 22 accept
+	}
+}
+EOF
+
+  # ここから先は NET_ADMIN を持たせない。sshd も nslcd も root で起動するので、
+  # 落とさないとルールを変えられる。自分自身を起動し直して、以降のすべてのプロセスから落とす
+  # busybox の setpriv には --bounding-set がないので、util-linux のものを使う
+  exec setpriv --bounding-set -net_admin "$0" filtered
+fi
+
 RUN_DIR=/run/koitohan
 CERT_DIR=/etc/koitohan/certs
 NSLCD_CERT_DIR="${RUN_DIR}/nslcd-certs"

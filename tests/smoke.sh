@@ -36,6 +36,8 @@ ALLOWED_NETWORKS='10.0.0.0/8 172.16.0.0/12 192.168.0.0/16'
 # a network the test never sends from (TEST-NET-1)
 OTHER_NETWORKS='192.0.2.0/24'
 export DEVICE_NETWORKS="${ALLOWED_NETWORKS}"
+# the same for the networks of the terminals: ssh goes from the Docker host
+export OPENSSH_ALLOWED_NETWORKS="${ALLOWED_NETWORKS}"
 WAIT_TRIES=40
 
 function cleanup() {
@@ -324,6 +326,37 @@ function check_restart() {
     FAILED=$((FAILED + 1))
     printf 'FAIL  %-13s %-11s %s\n' 'ldap restart' admin01 "${WHY}"
     "${COMPOSE[@]}" logs --tail 5 openldap 2>&1 | sed 's/^/      | /'
+  fi
+}
+
+# sshd has to listen (seen from inside, over the loopback) and still
+# take no connection from the Docker host. Not even a wrong password
+# gets through, which would count against the lock of the user.
+function check_ssh_other_network() {
+  local OUT TRY WHY='sshd did not start'
+
+  OPENSSH_ALLOWED_NETWORKS="${OTHER_NETWORKS}" "${COMPOSE[@]}" up -d --force-recreate openssh > /dev/null 2>&1
+  for TRY in $(seq ${WAIT_TRIES}); do
+    if "${COMPOSE[@]}" exec -T openssh nc -z -w 1 127.0.0.1 22 > /dev/null 2>&1; then
+      WHY=''
+      break
+    fi
+    sleep 3
+  done
+  if [ -z "${WHY}" ]; then
+    SSH_ADDR=$(address_of openssh)
+    OUT=$(ssh_run admin01 "${PASS_ADMIN}" true < /dev/null)
+    echo "${OUT}" | grep -q -F 'timed out' || WHY='expected the connection to time out'
+  fi
+
+  COUNT=$((COUNT + 1))
+  if [ -z "${WHY}" ]; then
+    printf 'ok    %-13s %-11s %s\n' 'networks' 'other' 'ssh timed out'
+  else
+    FAILED=$((FAILED + 1))
+    printf 'FAIL  %-13s %-11s %s\n' 'networks' 'other' "${WHY}"
+    echo "${OUT}" | sed 's/^/      | /'
+    "${COMPOSE[@]}" logs --tail 5 openssh 2>&1 | sed 's/^/      | /'
   fi
 }
 
@@ -686,6 +719,10 @@ fi
 check 'service pass' 127.0.0.1 operator01 "${PASS_OPERATOR}" Accept 'AVPair = "shell:priv-lvl=7"'
 check_ldap 'service pass' 'old' 'Invalid credentials' \
   "ldapwhoami -x -H ldapi:/// -D \"uid=${FREERADIUS_ACCOUNT},ou=ServiceAccounts,\${SUFFIX}\" -w '${OLD_FREERADIUS}'"
+# The limit on the source of ssh. The container is made again for
+# another network, and the change of the password that follows makes it
+# once more, for the networks of the test.
+check_ssh_other_network
 check_service_password openssh 'recreated openssh'
 # the new container has another address
 if ! wait_ssh_ready; then
