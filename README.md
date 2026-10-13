@@ -95,6 +95,7 @@ Use `make up` instead of calling `docker compose up` directly on a fresh checkou
 | `OPENSSH_HOSTNAME`                    | Host name of the OpenSSH container. It appears in the prompt of the shell.     |
 | `OPENSSH_PORT`                        | Port of the Docker host that publishes SSH. Keep it apart from the host's own sshd. |
 | `OPENSSH_SUBNET`                      | Subnet of the Docker network that connects only OpenSSH and OpenLDAP, in CIDR notation. |
+| `OPENSSH_ALLOWED_NETWORKS`            | Networks that SSH connections are accepted from. See [Sources of SSH](#sources-of-ssh). |
 | `OPENSSH_SERVICE_ACCOUNT_NAME`        | Account the OpenSSH container uses to search the directory.                    |
 | `PASSWDQC_MIN`                        | Minimum lengths of the passwords `passwd` accepts. See [Changing a password](#changing-a-password). |
 | `PPOLICY_MIN_LENGTH`                  | Minimum length of the passwords OpenLDAP accepts. See [Password policy](#password-policy). |
@@ -122,7 +123,7 @@ The default is all the private address ranges. If your devices are managed from 
 - RADIUS is open only to the devices that are in these networks and also registered in `clients.conf` (see [RADIUS clients](#radius-clients)).
 - For TFTP, include the addresses that the devices use when they fetch firmware from their boot loader.
 - The containers see what the Docker host itself sends as coming from the gateway of `DOCKER_SUBNET`. Include `DOCKER_SUBNET` if you want to try the services from the host.
-- SSH (the workspace container) is not limited by this.
+- The sources of SSH (the workspace container) have a variable of their own (see [Sources of SSH](#sources-of-ssh)).
 
 Apply a change with `make down && make up`.
 
@@ -439,6 +440,29 @@ A change of role does not reach the sessions that are already logged in. To appl
 
 ```sh
 docker compose exec openssh pkill -KILL -u <uidNumber>
+```
+
+### Sources of SSH
+
+The OpenSSH container accepts connections only from the networks listed in `OPENSSH_ALLOWED_NETWORKS`. It is written like `DEVICE_NETWORKS`.
+
+```sh
+OPENSSH_ALLOWED_NETWORKS='10.0.0.0/8 172.16.0.0/12 192.168.0.0/16'
+```
+
+The default is all the private address ranges. If the terminals of your users are on known networks (the office LAN, the range a VPN hands out, a jump host), list only those. The networks of the devices need not be in it.
+
+A connection from elsewhere is dropped without a reply. It never gets as far as trying a password, so nobody outside can lock a user by guessing (see [Password policy](#password-policy)).
+
+The container sees a connection from the Docker host itself as coming from the gateway of `OPENSSH_SUBNET`. Include `OPENSSH_SUBNET` if you want to try it from the host.
+
+Apply a change with `make up` (the OpenSSH container is made again, and the sessions that are logged in are closed).
+
+To upgrade from a version without this variable, copy `OPENSSH_ALLOWED_NETWORKS` from `.env.sample` to `.env`, rebuild the image and start the stack again.
+
+```sh
+docker compose build openssh
+make up
 ```
 
 ### Enabling the memory limit (optional)

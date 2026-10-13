@@ -95,6 +95,7 @@ FreeRADIUS は uid 101 で動作し、`freeradius/log/` にログを書き込み
 | `OPENSSH_HOSTNAME`                    | OpenSSH のコンテナのホスト名。ログインしたシェルのプロンプトに表示されます。          |
 | `OPENSSH_PORT`                        | SSH を公開する Docker ホストのポート番号。ホスト自身の sshd とは別の番号にします。    |
 | `OPENSSH_SUBNET`                      | OpenSSH と OpenLDAP だけをつなぐ Docker ネットワークのサブネット(CIDR 表記)。         |
+| `OPENSSH_ALLOWED_NETWORKS`            | SSH の接続を受け付ける送信元のネットワーク。「[SSH の接続元](#ssh-の接続元)」を参照。 |
 | `OPENSSH_SERVICE_ACCOUNT_NAME`        | OpenSSH のコンテナがディレクトリの検索に使うアカウント。                              |
 | `PASSWDQC_MIN`                        | `passwd` が受け付けるパスワードの最小の長さ。「[パスワードの変更](#パスワードの変更)」を参照。 |
 | `PPOLICY_MIN_LENGTH`                  | OpenLDAP が受け付けるパスワードの最小の長さ。「[パスワードポリシー](#パスワードポリシー)」を参照。 |
@@ -122,7 +123,7 @@ DEVICE_NETWORKS='10.0.0.0/8 172.16.0.0/12 192.168.0.0/16'
 - RADIUS は、この範囲に加えて `clients.conf` にも登録された機器だけが使えます(「[RADIUS クライアント](#radius-クライアント)」を参照)。
 - TFTP は、機器がブートローダーからファームウェアを取りにくるときのアドレスも、範囲に含めてください。
 - Docker ホスト自身から送ったものは、コンテナからは `DOCKER_SUBNET` のゲートウェイから届いたように見えます。ホストから動作を確かめるなら、`DOCKER_SUBNET` も範囲に含めてください。
-- SSH(利用者作業用コンテナ)には、この制限は掛かりません。
+- SSH(利用者作業用コンテナ)の接続元は、別の変数で指定します(「[SSH の接続元](#ssh-の接続元)」を参照)。
 
 変更は `make down && make up` で反映されます。
 
@@ -439,6 +440,29 @@ docker compose exec openssh koitohan-update-users
 
 ```sh
 docker compose exec openssh pkill -KILL -u <uidNumber>
+```
+
+### SSH の接続元
+
+OpenSSH のコンテナは、`OPENSSH_ALLOWED_NETWORKS` に書いたネットワークからの接続だけを受け付けます。書き方は `DEVICE_NETWORKS` と同じです。
+
+```sh
+OPENSSH_ALLOWED_NETWORKS='10.0.0.0/8 172.16.0.0/12 192.168.0.0/16'
+```
+
+既定はプライベートアドレスの全体です。ユーザーの端末がいるネットワーク(執務室の LAN、VPN の払い出し範囲、踏み台)が決まっているなら、その範囲だけにしてください。機器のネットワークを含める必要はありません。
+
+範囲の外からの接続は、応答を返さずに捨てます。パスワードを試すところまで進めないので、外からの総当たりでユーザーがロックされることもありません(「[パスワードポリシー](#パスワードポリシー)」を参照)。
+
+Docker ホスト自身からの接続は、コンテナからは `OPENSSH_SUBNET` のゲートウェイから届いたように見えます。ホストから試すなら、`OPENSSH_SUBNET` も範囲に含めてください。
+
+変更は `make up` で反映されます(OpenSSH のコンテナが作り直され、ログイン中のセッションは切れます)。
+
+この変数がなかったバージョンから更新するときは、`.env.sample` の `OPENSSH_ALLOWED_NETWORKS` を `.env` に書き足し、イメージをビルドし直してから起動し直します。
+
+```sh
+docker compose build openssh
+make up
 ```
 
 ### メモリの上限を有効にする(任意)
