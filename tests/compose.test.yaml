@@ -37,8 +37,34 @@ services:
     volumes:
       - ./tests/clients.conf:/etc/freeradius/clients.conf:ro
       - ./tests/generated/freeradius/config/mods-available/ldap_openldap:/etc/freeradius/mods-available/ldap_openldap:ro
+      - ./tests/generated/freeradius/config/device_networks:/etc/freeradius/device_networks:ro
       # keeps the test out of freeradius/log
       - /var/log/freeradius
+    ports: !reset []
+    restart: "no"
+
+  syslog-ng:
+    container_name: !reset null
+    volumes:
+      # these keep the test out of syslog-ng/config and syslog-ng/log.
+      # An anonymous volume on /var/log would belong to root, and
+      # syslog-ng (uid 1000) could not write to it.
+      - /config
+      - type: tmpfs
+        target: /var/log
+        tmpfs:
+          mode: 0o1777
+      - ./syslog-ng/config/syslog-ng.conf:/config/syslog-ng.conf:ro
+      - ./tests/generated/syslog-ng/config/device_networks.conf:/config/device_networks.conf:ro
+    ports: !reset []
+    restart: "no"
+
+  tftpd-hpa:
+    container_name: !reset null
+    volumes:
+      # empty volumes. The test puts the file to fetch into firmware.
+      - /tftpboot/firmware
+      - /tftpboot/configs
     ports: !reset []
     restart: "no"
 

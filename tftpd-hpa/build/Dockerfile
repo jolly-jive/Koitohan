@@ -1,6 +1,6 @@
 FROM alpine:3.24
 
-RUN apk add --no-cache tftp-hpa tzdata \
+RUN apk add --no-cache tftp-hpa nftables setpriv tzdata \
  && addgroup -g 1000 tftpd \
  && adduser -D -H -u 1000 -G tftpd -s /sbin/nologin tftpd
 

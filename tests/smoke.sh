@@ -3,10 +3,12 @@
 # Smoke test for the AAA path (FreeRADIUS -> LDAPS -> OpenLDAP) and for
 # the workspace container (ssh -> OpenSSH -> LDAPS -> OpenLDAP).
 #
-# Starts openldap, freeradius and openssh as a separate compose project
+# Starts the stack as a separate compose project
 # on an empty directory, and makes the test accounts with
 # bin/manage_users.sh. Checks the reply for every combination of reply
 # type and role, then that the detail logs survive a rotation, then
+# that syslog-ng and tftpd-hpa take nothing from outside the networks
+# of the devices, then
 # logs in over ssh as each role, then manages a user
 # with bin/manage_users.sh, then runs into the password policy of
 # OpenLDAP, then changes the passwords of the service accounts and of
@@ -27,6 +29,13 @@ COMPOSE=(docker compose -p koitohan-test -f compose.yaml -f tests/compose.test.y
 # openldap/ldif/ and freeradius/config/
 export KOITOHAN_GENERATED_ROOT="${ROOT_DIR}/tests/generated"
 SECRET='testing123'
+# The networks of the devices, whatever .env has: the test sends from
+# the Docker host, which the containers see as the gateway of their
+# network. Docker takes that from the private addresses.
+ALLOWED_NETWORKS='10.0.0.0/8 172.16.0.0/12 192.168.0.0/16'
+# a network the test never sends from (TEST-NET-1)
+OTHER_NETWORKS='192.0.2.0/24'
+export DEVICE_NETWORKS="${ALLOWED_NETWORKS}"
 WAIT_TRIES=40
 
 function cleanup() {
@@ -318,6 +327,68 @@ function check_restart() {
   fi
 }
 
+function address_of() {
+  docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' \
+    "$("${COMPOSE[@]}" ps -q ${1})" 2> /dev/null
+}
+
+# Sends a syslog message and fetches a file over TFTP, both from the
+# Docker host to the addresses of the containers. SYSLOG is 'received'
+# or 'dropped', TFTP is a fixed string to find in the file, or
+# 'timed out'.
+function check_device_networks() {
+  local NAME=${1}
+  local SYSLOG=${2}
+  local TFTP=${3}
+  local LOG="/var/log/Hosts/smoke-${NAME}/smoke-${NAME}.log"
+  local ADDR OUT TRY GOT='dropped' WHY=''
+
+  # syslog-ng takes a while to start, and says nothing about a message
+  # it drops. Its control socket is how the test knows it listens.
+  for TRY in $(seq ${WAIT_TRIES}); do
+    "${COMPOSE[@]}" exec -T syslog-ng syslog-ng-ctl stats --control=/config/syslog-ng.ctl > /dev/null 2>&1 && break
+    sleep 1
+  done
+  ADDR=$(address_of syslog-ng)
+  echo "<134>Jan  1 00:00:00 smoke-${NAME} smoke: koitohan-smoke" > "/dev/udp/${ADDR}/1514"
+  for TRY in 1 2 3 4 5; do
+    if "${COMPOSE[@]}" exec -T syslog-ng grep -q -F koitohan-smoke "${LOG}" 2> /dev/null; then
+      GOT='received'
+      break
+    fi
+    sleep 1
+  done
+  [ "${GOT}" = "${SYSLOG}" ] || WHY="expected the message to be ${SYSLOG}"
+
+  COUNT=$((COUNT + 1))
+  if [ -z "${WHY}" ]; then
+    printf 'ok    %-13s %-11s %s\n' 'networks' "${NAME}" "syslog ${SYSLOG}"
+  else
+    FAILED=$((FAILED + 1))
+    printf 'FAIL  %-13s %-11s %s\n' 'networks' "${NAME}" "${WHY}"
+    "${COMPOSE[@]}" logs --tail 5 syslog-ng 2>&1 | sed 's/^/      | /'
+  fi
+
+  WHY=''
+  ADDR=$(address_of tftpd-hpa)
+  OUT=$(curl -s -S -m 5 "tftp://${ADDR}/firmware/smoke.txt" 2>&1)
+  if [ "${TFTP}" = 'timed out' ]; then
+    echo "${OUT}" | grep -q -i -F 'timed out' || WHY='expected the transfer to time out'
+  elif ! echo "${OUT}" | grep -q -F -- "${TFTP}"; then
+    WHY="expected ${TFTP}"
+  fi
+
+  COUNT=$((COUNT + 1))
+  if [ -z "${WHY}" ]; then
+    printf 'ok    %-13s %-11s %s\n' 'networks' "${NAME}" "tftp ${TFTP}"
+  else
+    FAILED=$((FAILED + 1))
+    printf 'FAIL  %-13s %-11s %s\n' 'networks' "${NAME}" "${WHY}"
+    echo "${OUT}" | sed 's/^/      | /'
+    "${COMPOSE[@]}" logs --tail 5 tftpd-hpa 2>&1 | sed 's/^/      | /'
+  fi
+}
+
 # logrotate on the Docker host moves the detail logs away and makes no
 # new ones (scripts/generate_logrotate.sh), so FreeRADIUS has to.
 function check_detail() {
@@ -367,21 +438,22 @@ trap cleanup EXIT
 
 # The same scripts as make runs, on passwords of the test's own
 rm -rf "${KOITOHAN_GENERATED_ROOT}"
-mkdir -p "${KOITOHAN_GENERATED_ROOT}"/{secrets,openldap/ldif,freeradius/config/mods-available}
+mkdir -p "${KOITOHAN_GENERATED_ROOT}"/{secrets,openldap/ldif,freeradius/config/mods-available,syslog-ng/config}
 if ! { scripts/generate_service_account_password.sh freeradius \
        && scripts/generate_service_account_password.sh openssh \
        && scripts/generate_ldap_admin_password.sh admin \
        && scripts/generate_ldap_admin_password.sh config \
        && scripts/generate_ldap_base.sh \
-       && scripts/generate_freeradius_ldap.sh; }; then
+       && scripts/generate_freeradius_ldap.sh \
+       && scripts/generate_device_networks.sh; }; then
   echo 'could not generate the files of the test stack'
   exit 1
 fi
 
 echo 'starting the test stack'
-if ! "${COMPOSE[@]}" up -d --build openldap freeradius openssh > /dev/null 2>&1; then
+if ! "${COMPOSE[@]}" up -d --build > /dev/null 2>&1; then
   echo 'failed to start the test stack'
-  "${COMPOSE[@]}" up -d --build openldap freeradius openssh
+  "${COMPOSE[@]}" up -d --build
   exit 1
 fi
 
@@ -464,6 +536,20 @@ check 'bad password' 127.0.0.1 admin01 wrong Reject '-'
 check 'unknown user' 127.0.0.1 nobody01 nopass Reject '-'
 
 check_detail
+
+# The limit on the source of syslog and TFTP. The same message and the
+# same file, first from a network that is allowed, then with the
+# containers made again for another network. FreeRADIUS takes the same
+# list (it has started with it), but every request of this test comes
+# from the loopback, which it always allows.
+"${COMPOSE[@]}" exec -T tftpd-hpa sh -c 'echo koitohan-smoke > /tftpboot/firmware/smoke.txt'
+check_device_networks allowed 'received' 'koitohan-smoke'
+if ! { DEVICE_NETWORKS="${OTHER_NETWORKS}" scripts/generate_device_networks.sh \
+       && DEVICE_NETWORKS="${OTHER_NETWORKS}" "${COMPOSE[@]}" up -d --force-recreate syslog-ng tftpd-hpa > /dev/null 2>&1; }; then
+  echo 'could not make syslog-ng and tftpd-hpa again'
+  exit 1
+fi
+check_device_networks other 'dropped' 'timed out'
 
 if ! wait_ssh_ready; then
   echo 'the openssh container did not become ready'

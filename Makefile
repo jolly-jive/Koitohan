@@ -1,8 +1,8 @@
 ENV_FILE := .env
 
-.PHONY: all private_dirs certs secrets ldap_dir freeradius_conf ssh_hostkeys logrotate_conf test clean up down
+.PHONY: all private_dirs certs secrets ldap_dir freeradius_conf device_networks ssh_hostkeys logrotate_conf test clean up down
 
-all: private_dirs certs secrets ldap_dir freeradius_conf ssh_hostkeys logrotate_conf
+all: private_dirs certs secrets ldap_dir freeradius_conf device_networks ssh_hostkeys logrotate_conf
 
 ### directories of keys and passwords
 # Closed to the other users of the Docker host. CA/freeradius_client.key
@@ -68,6 +68,18 @@ $(FREERADIUS_LDAP): $(ENV_FILE) secrets/freeradius_service_account_password scri
 $(FREERADIUS_CLIENTS):
 	install -m 640 $(FREERADIUS_CLIENTS).sample $@
 
+### networks of the devices
+# FreeRADIUS and syslog-ng limit the source by themselves, each in its
+# own syntax. tftpd-hpa takes DEVICE_NETWORKS from compose.yaml.
+DEVICE_NETWORKS_FILES := \
+	freeradius/config/device_networks \
+	syslog-ng/config/device_networks.conf
+
+device_networks: $(DEVICE_NETWORKS_FILES)
+
+$(DEVICE_NETWORKS_FILES) &: $(ENV_FILE) scripts/generate_device_networks.sh
+	./scripts/generate_device_networks.sh
+
 ### sshd host keys
 SSH_HOSTKEYS := \
 	openssh/hostkeys/ssh_host_ed25519_key \
@@ -98,6 +110,7 @@ clean:
 	rm -f $(CERT_STAMP) $(CERT_FILES)
 	rm -f $(LDAP_BASE_LDIFS)
 	rm -f $(FREERADIUS_LDAP)
+	rm -f $(DEVICE_NETWORKS_FILES)
 	rm -f $(LOGROTATE_CONF)
 
 ### up and down
@@ -108,7 +121,7 @@ OPENSSH_CERT := CA/openssh_client.crt
 $(SYSLOG_HOSTS_DIR):
 	mkdir -p $@
 
-up: private_dirs secrets freeradius_conf ssh_hostkeys | $(SYSLOG_HOSTS_DIR)
+up: private_dirs secrets freeradius_conf device_networks ssh_hostkeys | $(SYSLOG_HOSTS_DIR)
 	@test -f $(OPENSSH_CERT) || { echo "$(OPENSSH_CERT) is missing. Run 'make' first."; exit 1; }
 	docker compose up -d
 
