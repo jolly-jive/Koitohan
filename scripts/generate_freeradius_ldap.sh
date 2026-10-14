@@ -1,7 +1,9 @@
 #!/bin/bash
 
+set -euo pipefail
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-ROOT_DIR="$(dirname "${SCRIPT_DIR}")"
+ROOT_DIR="${SCRIPT_DIR%/*}"
 
 source "${ROOT_DIR}/.env"
 
@@ -13,10 +15,7 @@ OUT_DIR="${GENERATED_ROOT}/freeradius/config/mods-available"
 function domain2dn() {
   local DOMAIN=${1}
 
-  echo ${DOMAIN} \
-  | tr . '\n' \
-  | awk '{print "dc="$1}' \
-  | paste -s -d ','
+  echo "dc=${DOMAIN//./,dc=}"
 }
 
 LDAP_SUFFIX=$(domain2dn ${LDAP_DOMAIN})
@@ -24,11 +23,11 @@ LDAP_SUFFIX=$(domain2dn ${LDAP_DOMAIN})
 LDAP_MODULE="${OUT_DIR}/ldap_openldap"
 
 PASSWORD_FILE="${GENERATED_ROOT}/secrets/freeradius_service_account_password"
-if [ ! -s "${PASSWORD_FILE}" ]; then
+if [[ ! -s "${PASSWORD_FILE}" ]]; then
   echo "${PASSWORD_FILE} is missing or empty. Run 'make secrets' first." >&2
   exit 1
 fi
-PASSWORD=$(cat "${PASSWORD_FILE}")
+PASSWORD=$(< "${PASSWORD_FILE}")
 
 # contains the bind password
 umask 027

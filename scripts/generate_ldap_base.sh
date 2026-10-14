@@ -1,7 +1,9 @@
 #!/bin/bash
 
+set -euo pipefail
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-ROOT_DIR="$(dirname "${SCRIPT_DIR}")"
+ROOT_DIR="${SCRIPT_DIR%/*}"
 
 source "${ROOT_DIR}/.env"
 
@@ -13,10 +15,7 @@ OUT_DIR="${GENERATED_ROOT}/openldap/ldif"
 function domain2dn() {
   local DOMAIN=${1}
 
-  echo ${DOMAIN} \
-  | tr . '\n' \
-  | awk '{print "dc="$1}' \
-  | paste -s -d ','
+  echo "dc=${DOMAIN//./,dc=}"
 }
 
 LDAP_SUFFIX=$(domain2dn ${LDAP_DOMAIN})
@@ -33,7 +32,7 @@ SERVICE_ACCOUNTS_DN="ou=ServiceAccounts,${LDAP_SUFFIX}"
 # an .env from before ppolicy does not have these, and an empty value
 # would stop OpenLDAP in the middle of the seed
 for NAME in PPOLICY_MIN_LENGTH PPOLICY_MAX_FAILURE PPOLICY_FAILURE_WINDOW PPOLICY_LOCKOUT_DURATION; do
-  if [[ ! "${!NAME}" =~ ^[0-9]+$ ]]; then
+  if [[ ! "${!NAME:-}" =~ ^[0-9]+$ ]]; then
     echo "${NAME} is not a number. Copy it from .env.sample to .env." >&2
     exit 1
   fi
@@ -41,13 +40,29 @@ done
 
 SECRETS_DIR="${GENERATED_ROOT}/secrets"
 for SERVICE in freeradius openssh; do
-  if [ ! -s "${SECRETS_DIR}/${SERVICE}_service_account_password" ]; then
+  if [[ ! -s "${SECRETS_DIR}/${SERVICE}_service_account_password" ]]; then
     echo "${SECRETS_DIR}/${SERVICE}_service_account_password is missing or empty. Run 'make secrets' first." >&2
     exit 1
   fi
 done
-FREERADIUS_PASSWORD=$(cat "${SECRETS_DIR}/freeradius_service_account_password")
-OPENSSH_PASSWORD=$(cat "${SECRETS_DIR}/openssh_service_account_password")
+FREERADIUS_PASSWORD=$(< "${SECRETS_DIR}/freeradius_service_account_password")
+OPENSSH_PASSWORD=$(< "${SECRETS_DIR}/openssh_service_account_password")
+
+# Hashed here, not inside the here-document below: a failure there would
+# go unnoticed and leave an empty userPassword in the LDIF.
+function hash_password() {
+  local HASH
+
+  HASH=$(slappasswd -s "${1}")
+  if [[ ! "${HASH}" =~ ^\{[A-Z0-9-]+\}. ]]; then
+    echo 'slappasswd did not give a hash' >&2
+    exit 1
+  fi
+  echo "${HASH}"
+}
+
+FREERADIUS_HASH=$(hash_password "${FREERADIUS_PASSWORD}")
+OPENSSH_HASH=$(hash_password "${OPENSSH_PASSWORD}")
 
 # contains password hashes
 umask 077
@@ -90,13 +105,13 @@ dn: uid=${FREERADIUS_SERVICE_ACCOUNT_NAME},ou=ServiceAccounts,${LDAP_SUFFIX}
 objectClass: simpleSecurityObject
 objectClass: account
 uid: ${FREERADIUS_SERVICE_ACCOUNT_NAME}
-userPassword: $(slappasswd -s "${FREERADIUS_PASSWORD}")
+userPassword: ${FREERADIUS_HASH}
 
 dn: uid=${OPENSSH_SERVICE_ACCOUNT_NAME},ou=ServiceAccounts,${LDAP_SUFFIX}
 objectClass: simpleSecurityObject
 objectClass: account
 uid: ${OPENSSH_SERVICE_ACCOUNT_NAME}
-userPassword: $(slappasswd -s "${OPENSSH_PASSWORD}")
+userPassword: ${OPENSSH_HASH}
 EOF
 
 

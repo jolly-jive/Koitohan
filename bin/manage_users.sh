@@ -17,7 +17,7 @@
 set -u
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-ROOT_DIR="$(dirname "${SCRIPT_DIR}")"
+ROOT_DIR="${SCRIPT_DIR%/*}"
 
 source "${ROOT_DIR}/.env"
 
@@ -26,10 +26,7 @@ cd "${ROOT_DIR}"
 function domain2dn() {
   local DOMAIN=${1}
 
-  echo ${DOMAIN} \
-  | tr . '\n' \
-  | awk '{print "dc="$1}' \
-  | paste -s -d ','
+  echo "dc=${DOMAIN//./,dc=}"
 }
 
 LDAP_SUFFIX=$(domain2dn ${LDAP_DOMAIN})
@@ -39,20 +36,20 @@ ROLES_DN="ou=Roles,${LDAP_SUFFIX}"
 # "the highest in use + 1" would not do.
 COUNTER_DN="cn=nextUidNumber,${LDAP_SUFFIX}"
 
-ROLES='admin operator readonly'
+ROLES=(admin operator readonly)
 UID_NUMBER_MIN=10000
 UID_NUMBER_MAX=59999
 GID_NUMBER=10000
 
 function usage() {
   cat <<EOF
-usage: $(basename "${0}") add <user> <role> [<full name>]
-       $(basename "${0}") delete <user>
-       $(basename "${0}") role <user> <role>
-       $(basename "${0}") passwd <user>
-       $(basename "${0}") unlock <user>
+usage: ${0##*/} add <user> <role> [<full name>]
+       ${0##*/} delete <user>
+       ${0##*/} role <user> <role>
+       ${0##*/} passwd <user>
+       ${0##*/} unlock <user>
 
-roles: ${ROLES}
+roles: ${ROLES[*]}
 EOF
   exit 2
 }
@@ -86,8 +83,8 @@ function openssh() {
 function is_role() {
   local ROLE
 
-  for ROLE in ${ROLES}; do
-    [ "${ROLE}" = "${1}" ] && return 0
+  for ROLE in "${ROLES[@]}"; do
+    [[ "${ROLE}" == "${1}" ]] && return 0
   done
   return 1
 }
@@ -100,7 +97,7 @@ function user_exists() {
   local OUT
 
   OUT=$(ldap_search -b "${PEOPLE_DN}" -s one "(uid=${1})" dn) || die 'could not search the directory'
-  [ -n "${OUT}" ]
+  [[ -n "${OUT}" ]]
 }
 
 # keeps the name out of the DNs and the filters as it is. Users made by
@@ -110,34 +107,42 @@ function require_user() {
   user_exists "${1}" || die "${1}: no such user"
 }
 
+# The helpers below search before they pipe, so that a failed search
+# fails them too: the status of a pipe is the one of its last command.
 function uid_number_of() {
-  ldap_search -b "$(user_dn "${1}")" -s base uidNumber | values_of uidNumber
+  local OUT
+
+  OUT=$(ldap_search -b "$(user_dn "${1}")" -s base uidNumber) || return 1
+  values_of uidNumber <<< "${OUT}"
 }
 
 # cn comes in base64 when it is not plain ASCII
 function full_name_of() {
   local OUT
 
-  OUT=$(ldap_search -b "$(user_dn "${1}")" -s base cn)
-  echo "${OUT}" | values_of cn | head -n 1
-  echo "${OUT}" | values_of cn: | head -n 1 | base64 -d 2> /dev/null
+  OUT=$(ldap_search -b "$(user_dn "${1}")" -s base cn) || return 1
+  values_of cn <<< "${OUT}" | head -n 1
+  values_of cn: <<< "${OUT}" | head -n 1 | base64 -d 2> /dev/null
 }
 
 function roles_of() {
-  ldap_search -b "${ROLES_DN}" -s one "(uniqueMember=$(user_dn "${1}"))" cn | values_of cn
+  local OUT
+
+  OUT=$(ldap_search -b "${ROLES_DN}" -s one "(uniqueMember=$(user_dn "${1}"))" cn) || return 1
+  values_of cn <<< "${OUT}"
 }
 
 function read_password() {
   local AGAIN
 
-  if [ -t 0 ]; then
+  if [[ -t 0 ]]; then
     read -r -s -p 'New password: ' PASSWORD; echo
     read -r -s -p 'Retype new password: ' AGAIN; echo
-    [ "${PASSWORD}" = "${AGAIN}" ] || die 'the passwords do not match'
+    [[ "${PASSWORD}" == "${AGAIN}" ]] || die 'the passwords do not match'
   else
     read -r PASSWORD
   fi
-  [ -n "${PASSWORD}" ] || die 'the password is empty'
+  [[ -n "${PASSWORD}" ]] || die 'the password is empty'
 }
 
 # the same rules as passwd in the openssh container (PASSWDQC_MIN).
@@ -149,7 +154,7 @@ function check_password() {
 
   OUT=$(printf '%s\n\n%s:x:0:0:%s:/:/bin/sh\n' "${PASSWORD}" "${USER}" "${FULL_NAME//:/ }" \
         | openssh pwqcheck config=/etc/passwdqc.conf 2>&1)
-  [ "${OUT}" = 'OK' ] || die "the password was refused: ${OUT}"
+  [[ "${OUT}" == 'OK' ]] || die "the password was refused: ${OUT}"
 }
 
 # In clear text and from the standard input: OpenLDAP hashes it and
@@ -159,8 +164,10 @@ function set_password() {
 }
 
 function highest_uid_number() {
-  ldap_search -b "${PEOPLE_DN}" -s one '(uidNumber=*)' uidNumber \
-  | values_of uidNumber \
+  local OUT
+
+  OUT=$(ldap_search -b "${PEOPLE_DN}" -s one '(uidNumber=*)' uidNumber) || return 1
+  values_of uidNumber <<< "${OUT}" \
   | awk -v min=${UID_NUMBER_MIN} -v max=${UID_NUMBER_MAX} '
       BEGIN { top = min - 1 }
       $1 ~ /^[0-9]+$/ && $1 + 0 <= max && $1 + 0 > top { top = $1 + 0 }
@@ -174,7 +181,7 @@ function allocate_uid_number() {
 
   for TRY in 1 2 3 4 5; do
     NEXT=$(ldap_search -b "${COUNTER_DN}" -s base serialNumber 2> /dev/null | values_of serialNumber)
-    if [ -z "${NEXT}" ]; then
+    if [[ -z "${NEXT}" ]]; then
       # the first run on this directory: start after the users made by hand
       NEXT=$(highest_uid_number) || return 1
       ldap ldapadd > /dev/null 2>&1 <<EOF
@@ -186,7 +193,7 @@ EOF
       continue
     fi
     [[ "${NEXT}" =~ ^[0-9]+$ ]] || die "${COUNTER_DN}: serialNumber is not a number"
-    [ "${NEXT}" -le ${UID_NUMBER_MAX} ] || die "no uidNumber is left (${UID_NUMBER_MIN}-${UID_NUMBER_MAX})"
+    [[ "${NEXT}" -le ${UID_NUMBER_MAX} ]] || die "no uidNumber is left (${UID_NUMBER_MIN}-${UID_NUMBER_MAX})"
     if ldap ldapmodify > /dev/null 2>&1 <<EOF
 dn: ${COUNTER_DN}
 changetype: modify
@@ -212,7 +219,7 @@ function update_users() {
 
 # the UID is a number, as the name may be gone by now
 function cut_sessions() {
-  [ -n "${1}" ] || return 0
+  [[ -n "${1}" ]] || return 0
   openssh pkill -KILL -u "${1}" < /dev/null
   return 0
 }
@@ -223,9 +230,9 @@ function cmd_add() {
   local FULL_NAME=${3:-${1}}
   local DN UID_NUMBER
 
-  [[ "${USER}" =~ ^[a-z_][a-z0-9_-]*$ ]] && [ ${#USER} -le 32 ] \
+  [[ "${USER}" =~ ^[a-z_][a-z0-9_-]*$ && ${#USER} -le 32 ]] \
     || die "${USER}: not usable as a login name (a-z, 0-9, _ and -, up to 32 characters)"
-  is_role "${ROLE}" || die "${ROLE}: no such role (${ROLES})"
+  is_role "${ROLE}" || die "${ROLE}: no such role (${ROLES[*]})"
   [[ "${FULL_NAME}" != *$'\n'* ]] || die 'the full name has a line break'
   user_exists "${USER}" && die "${USER}: the user exists"
   openssh cut -d: -f1 /etc/passwd.base < /dev/null | grep -q -x -F -- "${USER}" \
@@ -269,14 +276,15 @@ EOF
 
 function cmd_delete() {
   local USER=${1}
-  local DN UID_NUMBER ROLE
+  local DN UID_NUMBER ROLES_NOW ROLE
 
   require_user "${USER}"
   DN=$(user_dn "${USER}")
   # read before the delete, to cut the sessions after it
-  UID_NUMBER=$(uid_number_of "${USER}")
+  UID_NUMBER=$(uid_number_of "${USER}") || die 'could not search the directory'
+  ROLES_NOW=$(roles_of "${USER}") || die 'could not search the directory'
 
-  for ROLE in $(roles_of "${USER}"); do
+  for ROLE in ${ROLES_NOW}; do
     ldap ldapmodify > /dev/null <<EOF || die "could not take ${USER} out of ${ROLE}"
 dn: cn=${ROLE},${ROLES_DN}
 changetype: modify
@@ -294,32 +302,34 @@ EOF
 function cmd_role() {
   local USER=${1}
   local ROLE=${2}
-  local DN CURRENT OLD LDIF=''
+  local DN UID_NUMBER CURRENT OLD LDIF=''
 
   require_user "${USER}"
-  is_role "${ROLE}" || die "${ROLE}: no such role (${ROLES})"
+  is_role "${ROLE}" || die "${ROLE}: no such role (${ROLES[*]})"
   DN=$(user_dn "${USER}")
-  CURRENT=$(roles_of "${USER}")
+  UID_NUMBER=$(uid_number_of "${USER}") || die 'could not search the directory'
+  # a failed search must not pass for "no role": the old roles would stay
+  CURRENT=$(roles_of "${USER}") || die 'could not search the directory'
 
-  if [ "${CURRENT}" = "${ROLE}" ]; then
+  if [[ "${CURRENT}" == "${ROLE}" ]]; then
     echo "${USER} is ${ROLE} already"
     return 0
   fi
 
   # into the new role first, so that a failure leaves the user with a role
-  if ! echo "${CURRENT}" | grep -q -x -F -- "${ROLE}"; then
+  if ! grep -q -x -F -- "${ROLE}" <<< "${CURRENT}"; then
     LDIF+="dn: cn=${ROLE},${ROLES_DN}"$'\n'"changetype: modify"$'\n'
     LDIF+="add: uniqueMember"$'\n'"uniqueMember: ${DN}"$'\n\n'
   fi
   for OLD in ${CURRENT}; do
-    [ "${OLD}" = "${ROLE}" ] && continue
+    [[ "${OLD}" == "${ROLE}" ]] && continue
     LDIF+="dn: cn=${OLD},${ROLES_DN}"$'\n'"changetype: modify"$'\n'
     LDIF+="delete: uniqueMember"$'\n'"uniqueMember: ${DN}"$'\n\n'
   done
   printf '%s' "${LDIF}" | ldap ldapmodify > /dev/null || die "could not change the role of ${USER}"
 
   update_users
-  cut_sessions "$(uid_number_of "${USER}")"
+  cut_sessions "${UID_NUMBER}"
   echo "${USER} is ${ROLE} now"
 }
 
@@ -328,7 +338,8 @@ function cmd_passwd() {
   local FULL_NAME
 
   require_user "${USER}"
-  FULL_NAME=$(full_name_of "${USER}" | tr '\n' ' ')
+  FULL_NAME=$(full_name_of "${USER}") || die 'could not search the directory'
+  FULL_NAME=${FULL_NAME//$'\n'/ }
 
   read_password
   check_password "${USER}" "${FULL_NAME}"
@@ -342,17 +353,18 @@ function cmd_unlock() {
   local STATE ATTR LDIF=''
 
   require_user "${USER}"
-  STATE=$(ldap_search -b "$(user_dn "${USER}")" -s base pwdAccountLockedTime pwdFailureTime)
+  STATE=$(ldap_search -b "$(user_dn "${USER}")" -s base pwdAccountLockedTime pwdFailureTime) \
+    || die 'could not search the directory'
 
-  if [ -z "$(echo "${STATE}" | values_of pwdAccountLockedTime)" ]; then
+  if [[ -z "$(values_of pwdAccountLockedTime <<< "${STATE}")" ]]; then
     echo "${USER} is not locked"
     return 0
   fi
   # The count of the failures goes too, or the next one would lock again.
   # It is not open to changes, so this needs the relax control.
   for ATTR in pwdAccountLockedTime pwdFailureTime; do
-    if [ -n "$(echo "${STATE}" | values_of ${ATTR})" ]; then
-      [ -n "${LDIF}" ] && LDIF+="-"$'\n'
+    if [[ -n "$(values_of ${ATTR} <<< "${STATE}")" ]]; then
+      [[ -n "${LDIF}" ]] && LDIF+="-"$'\n'
       LDIF+="delete: ${ATTR}"$'\n'
     fi
   done
@@ -362,15 +374,15 @@ function cmd_unlock() {
   echo "unlocked ${USER}"
 }
 
-[ $# -ge 1 ] || usage
+[[ $# -ge 1 ]] || usage
 COMMAND=${1}
 shift
 
 case ${COMMAND} in
-  add)    [ $# -eq 2 ] || [ $# -eq 3 ] || usage; cmd_add "$@" ;;
-  delete) [ $# -eq 1 ] || usage; cmd_delete "$@" ;;
-  role)   [ $# -eq 2 ] || usage; cmd_role "$@" ;;
-  passwd) [ $# -eq 1 ] || usage; cmd_passwd "$@" ;;
-  unlock) [ $# -eq 1 ] || usage; cmd_unlock "$@" ;;
+  add)    [[ $# -eq 2 || $# -eq 3 ]] || usage; cmd_add "$@" ;;
+  delete) [[ $# -eq 1 ]] || usage; cmd_delete "$@" ;;
+  role)   [[ $# -eq 2 ]] || usage; cmd_role "$@" ;;
+  passwd) [[ $# -eq 1 ]] || usage; cmd_passwd "$@" ;;
+  unlock) [[ $# -eq 1 ]] || usage; cmd_unlock "$@" ;;
   *)      usage ;;
 esac

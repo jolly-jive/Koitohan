@@ -6,8 +6,10 @@
 #
 #   sudo install -m 644 -o root -g root logrotate/koitohan /etc/logrotate.d/koitohan
 
+set -euo pipefail
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-ROOT_DIR="$(dirname "${SCRIPT_DIR}")"
+ROOT_DIR="${SCRIPT_DIR%/*}"
 
 source "${ROOT_DIR}/.env"
 
@@ -33,7 +35,7 @@ SYSLOG_LOG_DIR="${ROOT_DIR}/syslog-ng/log"
 FREERADIUS_LOG_DIR="${ROOT_DIR}/freeradius/log"
 TFTP_LOG_DIR="${ROOT_DIR}/tftpd-hpa/log"
 
-if [ -z "${SYSLOG_CONTAINER_NAME}" ]; then
+if [[ -z "${SYSLOG_CONTAINER_NAME:-}" ]]; then
   echo "SYSLOG_CONTAINER_NAME is not set in .env." >&2
   exit 1
 fi

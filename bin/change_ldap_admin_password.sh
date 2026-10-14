@@ -21,7 +21,7 @@
 set -u
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-ROOT_DIR="$(dirname "${SCRIPT_DIR}")"
+ROOT_DIR="${SCRIPT_DIR%/*}"
 
 source "${ROOT_DIR}/.env"
 
@@ -40,13 +40,10 @@ cd "${ROOT_DIR}"
 function domain2dn() {
   local DOMAIN=${1}
 
-  echo ${DOMAIN} \
-  | tr . '\n' \
-  | awk '{print "dc="$1}' \
-  | paste -s -d ','
+  echo "dc=${DOMAIN//./,dc=}"
 }
 
-[ $# -eq 0 ] || { echo "usage: $(basename "${0}")" >&2; exit 2; }
+[[ $# -eq 0 ]] || { echo "usage: ${0##*/}" >&2; exit 2; }
 
 WAIT_TRIES=40
 
@@ -72,7 +69,7 @@ function binds() {
 # A stack that reads other files must not get them replaced: the next
 # start of its openldap would set passwords that nobody meant.
 CONTAINER=$(docker compose ps -a -q openldap 2> /dev/null)
-[ -n "${CONTAINER}" ] || die 'openldap: no such container in this stack. Start the stack first.'
+[[ -n "${CONTAINER}" ]] || die 'openldap: no such container in this stack. Start the stack first.'
 for WHICH in admin config; do
   docker inspect -f '{{range .Mounts}}{{println .Source}}{{end}}' "${CONTAINER}" \
   | grep -q -x -F -- "$(password_file ${WHICH})" \
@@ -87,7 +84,7 @@ done
 
 # From here on the files and the directory do not agree, until openldap
 # has started again.
-AGAIN="Run $(basename "${0}") again."
+AGAIN="Run ${0##*/} again."
 for WHICH in admin config; do
   mv "$(password_file ${WHICH}).new" "$(password_file ${WHICH})" \
     || die "could not write $(password_file ${WHICH}). ${AGAIN}"
@@ -98,7 +95,7 @@ done
 docker compose up -d --force-recreate --no-deps openldap > /dev/null 2>&1 \
   || die "could not recreate openldap. ${AGAIN}"
 
-for TRY in $(seq ${WAIT_TRIES}); do
+for (( TRY = 1; TRY <= WAIT_TRIES; TRY++ )); do
   if binds admin && binds config; then
     echo "changed the passwords of $(dn_of admin) and $(dn_of config) and recreated openldap"
     exit 0

@@ -90,6 +90,8 @@ TFTP のルートは `tftpd-hpa/tftpboot/`。`firmware/` は `:ro` でマウン�
 
 ## 注意点
 
+- Docker ホストで動くスクリプト(`scripts/`、`bin/`、`tests/smoke.sh`)は bash で書く。条件は `[[ ]]`(文字列の比較は `==`)、外部コマンドで足りていたところも bash の機能を使う(`${VAR//./,dc=}`、`${VAR,,}`、`$(< file)`、`<<<`、`for (( ))`)。コンテナの中で動くもの(`*/build/` のスクリプトと、`smoke.sh` が `sh -c` や ssh で渡す文字列)は busybox の `sh` が実行するので、POSIX の書き方のまま残す。
+- `scripts/` の生成スクリプトは `set -euo pipefail` で書く。失敗が握りつぶされると、Makefile が壊れた生成物を最新として扱う(`.DELETE_ON_ERROR` は、書きかけのターゲットを消すための網)。コマンド置換をヒアドキュメントの中に書かないこと(失敗しても `set -e` が効かない。`slappasswd` のハッシュは先に変数へ取って確かめている)。新しい変数を読むときは、`set -u` で止まらないよう、なくてよいものに `${VAR:-}` を使う。`bin/` は `set -u` だけで、失敗は1つずつ `die` で扱う(`docker inspect | grep -q` のようなパイプがあり、`pipefail` を付けると、`grep -q` が先に終わったときの SIGPIPE で偽って失敗する)。`bin/` で検索の結果をパイプに流すときは、先に変数へ取って終了ステータスを確かめる(パイプの終了ステータスは最後のコマンドのもの)。
 - コードのコメントは英語で書く(Dockerfile、スクリプト、設定ファイルのすべて)。周りのコメントが日本語でも合わせないこと。ドキュメント(`README.ja.md`、`docs/basic-design.md`、このファイル)は対象外。
 - LDIF のターゲットは1つのスクリプトが複数ファイルを書き出すため、グループターゲット(`&:`)を使っている。GNU Make 4.3 以上が必要。
 - 生成物と実行時データは gitignore 済み(`CA/*`、`openldap/data`、`openldap/config`、`openldap/ldif/*.ldif`、`freeradius/config/device_networks`、`*/log`、`openssh/hostkeys/*`、`secrets/*`、`logrotate/*`、`tests/generated/`、`scripts/openssl.conf`、`syslog-ng/config` の `syslog-ng.conf` 以外、`tftpd-hpa/log/*`、`tftpd-hpa/configs.img`、`tftpd-hpa/tftpboot/` の `firmware/.gitkeep` 以外)。ディレクトリは `.gitkeep` で維持している。`.gitignore` では `!.gitkeep` を末尾に置くこと(後に書いたパターンが優先されるため)。

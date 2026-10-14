@@ -9,11 +9,13 @@
 # tftpd-hpa takes the same variable from compose.yaml and filters the
 # packets in its entrypoint.
 
+set -euo pipefail
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-ROOT_DIR="$(dirname "${SCRIPT_DIR}")"
+ROOT_DIR="${SCRIPT_DIR%/*}"
 
 # the environment wins over .env, as it does for docker compose
-FROM_ENVIRONMENT="${DEVICE_NETWORKS}"
+FROM_ENVIRONMENT="${DEVICE_NETWORKS:-}"
 source "${ROOT_DIR}/.env"
 DEVICE_NETWORKS="${FROM_ENVIRONMENT:-${DEVICE_NETWORKS}}"
 
@@ -24,7 +26,7 @@ FREERADIUS_NETWORKS="${GENERATED_ROOT}/freeradius/config/device_networks"
 SYSLOG_NETWORKS="${GENERATED_ROOT}/syslog-ng/config/device_networks.conf"
 
 read -r -a NETWORKS <<< "${DEVICE_NETWORKS}"
-if [ ${#NETWORKS[@]} -eq 0 ]; then
+if [[ ${#NETWORKS[@]} -eq 0 ]]; then
   echo "DEVICE_NETWORKS is empty. Set it in .env (see .env.sample)." >&2
   exit 1
 fi

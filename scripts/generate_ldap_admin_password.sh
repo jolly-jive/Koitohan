@@ -9,13 +9,15 @@
 # to write to. bin/change_ldap_admin_password.sh uses it, to hold the
 # new passwords until both are made.
 
+set -euo pipefail
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-ROOT_DIR="$(dirname "${SCRIPT_DIR}")"
+ROOT_DIR="${SCRIPT_DIR%/*}"
 
 # tests/smoke.sh keeps its own generated files apart
 GENERATED_ROOT="${KOITOHAN_GENERATED_ROOT:-${ROOT_DIR}}"
 
-WHICH=${1}
+WHICH=${1:-}
 case ${WHICH} in
   admin|config) ;;
   *) echo "usage: ${0} admin|config [<file>]" >&2; exit 1 ;;
@@ -23,14 +25,14 @@ esac
 
 OUT_FILE=${2:-${GENERATED_ROOT}/secrets/ldap_${WHICH}_password}
 
-if [ -e "${OUT_FILE}" ]; then
+if [[ -e "${OUT_FILE}" ]]; then
   echo "${OUT_FILE} exists. bin/change_ldap_admin_password.sh makes a new one on a running stack." >&2
   exit 1
 fi
 
 # letters and digits only, like the passwords of the service accounts
 PASSWORD=$(openssl rand -hex 24)
-if [ ${#PASSWORD} -ne 48 ]; then
+if [[ ${#PASSWORD} -ne 48 ]]; then
   echo 'could not make a password' >&2
   exit 1
 fi

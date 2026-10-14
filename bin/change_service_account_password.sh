@@ -19,7 +19,7 @@
 set -u
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-ROOT_DIR="$(dirname "${SCRIPT_DIR}")"
+ROOT_DIR="${SCRIPT_DIR%/*}"
 
 source "${ROOT_DIR}/.env"
 
@@ -38,18 +38,15 @@ cd "${ROOT_DIR}"
 function domain2dn() {
   local DOMAIN=${1}
 
-  echo ${DOMAIN} \
-  | tr . '\n' \
-  | awk '{print "dc="$1}' \
-  | paste -s -d ','
+  echo "dc=${DOMAIN//./,dc=}"
 }
 
 SERVICE=${1:-}
 case ${SERVICE} in
   freeradius|openssh) ;;
-  *) echo "usage: $(basename "${0}") freeradius|openssh" >&2; exit 2 ;;
+  *) echo "usage: ${0##*/} freeradius|openssh" >&2; exit 2 ;;
 esac
-[ $# -eq 1 ] || { echo "usage: $(basename "${0}") freeradius|openssh" >&2; exit 2; }
+[[ $# -eq 1 ]] || { echo "usage: ${0##*/} freeradius|openssh" >&2; exit 2; }
 
 NAME_VAR="${SERVICE^^}_SERVICE_ACCOUNT_NAME"
 DN="uid=${!NAME_VAR},ou=ServiceAccounts,$(domain2dn ${LDAP_DOMAIN})"
@@ -70,7 +67,7 @@ function openldap() {
 # A stack that reads other files must not get its password changed: the
 # directory and the files would part, and nobody could log in.
 CONTAINER=$(docker compose ps -a -q "${SERVICE}" 2> /dev/null)
-[ -n "${CONTAINER}" ] || die "${SERVICE}: no such container in this stack. Start the stack first."
+[[ -n "${CONTAINER}" ]] || die "${SERVICE}: no such container in this stack. Start the stack first."
 docker inspect -f '{{range .Mounts}}{{println .Source}}{{end}}' "${CONTAINER}" \
 | grep -q -x -F -- "${MOUNTED}" \
   || die "${SERVICE} does not read ${MOUNTED}. For another stack, set KOITOHAN_GENERATED_ROOT."
@@ -87,7 +84,7 @@ openldap ldappasswd -Q -Y EXTERNAL -H ldapi:/// -T /dev/stdin "${DN}" < "${NEW_F
   || die "could not set the password of ${DN}"
 
 # From here on the directory knows the new password only.
-AGAIN="Run $(basename "${0}") ${SERVICE} again."
+AGAIN="Run ${0##*/} ${SERVICE} again."
 mv "${NEW_FILE}" "${PASSWORD_FILE}" || die "could not write ${PASSWORD_FILE}. ${AGAIN}"
 
 openldap ldapwhoami -x -H ldapi:/// -D "${DN}" -y /dev/stdin < "${PASSWORD_FILE}" > /dev/null \
@@ -95,7 +92,7 @@ openldap ldapwhoami -x -H ldapi:/// -D "${DN}" -y /dev/stdin < "${PASSWORD_FILE}
 
 # the seed LDIF, for the next empty database
 "${ROOT_DIR}/scripts/generate_ldap_base.sh" || die "could not generate the LDIFs. ${AGAIN}"
-if [ "${SERVICE}" = 'freeradius' ]; then
+if [[ "${SERVICE}" == 'freeradius' ]]; then
   "${ROOT_DIR}/scripts/generate_freeradius_ldap.sh" || die "could not generate ldap_openldap. ${AGAIN}"
 fi
 

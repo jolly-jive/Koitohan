@@ -19,7 +19,7 @@
 #   KEEP=1 tests/smoke.sh    leave the test stack up for a closer look
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-ROOT_DIR="$(dirname "${SCRIPT_DIR}")"
+ROOT_DIR="${SCRIPT_DIR%/*}"
 
 cd "${ROOT_DIR}"
 
@@ -42,7 +42,7 @@ WAIT_TRIES=40
 
 function cleanup() {
   rm -f "${ASKPASS}"
-  if [ -n "${KEEP}" ]; then
+  if [[ -n "${KEEP}" ]]; then
     echo "test stack left up: ${COMPOSE[*]} down -v && rm -rf tests/generated"
   else
     "${COMPOSE[@]}" down -v > /dev/null 2>&1
@@ -74,8 +74,8 @@ function send_request() {
   local USER=${2}
   local PASS=${3}
 
-  echo "User-Name = \"${USER}\", User-Password = \"${PASS}\", Net.Src.IP = ${SRC}" \
-  | "${COMPOSE[@]}" exec -T freeradius radclient -x -t 5 -r 1 127.0.0.1:1812 auth ${SECRET} 2>&1
+  "${COMPOSE[@]}" exec -T freeradius radclient -x -t 5 -r 1 127.0.0.1:1812 auth ${SECRET} 2>&1 \
+    <<< "User-Name = \"${USER}\", User-Password = \"${PASS}\", Net.Src.IP = ${SRC}"
 }
 
 # the attributes of the reply, without Message-Authenticator
@@ -89,7 +89,7 @@ function reply_attrs() {
 function wait_ldap_ready() {
   local TRY
 
-  for TRY in $(seq ${WAIT_TRIES}); do
+  for (( TRY = 1; TRY <= WAIT_TRIES; TRY++ )); do
     if "${COMPOSE[@]}" exec -T openssh koitohan-update-users > /dev/null 2>&1; then
       return 0
     fi
@@ -102,7 +102,7 @@ function wait_ldap_ready() {
 function wait_ready() {
   local TRY
 
-  for TRY in $(seq ${WAIT_TRIES}); do
+  for (( TRY = 1; TRY <= WAIT_TRIES; TRY++ )); do
     if send_request 127.0.0.1 admin01 "${PASS_ADMIN}" | grep -q '^Received Access-Accept'; then
       return 0
     fi
@@ -129,23 +129,23 @@ function check() {
   local OUT ATTRS WHY=''
 
   OUT=$(send_request ${SRC} ${USER} ${PASS})
-  ATTRS=$(echo "${OUT}" | reply_attrs)
+  ATTRS=$(reply_attrs <<< "${OUT}")
 
-  if ! echo "${OUT}" | grep -q "^Received Access-${CODE}"; then
+  if ! grep -q "^Received Access-${CODE}" <<< "${OUT}"; then
     WHY="expected Access-${CODE}"
-  elif [ "${EXPECT}" = '-' ]; then
-    [ -z "${ATTRS}" ] || WHY='expected no attributes'
-  elif ! echo "${ATTRS}" | grep -q -F -- "${EXPECT}"; then
+  elif [[ "${EXPECT}" == '-' ]]; then
+    [[ -z "${ATTRS}" ]] || WHY='expected no attributes'
+  elif ! grep -q -F -- "${EXPECT}" <<< "${ATTRS}"; then
     WHY="expected ${EXPECT}"
   fi
 
   COUNT=$((COUNT + 1))
-  if [ -z "${WHY}" ]; then
+  if [[ -z "${WHY}" ]]; then
     printf 'ok    %-13s %-11s %s\n' "${NAME}" "${USER}" "Access-${CODE}"
   else
     FAILED=$((FAILED + 1))
     printf 'FAIL  %-13s %-11s %s\n' "${NAME}" "${USER}" "${WHY}"
-    echo "${OUT}" | sed 's/^/      | /'
+    sed 's/^/      | /' <<< "${OUT}"
   fi
 }
 
@@ -174,10 +174,10 @@ function ssh_run() {
 function wait_ssh_ready() {
   local TRY
 
-  for TRY in $(seq ${WAIT_TRIES}); do
+  for (( TRY = 1; TRY <= WAIT_TRIES; TRY++ )); do
     SSH_ADDR=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' \
       "$("${COMPOSE[@]}" ps -q openssh)" 2> /dev/null)
-    if [ -n "${SSH_ADDR}" ] && ssh_run admin01 "${PASS_ADMIN}" true < /dev/null > /dev/null; then
+    if [[ -n "${SSH_ADDR}" ]] && ssh_run admin01 "${PASS_ADMIN}" true < /dev/null > /dev/null; then
       return 0
     fi
     sleep 3
@@ -199,19 +199,19 @@ function check_ssh() {
 
   OUT=$(printf '%b' "${INPUT}" | ssh_run ${USER} "${PASS}" "${COMMAND}")
 
-  if [ "${EXPECT}" = 'denied' ]; then
-    echo "${OUT}" | grep -q -F 'Permission denied (password)' || WHY='expected the login to fail'
-  elif ! echo "${OUT}" | grep -q -F -- "${EXPECT}"; then
+  if [[ "${EXPECT}" == 'denied' ]]; then
+    grep -q -F 'Permission denied (password)' <<< "${OUT}" || WHY='expected the login to fail'
+  elif ! grep -q -F -- "${EXPECT}" <<< "${OUT}"; then
     WHY="expected ${EXPECT}"
   fi
 
   COUNT=$((COUNT + 1))
-  if [ -z "${WHY}" ]; then
+  if [[ -z "${WHY}" ]]; then
     printf 'ok    %-13s %-11s %s\n' "${NAME}" "${USER}" "${EXPECT}"
   else
     FAILED=$((FAILED + 1))
     printf 'FAIL  %-13s %-11s %s\n' "${NAME}" "${USER}" "${WHY}"
-    echo "${OUT}" | sed 's/^/      | /'
+    sed 's/^/      | /' <<< "${OUT}"
   fi
 }
 
@@ -224,18 +224,17 @@ function check_users() {
   shift 3
   local OUT WHY=''
 
-  OUT=$(echo "${INPUT}" \
-        | COMPOSE_PROJECT_NAME=koitohan-test COMPOSE_FILE=compose.yaml:tests/compose.test.yaml \
-          bin/manage_users.sh "$@" 2>&1)
-  echo "${OUT}" | grep -q -F -- "${EXPECT}" || WHY="expected ${EXPECT}"
+  OUT=$(COMPOSE_PROJECT_NAME=koitohan-test COMPOSE_FILE=compose.yaml:tests/compose.test.yaml \
+        bin/manage_users.sh "$@" 2>&1 <<< "${INPUT}")
+  grep -q -F -- "${EXPECT}" <<< "${OUT}" || WHY="expected ${EXPECT}"
 
   COUNT=$((COUNT + 1))
-  if [ -z "${WHY}" ]; then
+  if [[ -z "${WHY}" ]]; then
     printf 'ok    %-13s %-11s %s\n' "${NAME}" "${2}" "${EXPECT}"
   else
     FAILED=$((FAILED + 1))
     printf 'FAIL  %-13s %-11s %s\n' "${NAME}" "${2}" "${WHY}"
-    echo "${OUT}" | sed 's/^/      | /'
+    sed 's/^/      | /' <<< "${OUT}"
   fi
 }
 
@@ -252,15 +251,15 @@ function check_ldap() {
 
   OUT=$(printf '%b' "${INPUT}" \
         | "${COMPOSE[@]}" exec -T openldap sh -c "${LDAP_SUFFIX_SET}; ${COMMAND}" 2>&1)
-  echo "${OUT}" | grep -q -F -- "${EXPECT}" || WHY="expected ${EXPECT}"
+  grep -q -F -- "${EXPECT}" <<< "${OUT}" || WHY="expected ${EXPECT}"
 
   COUNT=$((COUNT + 1))
-  if [ -z "${WHY}" ]; then
+  if [[ -z "${WHY}" ]]; then
     printf 'ok    %-13s %-11s %s\n' "${NAME}" "${USER}" "${EXPECT}"
   else
     FAILED=$((FAILED + 1))
     printf 'FAIL  %-13s %-11s %s\n' "${NAME}" "${USER}" "${WHY}"
-    echo "${OUT}" | sed 's/^/      | /'
+    sed 's/^/      | /' <<< "${OUT}"
   fi
 }
 
@@ -273,15 +272,15 @@ function check_service_password() {
 
   OUT=$(COMPOSE_PROJECT_NAME=koitohan-test COMPOSE_FILE=compose.yaml:tests/compose.test.yaml \
         bin/change_service_account_password.sh "${SERVICE}" 2>&1 < /dev/null)
-  echo "${OUT}" | grep -q -F -- "${EXPECT}" || WHY="expected ${EXPECT}"
+  grep -q -F -- "${EXPECT}" <<< "${OUT}" || WHY="expected ${EXPECT}"
 
   COUNT=$((COUNT + 1))
-  if [ -z "${WHY}" ]; then
+  if [[ -z "${WHY}" ]]; then
     printf 'ok    %-13s %-11s %s\n' 'service pass' "${SERVICE}" "${EXPECT}"
   else
     FAILED=$((FAILED + 1))
     printf 'FAIL  %-13s %-11s %s\n' 'service pass' "${SERVICE}" "${WHY}"
-    echo "${OUT}" | sed 's/^/      | /'
+    sed 's/^/      | /' <<< "${OUT}"
   fi
 }
 
@@ -294,7 +293,7 @@ function check_admin_bind() {
   local EXPECT=${4}
   local DN='cn=admin,${SUFFIX}'
 
-  [ "${WHICH}" = 'config' ] && DN='cn=admin,cn=config'
+  [[ "${WHICH}" == 'config' ]] && DN='cn=admin,cn=config'
   check_ldap "${NAME}" "${WHICH}" "${EXPECT}" \
     "ldapwhoami -x -H ldapi:/// -D \"${DN}\" -y /dev/stdin" "${PASS}"
 }
@@ -307,8 +306,8 @@ function check_restart() {
   local BIND="${LDAP_SUFFIX_SET}; ldapwhoami -x -H ldapi:/// -w '${PASS_ADMIN}' -D \"${DN}\""
 
   "${COMPOSE[@]}" restart openldap > /dev/null 2>&1
-  for TRY in $(seq ${WAIT_TRIES}); do
-    if [ -z "$("${COMPOSE[@]}" ps --status running -q openldap)" ]; then
+  for (( TRY = 1; TRY <= WAIT_TRIES; TRY++ )); do
+    if [[ -z "$("${COMPOSE[@]}" ps --status running -q openldap)" ]]; then
       WHY='openldap exited'
       break
     fi
@@ -320,7 +319,7 @@ function check_restart() {
   done
 
   COUNT=$((COUNT + 1))
-  if [ -z "${WHY}" ]; then
+  if [[ -z "${WHY}" ]]; then
     printf 'ok    %-13s %-11s %s\n' 'ldap restart' admin01 'bind'
   else
     FAILED=$((FAILED + 1))
@@ -336,26 +335,26 @@ function check_ssh_other_network() {
   local OUT TRY WHY='sshd did not start'
 
   OPENSSH_ALLOWED_NETWORKS="${OTHER_NETWORKS}" "${COMPOSE[@]}" up -d --force-recreate openssh > /dev/null 2>&1
-  for TRY in $(seq ${WAIT_TRIES}); do
+  for (( TRY = 1; TRY <= WAIT_TRIES; TRY++ )); do
     if "${COMPOSE[@]}" exec -T openssh nc -z -w 1 127.0.0.1 22 > /dev/null 2>&1; then
       WHY=''
       break
     fi
     sleep 3
   done
-  if [ -z "${WHY}" ]; then
+  if [[ -z "${WHY}" ]]; then
     SSH_ADDR=$(address_of openssh)
     OUT=$(ssh_run admin01 "${PASS_ADMIN}" true < /dev/null)
-    echo "${OUT}" | grep -q -F 'timed out' || WHY='expected the connection to time out'
+    grep -q -F 'timed out' <<< "${OUT}" || WHY='expected the connection to time out'
   fi
 
   COUNT=$((COUNT + 1))
-  if [ -z "${WHY}" ]; then
+  if [[ -z "${WHY}" ]]; then
     printf 'ok    %-13s %-11s %s\n' 'networks' 'other' 'ssh timed out'
   else
     FAILED=$((FAILED + 1))
     printf 'FAIL  %-13s %-11s %s\n' 'networks' 'other' "${WHY}"
-    echo "${OUT}" | sed 's/^/      | /'
+    sed 's/^/      | /' <<< "${OUT}"
     "${COMPOSE[@]}" logs --tail 5 openssh 2>&1 | sed 's/^/      | /'
   fi
 }
@@ -378,7 +377,7 @@ function check_device_networks() {
 
   # syslog-ng takes a while to start, and says nothing about a message
   # it drops. Its control socket is how the test knows it listens.
-  for TRY in $(seq ${WAIT_TRIES}); do
+  for (( TRY = 1; TRY <= WAIT_TRIES; TRY++ )); do
     "${COMPOSE[@]}" exec -T syslog-ng syslog-ng-ctl stats --control=/config/syslog-ng.ctl > /dev/null 2>&1 && break
     sleep 1
   done
@@ -391,10 +390,10 @@ function check_device_networks() {
     fi
     sleep 1
   done
-  [ "${GOT}" = "${SYSLOG}" ] || WHY="expected the message to be ${SYSLOG}"
+  [[ "${GOT}" == "${SYSLOG}" ]] || WHY="expected the message to be ${SYSLOG}"
 
   COUNT=$((COUNT + 1))
-  if [ -z "${WHY}" ]; then
+  if [[ -z "${WHY}" ]]; then
     printf 'ok    %-13s %-11s %s\n' 'networks' "${NAME}" "syslog ${SYSLOG}"
   else
     FAILED=$((FAILED + 1))
@@ -405,19 +404,19 @@ function check_device_networks() {
   WHY=''
   ADDR=$(address_of tftpd-hpa)
   OUT=$(curl -s -S -m 5 "tftp://${ADDR}/firmware/smoke.txt" 2>&1)
-  if [ "${TFTP}" = 'timed out' ]; then
-    echo "${OUT}" | grep -q -i -F 'timed out' || WHY='expected the transfer to time out'
-  elif ! echo "${OUT}" | grep -q -F -- "${TFTP}"; then
+  if [[ "${TFTP}" == 'timed out' ]]; then
+    grep -q -i -F 'timed out' <<< "${OUT}" || WHY='expected the transfer to time out'
+  elif ! grep -q -F -- "${TFTP}" <<< "${OUT}"; then
     WHY="expected ${TFTP}"
   fi
 
   COUNT=$((COUNT + 1))
-  if [ -z "${WHY}" ]; then
+  if [[ -z "${WHY}" ]]; then
     printf 'ok    %-13s %-11s %s\n' 'networks' "${NAME}" "tftp ${TFTP}"
   else
     FAILED=$((FAILED + 1))
     printf 'FAIL  %-13s %-11s %s\n' 'networks' "${NAME}" "${WHY}"
-    echo "${OUT}" | sed 's/^/      | /'
+    sed 's/^/      | /' <<< "${OUT}"
     "${COMPOSE[@]}" logs --tail 5 tftpd-hpa 2>&1 | sed 's/^/      | /'
   fi
 }
@@ -432,20 +431,20 @@ function check_detail() {
     mv ${DIR}/auth-detail ${DIR}/auth-detail-moved \\
     && mv ${DIR}/reply-detail ${DIR}/reply-detail-moved" 2>&1) \
   || WHY='expected auth-detail and reply-detail'
-  if [ -z "${WHY}" ]; then
+  if [[ -z "${WHY}" ]]; then
     send_request 127.0.0.1 admin01 "${PASS_ADMIN}" > /dev/null
     OUT=$("${COMPOSE[@]}" exec -T freeradius sh -c "
       test -s ${DIR}/auth-detail && test -s ${DIR}/reply-detail || ls -l ${DIR}" 2>&1) \
-    && [ -z "${OUT}" ] || WHY='expected new files after the move'
+    && [[ -z "${OUT}" ]] || WHY='expected new files after the move'
   fi
 
   COUNT=$((COUNT + 1))
-  if [ -z "${WHY}" ]; then
+  if [[ -z "${WHY}" ]]; then
     printf 'ok    %-13s %-11s %s\n' 'detail log' admin01 'made again'
   else
     FAILED=$((FAILED + 1))
     printf 'FAIL  %-13s %-11s %s\n' 'detail log' admin01 "${WHY}"
-    echo "${OUT}" | sed 's/^/      | /'
+    sed 's/^/      | /' <<< "${OUT}"
   fi
 }
 
@@ -461,23 +460,23 @@ function check_tftp_log() {
   OUT=$("${COMPOSE[@]}" exec -T tftpd-hpa sh -c "
     grep -q '${RECORD}' ${LOG} && mv ${LOG} ${LOG}-moved" 2>&1) \
   || WHY='expected the record of the transfer in tftpd.log'
-  if [ -z "${WHY}" ]; then
+  if [[ -z "${WHY}" ]]; then
     # syslogd opens the file again once a second, not for every line.
     # What it writes within the second of the move goes to the old file.
     sleep 2
     curl -s -S -m 5 -o /dev/null "tftp://${ADDR}/firmware/smoke.txt" 2> /dev/null
     OUT=$("${COMPOSE[@]}" exec -T tftpd-hpa sh -c "
       grep -q '${RECORD}' ${LOG} || ls -l /var/log/tftpd" 2>&1) \
-    && [ -z "${OUT}" ] || WHY='expected a new file after the move'
+    && [[ -z "${OUT}" ]] || WHY='expected a new file after the move'
   fi
 
   COUNT=$((COUNT + 1))
-  if [ -z "${WHY}" ]; then
+  if [[ -z "${WHY}" ]]; then
     printf 'ok    %-13s %-11s %s\n' 'tftp log' 'smoke.txt' 'recorded, made again'
   else
     FAILED=$((FAILED + 1))
     printf 'FAIL  %-13s %-11s %s\n' 'tftp log' 'smoke.txt' "${WHY}"
-    echo "${OUT}" | sed 's/^/      | /'
+    sed 's/^/      | /' <<< "${OUT}"
     "${COMPOSE[@]}" logs --tail 5 tftpd-hpa 2>&1 | sed 's/^/      | /'
   fi
 }
@@ -495,20 +494,20 @@ function check_tls() {
     -CAfile CA/default-ca.pem \
     -cert CA/freeradius_client.crt -key CA/freeradius_client.key < /dev/null 2>&1)
 
-  if echo "${OUT}" | grep -q '^New, TLSv'; then
+  if grep -q '^New, TLSv' <<< "${OUT}"; then
     GOT='accepted'
   else
     GOT='refused'
   fi
-  [ "${GOT}" = "${EXPECT}" ] || WHY="expected ${EXPECT}"
+  [[ "${GOT}" == "${EXPECT}" ]] || WHY="expected ${EXPECT}"
 
   COUNT=$((COUNT + 1))
-  if [ -z "${WHY}" ]; then
+  if [[ -z "${WHY}" ]]; then
     printf 'ok    %-13s %-11s %s\n' 'tls' "${VERSION}" "${GOT}"
   else
     FAILED=$((FAILED + 1))
     printf 'FAIL  %-13s %-11s %s\n' 'tls' "${VERSION}" "${WHY}"
-    echo "${OUT}" | grep -v -e '^-----' -e '^[A-Za-z0-9+/=]\{64\}$' | head -n 20 | sed 's/^/      | /'
+    grep -v -e '^-----' -e '^[A-Za-z0-9+/=]\{64\}$' <<< "${OUT}" | head -n 20 | sed 's/^/      | /'
   fi
 }
 
@@ -520,7 +519,7 @@ for FILE in \
   CA/openssh_client.crt \
   openssh/hostkeys/ssh_host_ed25519_key
 do
-  if [ ! -e "${FILE}" ]; then
+  if [[ ! -e "${FILE}" ]]; then
     echo "${FILE} is missing. Run 'make' first, then 'make test'."
     exit 1
   fi
@@ -572,7 +571,7 @@ check_users 'users add' 'uidNumber 10001' "${PASS_ADMIN}" add admin01 admin
 check_users 'users add' 'uidNumber 10002' "${PASS_OPERATOR}" add operator01 operator
 check_users 'users add' 'uidNumber 10003' "${PASS_READONLY}" add readonly01 readonly
 
-if [ ${FAILED} -ne 0 ]; then
+if [[ ${FAILED} -ne 0 ]]; then
   echo 'could not make the test accounts'
   exit 1
 fi
@@ -734,7 +733,7 @@ check_users 'users role' 'smoke01 is admin now' '' role smoke01 admin
 SECONDS=0
 wait
 COUNT=$((COUNT + 1))
-if [ ${SECONDS} -lt 10 ]; then
+if [[ ${SECONDS} -lt 10 ]]; then
   printf 'ok    %-13s %-11s %s\n' 'users role' smoke01 'session cut'
 else
   FAILED=$((FAILED + 1))
@@ -762,7 +761,7 @@ check_users 'users unlock' 'smoke01 is not locked' '' unlock smoke01
 MAX_FAILURE=$("${COMPOSE[@]}" exec -T openldap sh -c "${LDAP_SUFFIX_SET};"'
   ldapsearch -Q -Y EXTERNAL -H ldapi:/// -LLL -b "cn=default,ou=Policies,${SUFFIX}" -s base pwdMaxFailure' \
   2> /dev/null | awk '$1 == "pwdMaxFailure:" { print $2 }')
-for TRY in $(seq ${MAX_FAILURE:-0}); do
+for (( TRY = 1; TRY <= ${MAX_FAILURE:-0}; TRY++ )); do
   send_request 127.0.0.1 smoke01 wrong > /dev/null
 done
 check 'lock' 127.0.0.1 smoke01 "${NEW_PASS2}" Reject '-'
@@ -796,7 +795,7 @@ check_users 'users add' 'uidNumber 10005' "${NEW_PASS}" add smoke02 readonly
 # is gone from the directory. The file of the running stack stays.
 check_service_password bogus 'usage:'
 FREERADIUS_ACCOUNT=$(source .env && echo "${FREERADIUS_SERVICE_ACCOUNT_NAME}")
-OLD_FREERADIUS=$(cat "${KOITOHAN_GENERATED_ROOT}/secrets/freeradius_service_account_password")
+OLD_FREERADIUS=$(< "${KOITOHAN_GENERATED_ROOT}/secrets/freeradius_service_account_password")
 check_service_password freeradius 'recreated freeradius'
 if ! wait_ready; then
   echo 'FreeRADIUS did not become ready with the new password'
@@ -824,29 +823,29 @@ check_ssh 'service pass' admin01 "${PASS_ADMIN}" 'koitohan admin' 'id -Gn' < /de
 # goes through RADIUS.
 ADMIN_FILE="${KOITOHAN_GENERATED_ROOT}/secrets/ldap_admin_password"
 CONFIG_FILE="${KOITOHAN_GENERATED_ROOT}/secrets/ldap_config_password"
-OLD_ADMIN=$(cat "${ADMIN_FILE}")
-OLD_CONFIG=$(cat "${CONFIG_FILE}")
+OLD_ADMIN=$(< "${ADMIN_FILE}")
+OLD_CONFIG=$(< "${CONFIG_FILE}")
 check_admin_bind 'admin pass' admin "${OLD_ADMIN}" 'dn:cn=admin,dc='
 check_admin_bind 'admin pass' config "${OLD_CONFIG}" 'dn:cn=admin,cn=config'
 OUT=$(COMPOSE_PROJECT_NAME=koitohan-test COMPOSE_FILE=compose.yaml:tests/compose.test.yaml \
       bin/change_ldap_admin_password.sh 2>&1 < /dev/null)
 COUNT=$((COUNT + 1))
-if echo "${OUT}" | grep -q -F 'recreated openldap'; then
+if grep -q -F 'recreated openldap' <<< "${OUT}"; then
   printf 'ok    %-13s %-11s %s\n' 'admin pass' 'change' 'recreated openldap'
 else
   FAILED=$((FAILED + 1))
   printf 'FAIL  %-13s %-11s %s\n' 'admin pass' 'change' 'expected recreated openldap'
-  echo "${OUT}" | sed 's/^/      | /'
+  sed 's/^/      | /' <<< "${OUT}"
 fi
-NEW_ADMIN=$(cat "${ADMIN_FILE}")
-NEW_CONFIG=$(cat "${CONFIG_FILE}")
+NEW_ADMIN=$(< "${ADMIN_FILE}")
+NEW_CONFIG=$(< "${CONFIG_FILE}")
 check_admin_bind 'admin pass' admin "${NEW_ADMIN}" 'dn:cn=admin,dc='
 check_admin_bind 'admin pass' config "${NEW_CONFIG}" 'dn:cn=admin,cn=config'
 check_admin_bind 'admin pass' admin "${OLD_ADMIN}" 'Invalid credentials'
 check_admin_bind 'admin pass' config "${OLD_CONFIG}" 'Invalid credentials'
 
 COUNT=$((COUNT + 1))
-if [ -n "$(find secrets -newer "${ASKPASS}" 2> /dev/null)" ]; then
+if [[ -n "$(find secrets -newer "${ASKPASS}" 2> /dev/null)" ]]; then
   FAILED=$((FAILED + 1))
   printf 'FAIL  %-13s %-11s %s\n' 'service pass' 'secrets/' 'expected the files of the running stack to stay'
 else
@@ -873,7 +872,7 @@ fi
 check_ssh 'ldap restart' admin01 "${PASS_ADMIN}" 'koitohan admin' 'id -Gn' < /dev/null
 
 echo
-if [ ${FAILED} -ne 0 ]; then
+if [[ ${FAILED} -ne 0 ]]; then
   echo "${FAILED} of ${COUNT} checks failed"
   exit 1
 fi
