@@ -1,8 +1,10 @@
 #!/bin/sh
 set -eu
 
-# sshd の設定で接続元を絞ると、接続を受けて認証まで進んでから断ることになるので、
-# その手前のパケットフィルタで捨てる。入れられなければ起動しない(制限のないまま待ち受けない)
+# A limit in the config of sshd would turn the client away only after it
+# has tried to authenticate, so the packets are dropped by a filter before
+# that. Without the filter the container does not start (it does not
+# listen without the limit).
 if [ "${1:-}" != filtered ]; then
   networks=$(printf '%s' "${OPENSSH_ALLOWED_NETWORKS:-}" | tr -s ' \t\n' ',,,' | sed 's/^,//; s/,$//')
   if [ -z "$networks" ]; then
@@ -14,8 +16,8 @@ if [ "${1:-}" != filtered ]; then
     exit 1
   fi
 
-  # OpenLDAP からの応答は確立済みの通信として、Docker の内蔵 DNS はループバックとして通る
-  # inet のテーブルなので、IPv6 もここで捨てる
+  # the replies from OpenLDAP pass as established, and the embedded DNS of
+  # Docker as loopback. The table is inet, so this drops IPv6 as well.
   nft -f - <<EOF
 table inet koitohan {
 	chain input {
@@ -27,9 +29,11 @@ table inet koitohan {
 }
 EOF
 
-  # ここから先は NET_ADMIN を持たせない。sshd も nslcd も root で起動するので、
-  # 落とさないとルールを変えられる。自分自身を起動し直して、以降のすべてのプロセスから落とす
-  # busybox の setpriv には --bounding-set がないので、util-linux のものを使う
+  # Nothing from here on keeps NET_ADMIN. sshd and nslcd start as root and
+  # could change the rules otherwise. Starting this script again drops it
+  # from every process that follows.
+  # The setpriv of busybox has no --bounding-set; this is the one of
+  # util-linux.
   exec setpriv --bounding-set -net_admin "$0" filtered
 fi
 
@@ -39,22 +43,25 @@ NSLCD_CERT_DIR="${RUN_DIR}/nslcd-certs"
 
 LDAP_SUFFIX="dc=$(echo "${LDAP_DOMAIN}" | sed 's/\./,dc=/g')"
 
-# sshd、nslcd、PAM は syslog にしか出力しないので、コンテナの標準出力へ流す
-# musl の syslog() は時刻を UTC で付けるので、-t で捨てて syslogd に TZ の時刻を付け直させる
+# sshd, nslcd and PAM write to syslog only, so pass it on to the stdout of
+# the container. The syslog() of musl stamps the time in UTC; -t drops it,
+# and syslogd stamps it again in TZ.
 syslogd -n -t -O - &
 
-# LDAP のユーザは、あとで koitohan-update-users が足す
+# koitohan-update-users adds the users of LDAP later
 mkdir -p "${RUN_DIR}"
 cp /etc/passwd.base "${RUN_DIR}/passwd"
 cp /etc/group.base "${RUN_DIR}/group"
 
-# nslcd は降格したあとで証明書と秘密鍵を読む。マウント元は root しか入れないので、専用のディレクトリへ写す
+# nslcd reads the certificate and the key after it drops root. Only root
+# can enter where they are mounted, so copy them into a directory of its own.
 install -d -m 700 -o nslcd -g nslcd "${NSLCD_CERT_DIR}"
 install -m 400 -o nslcd -g nslcd \
   "${CERT_DIR}/ca.crt" "${CERT_DIR}/client.crt" "${CERT_DIR}/client.key" "${NSLCD_CERT_DIR}/"
 
-# bind 用のパスワードは、環境変数ではなくファイルで受け取る(docker inspect に出さないため)
-# ldapsearch の -y は改行もパスワードに含めるので、改行を付けない
+# The password to bind with comes in a file, not in the environment, so
+# that docker inspect does not show it. The -y of ldapsearch takes a newline
+# as part of the password, so none is written.
 SERVICE_ACCOUNT_PASSWORD=$(cat /etc/koitohan/secrets/bindpw)
 if [ -z "${SERVICE_ACCOUNT_PASSWORD}" ]; then
   echo 'the password of the service account is empty' >&2
@@ -81,14 +88,14 @@ nss_min_uid 10000
 EOF
 
 echo "min=${PASSWDQC_MIN}" > "${RUN_DIR}/passwdqc.conf"
-# 設定の誤りは標準エラーに出る。判定の結果(標準出力)は見ない
+# an error in the config goes to stderr. The verdict (stdout) is ignored.
 PASSWDQC_ERROR=$(echo | pwqcheck -1 config=/etc/passwdqc.conf 2>&1 > /dev/null || true)
 if [ -n "${PASSWDQC_ERROR}" ]; then
   echo "PASSWDQC_MIN is not valid: ${PASSWDQC_ERROR}" >&2
   exit 1
 fi
 
-# OpenLDAP は、初回起動では初期投入が終わるまで応答しない
+# on its first start OpenLDAP does not answer until the seed is done
 TRY=0
 until koitohan-update-users; do
   TRY=$((TRY + 1))
@@ -99,12 +106,12 @@ until koitohan-update-users; do
   sleep 3
 done
 
-# passwd は、ユーザの権限のまま nslcd のソケットにつなぐ
+# passwd connects to the socket of nslcd as the user
 install -d -m 755 -o nslcd -g nslcd /run/nslcd
 nslcd -n &
 /usr/sbin/sshd.pam -D &
 
-# どちらかが終了したらコンテナごと止め、Docker に起動し直させる
+# when either one exits, stop the container and let Docker start it again
 trap 'exit 0' TERM INT
 wait -n
 exit 1

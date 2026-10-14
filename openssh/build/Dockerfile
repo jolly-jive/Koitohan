@@ -8,7 +8,7 @@ RUN apk add --no-cache build-base linux-pam-dev
 ADD --checksum=sha256:${PASSWDQC_SHA256} \
     https://www.openwall.com/passwdqc/passwdqc-${PASSWDQC_VERSION}.tar.gz /tmp/passwdqc.tar.gz
 
-# Alpine の PAM のモジュールは /usr/lib/security にある
+# the PAM modules of Alpine are in /usr/lib/security
 RUN tar -xzf /tmp/passwdqc.tar.gz -C /tmp \
  && cd /tmp/passwdqc-${PASSWDQC_VERSION} \
  && make SECUREDIR=/usr/lib/security SHARED_LIBDIR=/usr/lib \
@@ -40,10 +40,12 @@ COPY profile.sh /etc/profile.d/koitohan.sh
 COPY entrypoint.sh /entrypoint.sh
 COPY update-users.sh /usr/local/sbin/koitohan-update-users
 
-# ルートファイルシステムは読み取り専用で使う。起動時に書くファイルは /run(tmpfs)に置き、
-# /etc からはシンボリックリンクで指す
-# /etc/koitohan は証明書、ホスト鍵、bind 用のパスワードのマウント先で、root しか入れない
-# /tftpboot の2つは、マウント元(tftpd-hpa/tftpboot/)に求める所有者とパーミッションに揃えてある
+# The root filesystem is read-only. The files written at the start go in
+# /run (tmpfs), and symbolic links in /etc point at them.
+# /etc/koitohan is where the certificates, the host keys and the password
+# to bind with are mounted. Only root can enter it.
+# The two under /tftpboot have the owner and the permissions that their
+# sources (tftpd-hpa/tftpboot/) are asked to have.
 RUN mkdir -m 700 /etc/koitohan \
  && mkdir /etc/koitohan/certs /etc/koitohan/hostkeys /etc/koitohan/secrets \
  && mkdir -p /logs/Hosts /tftpboot/configs /tftpboot/firmware \

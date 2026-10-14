@@ -1,8 +1,8 @@
 #!/bin/sh
 #
-# LDAP の ou=People から /etc/passwd と /etc/group を作り直す
-# 書き出すのは、posixAccount を持ち、ロールに所属するユーザだけ
-# 失敗したときは、元のファイルを残す
+# Makes /etc/passwd and /etc/group again from ou=People of LDAP.
+# Writes only the users that have posixAccount and belong to a role.
+# On a failure the files stay as they were.
 set -eu
 
 RUN_DIR=/run/koitohan
@@ -14,7 +14,7 @@ umask 022
 WORK_DIR=$(mktemp -d "${RUN_DIR}/update-users.XXXXXX")
 trap 'rm -rf "${WORK_DIR}"' EXIT
 
-# パスワードを引数で渡すと、ログイン中のユーザから ps で見える
+# a password in the arguments would show in ps to the users logged in
 LDAPTLS_REQCERT=demand \
 LDAPTLS_CACERT="${CERT_DIR}/ca.crt" \
 LDAPTLS_CERT="${CERT_DIR}/client.crt" \
@@ -27,7 +27,7 @@ ldapsearch -x -LLL -o ldif-wrap=no \
   '(&(objectClass=posixAccount)(memberOf=*))' uid uidNumber memberOf \
   > "${WORK_DIR}/people.ldif"
 
-# GID は固定で、後から変えない(ファイルに数値で残るため)
+# the GIDs are fixed and must not change, as files keep them as numbers
 awk -v roles_dn="ou=roles,$(echo "${LDAP_SUFFIX}" | tr '[:upper:]' '[:lower:]')" \
     -v passwd="${WORK_DIR}/passwd" -v group="${WORK_DIR}/group" '
 function skip(why) {
@@ -103,6 +103,6 @@ END {
 cat /etc/group.base "${WORK_DIR}/group" > "${WORK_DIR}/group.new"
 cat /etc/passwd.base "${WORK_DIR}/passwd" > "${WORK_DIR}/passwd.new"
 
-# rename なので、読んでいる側に書きかけのファイルは見えない
+# a rename, so the readers never see a file half written
 mv "${WORK_DIR}/group.new" "${RUN_DIR}/group"
 mv "${WORK_DIR}/passwd.new" "${RUN_DIR}/passwd"
