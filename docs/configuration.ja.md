@@ -58,13 +58,19 @@ DEVICE_NETWORKS='10.0.0.0/8 172.16.0.0/12 192.168.0.0/16'
 
 ## RADIUS クライアント
 
-ネットワーク機器を `freeradius/config/clients.conf` に1台ずつ記述します。クライアントの `nas_type` が、その機器に返す応答属性を決めます。
+ネットワーク機器を `freeradius/config/clients.conf` に記述します。`ipaddr` には、1台のアドレスのほかに、`192.168.10.0/24` のようなネットワークの範囲も書けます。範囲で書いた機器は、共有シークレットと `nas_type` が同じになります。クライアントの `nas_type` が、その機器に返す応答属性を決めます。
 
 ```
 client core-switch {
 	ipaddr = 192.168.1.1
 	secret = changeme
 	nas_type = cisco
+}
+
+client access-switches {
+	ipaddr = 192.168.10.0/24
+	secret = changeme
+	nas_type = aruba-cx
 }
 ```
 

@@ -58,13 +58,19 @@ Apply a change with `make down && make up`.
 
 ## RADIUS clients
 
-Describe each network device in `freeradius/config/clients.conf`. The `nas_type` of a client selects the reply attributes for that device.
+Describe the network devices in `freeradius/config/clients.conf`. `ipaddr` takes the address of one device, or a range of addresses such as `192.168.10.0/24`. The devices in a range share the shared secret and the `nas_type`. The `nas_type` of a client selects the reply attributes for that device.
 
 ```
 client core-switch {
 	ipaddr = 192.168.1.1
 	secret = changeme
 	nas_type = cisco
+}
+
+client access-switches {
+	ipaddr = 192.168.10.0/24
+	secret = changeme
+	nas_type = aruba-cx
 }
 ```
 
