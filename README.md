@@ -60,6 +60,7 @@ sudo chown -R 101:101 freeradius/log
 sudo chown 1000:10001 tftpd-hpa/tftpboot/firmware
 sudo chmod 2770 tftpd-hpa/tftpboot/firmware
 sudo install -m 644 -o root -g root logrotate/koitohan /etc/logrotate.d/koitohan
+make host_check        # check the steps above
 make up
 ```
 
@@ -72,6 +73,8 @@ FreeRADIUS runs as uid 101 and writes its logs to `freeradius/log/`. Without the
 The `install` hands the configuration of the log rotation to logrotate on the Docker host (see [Rotation](docs/logs.md#rotation)).
 
 The `chown` and `chmod` on `firmware/` open the directory to the users with the role `admin`, and to no other user who logs in over SSH (see the [user guide](docs/user-guide.md#handing-out-firmware-and-taking-out-configurations-admin-only)). The steps in [TFTP](docs/tftp.md) do the same for `configs/`.
+
+`make host_check` checks the state of the Docker host that `make` does not make: the steps above done with `sudo`, the image file of [TFTP](docs/tftp.md), and the memory controller that [SSH](docs/ssh.md) needs. It runs without `sudo`, changes nothing, and prints `OK`, `NG`, `WARN` or `SKIP` for each item, with what to do for an `NG` or a `WARN`. It fails when there is an `NG`. A `WARN` is a recommended step that was left out. Run it again whenever you have changed the host or regenerated the logrotate config.
 
 Use `make up` instead of calling `docker compose up` directly on a fresh checkout. It makes sure the generated files exist before Docker mounts them.
 
@@ -101,6 +104,7 @@ make freeradius_conf    # FreeRADIUS LDAP module config and clients.conf
 make device_networks    # the device networks, in the config of FreeRADIUS and of syslog-ng
 make ssh_hostkeys       # sshd host keys (kept if they already exist)
 make logrotate_conf     # config for logrotate on the Docker host
+make host_check         # check the state of the Docker host that make does not make
 make test               # smoke test
 make up                 # start the stack
 make down               # stop the stack

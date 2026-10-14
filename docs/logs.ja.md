@@ -24,6 +24,8 @@ make logrotate_conf
 sudo install -m 644 -o root -g root logrotate/koitohan /etc/logrotate.d/koitohan
 ```
 
+`make host_check` で、置いたファイルが root の所有であること、グループとその他が書き込めないこと(書き込めると logrotate が読まない)、`logrotate/koitohan` と同じ中身であることを確かめられます。
+
 | ファイル                                           | 切り替えたあとの名前                  | 残す日数 |
 | -------------------------------------------------- | ------------------------------------- | -------- |
 | `syslog-ng/log/Hosts/<host>/<host>.log`            | `<host>.log-2026-10-10.gz`            | 1096(3年) |
