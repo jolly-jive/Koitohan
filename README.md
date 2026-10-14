@@ -127,13 +127,6 @@ The default is all the private address ranges. If your devices are managed from 
 
 Apply a change with `make down && make up`.
 
-To upgrade from a version without this variable, copy `DEVICE_NETWORKS` from `.env.sample` to `.env`, rebuild the image of the TFTP server and start the stack again.
-
-```sh
-docker compose build tftpd-hpa
-make down && make up
-```
-
 `OPENSSH_HOSTNAME` is the name that tells the users which server they are logged in to. The prompt looks like `alice@koitohan:/logs/Hosts$`. When you run more than one Koitohan, give each a different name. Apply a change with `make up`.
 
 `TZ` sets the time zone of the timestamps in the logs each container writes. Apply a change with `make up`.
@@ -225,6 +218,8 @@ The rules for passwords are enforced in two places.
 | `passwd` and `bin/manage_users.sh`   | Minimum lengths by character classes (`PASSWDQC_MIN`, see [Changing a password](#changing-a-password)) |
 | OpenLDAP (the ppolicy overlay)       | A minimum length (`PPOLICY_MIN_LENGTH`) and the lock                |
 
+OpenLDAP refuses a password that is written as a hash, as it cannot check its length. Set the passwords of the users with `bin/manage_users.sh` or `passwd`.
+
 A user who keeps failing to log in is locked for a while. With the values in `.env.sample`, 10 failures (`PPOLICY_MAX_FAILURE`) within 5 minutes (`PPOLICY_FAILURE_WINDOW`) lock the user for 5 minutes (`PPOLICY_LOCKOUT_DURATION`).
 
 - Logins on the network devices and logins over SSH share one count of failures. A successful login sets it back to 0.
@@ -240,10 +235,6 @@ docker compose exec -T openldap ldapmodify -c -Q -Y EXTERNAL -H ldapi:/// < open
 ```
 
 It reports `Type or value exists`, `overlay "ppolicy" already in list` and `Already exists` for the module, the overlay and the entries that are already there, which is fine. Only the values are replaced.
-
-The same steps add the policy when you update from a version without ppolicy. Copy `PPOLICY_*` from `.env.sample` to `.env` first. No errors are reported in this case. The passwords of the users who are already there keep working.
-
-Once the policy is applied, OpenLDAP refuses a password that is written as a hash, as it cannot check its length. Set the passwords of the users with `bin/manage_users.sh` or `passwd`.
 
 ### Service account passwords
 
@@ -273,8 +264,6 @@ The script generates a new password, writes it to the directory, replaces the fi
 
 If the script stops halfway, run it again. It does not need the current password, so the same command also repairs a file in `secrets/` that no longer matches the directory.
 
-Use the script as well when you update from a version that kept these passwords in `.env`. The values of `.env` are not read any more, and the passwords that `make` generates do not match the directory, so the script writes them to it. SSH logins fail until it has finished.
-
 ### OpenLDAP administrator passwords
 
 OpenLDAP has two administrators that log in with a password. Neither is subject to the access control or to the password policy. `make` (`make secrets`) generates their passwords and puts them in `secrets/`.
@@ -301,46 +290,11 @@ The script generates the two passwords, replaces the files in `secrets/`, recrea
 
 If the script stops halfway, run it again. It does not need the current passwords.
 
-When you update from a version that kept these passwords in `.env` (`LDAP_ADMIN_PASSWORD`, `LDAP_CONFIG_PASSWORD`), switch over as follows. The OpenLDAP container is recreated and sets the generated passwords as it starts. Delete the two lines from `.env` afterwards.
-
-```sh
-make secrets
-make up
-docker compose restart freeradius
-```
-
-```sh
-# first remove the lines of FREERADIUS_SERVICE_ACCOUNT_PASSWORD and OPENSSH_SERVICE_ACCOUNT_PASSWORD from .env
-make
-docker compose build openssh
-make up
-bin/change_service_account_password.sh freeradius
-bin/change_service_account_password.sh openssh
-```
-
 ### Changing the directory seed
 
 OpenLDAP loads the generated LDIF files only on its first start with an empty database. To apply changes to `.env` or the LDIF files afterwards, you have to delete `openldap/data/` and `openldap/config/` and start again. This deletes every user and role in the directory. A change of `PPOLICY_*` is the exception and needs no deletion (see [Password policy](#password-policy)).
 
 OpenLDAP does not start when it fails to load an LDIF file. Look at `docker compose logs openldap` for the cause, correct the LDIF file and start again.
-
-### Upgrading from an earlier version
-
-Earlier versions ran OpenLDAP from `osixia/openldap` (OpenLDAP 2.4). The new image cannot use that data, and OpenLDAP does not start while it is left in `openldap/data/` and `openldap/config/`. Delete what is in the two directories and start again. This deletes every user and role in the directory, so add them again with `bin/manage_users.sh` once the stack is up. The passwords of the service accounts and of the administrators in `secrets/` stay in use.
-
-```sh
-make down
-sudo find openldap/data openldap/config -mindepth 1 ! -name .gitkeep -delete
-make up
-```
-
-When you upgrade from a version in which OpenLDAP also took TLS 1.2 and used a file of DH parameters (`CA/dhparam.pem`), build the OpenLDAP image again, then start again. Keep the data of the directory. The new image corrects the configuration when it starts. The old image would stop on start, looking for the file that is no longer mounted. `CA/dhparam.pem` is no longer used, so you can delete it.
-
-```sh
-docker compose build openldap
-make down
-make up
-```
 
 ## TFTP
 
@@ -476,36 +430,11 @@ The container sees a connection from the Docker host itself as coming from the g
 
 Apply a change with `make up` (the OpenSSH container is made again, and the sessions that are logged in are closed).
 
-To upgrade from a version without this variable, copy `OPENSSH_ALLOWED_NETWORKS` from `.env.sample` to `.env`, rebuild the image and start the stack again.
-
-```sh
-docker compose build openssh
-make up
-```
-
 ### Enabling the memory limit (optional)
 
 The OpenSSH container has limits on the number of processes, memory and CPU. The memory limit works only when the memory controller of cgroup is enabled on the Docker host. Raspberry Pi OS disables it by default, and `docker info` warns `No memory limit support`.
 
 To enable it, append `cgroup_enable=memory` to the line in `/boot/firmware/cmdline.txt` and reboot the Docker host.
-
-### Adding it to a running installation
-
-When you update from a version without the OpenSSH container, the following steps add it and keep the data in the directory.
-
-```sh
-# first, copy OPENSSH_* and PASSWDQC_MIN from .env.sample to .env
-make                   # recreate the CA and the certificates, generate the sshd host keys
-docker compose exec -T openldap ldapadd -c -Q -Y EXTERNAL -H ldapi:/// < openldap/ldif/300-ServiceAccounts.ldif
-sudo chown 1000:10001 tftpd-hpa/tftpboot/firmware tftpd-hpa/tftpboot/configs
-sudo chmod 2770 tftpd-hpa/tftpboot/firmware tftpd-hpa/tftpboot/configs
-chmod -R go+rX syslog-ng/log/Hosts
-make down && make up
-```
-
-- `ldapadd` adds the service account for OpenSSH. It reports `Already exists` for the entries that are already there, which is fine. Apply the password policy after this step (see [Password policy](#password-policy)). Applied first, it refuses the hashed passwords in this LDIF file.
-- The last `chmod` lets the users who log in over SSH read the log directories created so far. Earlier versions created them so that only the owner could enter.
-- After that, give `posixAccount` to the users who are to log in over SSH (see [Users and roles](#users-and-roles)) and run `koitohan-update-users`.
 
 ## Ports
 
@@ -558,24 +487,6 @@ sudo install -m 644 -o root -g root logrotate/koitohan /etc/logrotate.d/koitohan
 - The generated configuration contains the absolute path of the repository and the name of the syslog-ng container (`SYSLOG_CONTAINER_NAME` in `.env`). Run the two lines above again after you move the repository or change the container name.
 - To keep the files for another number of days, change the values at the top of `scripts/generate_logrotate.sh`, then run the same two lines.
 - To try the configuration, use `sudo logrotate -d /etc/logrotate.d/koitohan`. It changes nothing, and shows the files and what it would do with them.
-
-In earlier versions, FreeRADIUS split its detail logs (`auth-detail`, `reply-detail`) by day itself, with the date in the name (`auth-detail-2026-9-2`). When you update a running environment, recreate the FreeRADIUS and OpenSSH containers.
-
-```sh
-docker compose build openssh    # brings zgrep, which reads the compressed logs
-make up                         # recreates FreeRADIUS with the new detail log config, and OpenSSH from the new image
-```
-
-The files with the earlier names stay as they are. Delete them if you do not need them.
-
-Earlier versions did not keep the TFTP transfers in a file. When you update a running environment, rebuild the image of the TFTP server, start it again, and install the logrotate configuration again.
-
-```sh
-docker compose build tftpd-hpa
-make up
-make logrotate_conf
-sudo install -m 644 -o root -g root logrotate/koitohan /etc/logrotate.d/koitohan
-```
 
 ### Standard output of the containers
 
@@ -663,7 +574,7 @@ These files contain private keys, shared secrets or passwords. Git ignores all o
 
 `make` and `make up` close `CA/`, `secrets/` and `openssh/hostkeys/` to everyone but their owner (0700). `CA/freeradius_client.key` has the mode 0644, because FreeRADIUS reads it as uid 101 inside the container. The mode of the directory is what keeps it from the other users of the Docker host, so do not loosen it.
 
-The private key of the CA is deleted once the certificates are issued. `make certs` makes a new CA every time, so the key is not needed again. If an earlier version left `CA/default-ca-key.pem` and `CA/*.csr` behind, delete them.
+The private key of the CA is deleted once the certificates are issued. `make certs` makes a new CA every time, so the key is not needed again.
 
 The device logs under `syslog-ng/log/Hosts/` are readable by every user on the Docker host, so that the users who log in over SSH can read them.
 
