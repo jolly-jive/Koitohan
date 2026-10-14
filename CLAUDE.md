@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ネットワーク機器向けの AAA、ログ収集、ファイル配布を提供する Docker Compose スタック(Raspberry Pi 上で稼働)。OpenLDAP がユーザーディレクトリ、FreeRADIUS がそれを参照して認証し、syslog-ng が機器のログを収集し、tftpd-hpa がファームウェアの配布とコンフィグのバックアップの受け取りを行い、OpenSSH がユーザに作業用のシェル(利用者作業用コンテナ)を提供する。アプリケーションコードはなく、リポジトリの中身は `compose.yaml`、`Makefile`、`scripts/` の生成スクリプト、`bin/` の運用スクリプト、バインドマウントされる各サービスの設定、OpenLDAP、tftpd-hpa、OpenSSH のイメージの Dockerfile と起動スクリプトのみ。
 
-設計の背景、実装予定(利用者作業用コンテナの公開鍵認証)、未決定事項(DHCP / DNS)は `docs/basic-design.md` を参照。`README.md`(英語)と `README.ja.md`(日本語)は同じ内容なので、片方を直したらもう片方も直すこと。`docs/` の運用ガイド(`configuration`、`tftp`、`ssh`、`logs`)も同じく、`<名前>.md`(英語)と `<名前>.ja.md`(日本語)の対にしている。README はクイックスタートまでで、設定と運用の手順は運用ガイドに書く。
+設計の背景、実装予定(利用者作業用コンテナの公開鍵認証)、未決定事項(DHCP / DNS)は `docs/basic-design.md` を参照。`README.md`(英語)と `README.ja.md`(日本語)は同じ内容なので、片方を直したらもう片方も直すこと。`docs/` の運用ガイド(`configuration`、`tftp`、`ssh`、`logs`)とユーザーズガイド(`user-guide`)も同じく、`<名前>.md`(英語)と `<名前>.ja.md`(日本語)の対にしている。README はクイックスタートまでで、設定と運用の手順は運用ガイド(読み手はこいとはん管理者)に、ユーザーから見た使い方はユーザーズガイドに書く。ユーザーズガイドは、こいとはん管理者がホスト名とポート番号を書き換えて配るひな形なので、`.env` の変数名や設定値に頼らずに書く(既定の値を示すときは、変えられている場合があると添える)。
 
 ## コマンド
 

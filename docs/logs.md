@@ -2,12 +2,14 @@
 
 [日本語](logs.ja.md)
 
-| Path                                    | Content                                |
-| --------------------------------------- | -------------------------------------- |
-| `syslog-ng/log/Hosts/<host>/<host>.log` | Syslog from each device                |
-| `syslog-ng/log/debug.log`               | Every raw message, for troubleshooting |
-| `freeradius/log/`                       | FreeRADIUS authentication logs         |
-| `tftpd-hpa/log/tftpd.log`               | TFTP transfers                         |
+| Path                                    | Content                                | For the users (SSH)             |
+| --------------------------------------- | -------------------------------------- | ------------------------------- |
+| `syslog-ng/log/Hosts/<host>/<host>.log` | Syslog from each device                | `/logs/Hosts/<host>/<host>.log` |
+| `syslog-ng/log/debug.log`               | Every raw message, for troubleshooting | not visible                     |
+| `freeradius/log/`                       | FreeRADIUS authentication logs         | not visible                     |
+| `tftpd-hpa/log/tftpd.log`               | TFTP transfers                         | not visible                     |
+
+The users cannot log in to the Docker host, so they read the syslog of the devices by logging in to the OpenSSH container over SSH. How is in the [user guide](user-guide.md#reading-the-logs). The Koitohan administrators read the other logs on the Docker host.
 
 The files under `freeradius/log/` belong to uid 101. Read them with `sudo`.
 

@@ -71,7 +71,7 @@ FreeRADIUS は uid 101 で動作し、`freeradius/log/` にログを書き込み
 
 `install` は、ログのローテーションの設定を Docker ホストの logrotate に渡します(「[ローテーション](docs/logs.ja.md#ローテーション)」を参照)。
 
-`firmware/` の `chown` と `chmod` は、SSH でログインしたユーザーのうち、ロール `admin` のユーザーにだけこのディレクトリを開きます(「[SSH での作業](docs/ssh.ja.md)」を参照)。`configs/` の同じ設定は、「[TFTP](docs/tftp.ja.md)」の手順に含まれています。
+`firmware/` の `chown` と `chmod` は、SSH でログインしたユーザーのうち、ロール `admin` のユーザーにだけこのディレクトリを開きます(「[ユーザーズガイド](docs/user-guide.ja.md#ファームウェアを配るコンフィグを取り出すadmin-のみ)」を参照)。`configs/` の同じ設定は、「[TFTP](docs/tftp.ja.md)」の手順に含まれています。
 
 クローン直後は、`docker compose up` を直接実行せずに `make up` を使ってください。Docker がマウントする前に、生成ファイルが揃っていることを保証します。
 
@@ -171,9 +171,15 @@ TFTP には認証も暗号化もありません。69/udp に到達できる相�
 
 ## ドキュメント
 
+ユーザー(機器にログインする人)向け:
+
+- [ユーザーズガイド](docs/user-guide.ja.md): できること、ロール、ログの読み方、ファームウェアとコンフィグ、パスワード
+
+こいとはん管理者向け:
+
 - [設定](docs/configuration.ja.md): `.env`、機器のネットワーク、RADIUS クライアント、ユーザーとロール、パスワード
 - [TFTP](docs/tftp.ja.md): ファームウェアの配布とコンフィグのバックアップ、アップロードの上限
-- [SSH での作業](docs/ssh.ja.md): 利用者作業用コンテナ、パスワードの変更、接続元
+- [OpenSSH のコンテナ](docs/ssh.ja.md): 利用者作業用コンテナの目的、パスワードの規則、接続元
 - [ログ](docs/logs.ja.md): ログの置き場所とローテーション
 - [基本設計書](docs/basic-design.md)
 

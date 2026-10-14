@@ -9,7 +9,7 @@ tftpd-hpa が、`tftpd-hpa/tftpboot/` を TFTP のルートとして公開しま
 | `tftpd-hpa/tftpboot/firmware/` | ファームウェアなど、機器へ配布するファイル     | 取得のみ           |
 | `tftpd-hpa/tftpboot/configs/`  | 機器がアップロードするコンフィグのバックアップ | 取得とアップロード |
 
-配布するファイルは、Docker ホスト上で `firmware/` に置きます。機器からは `firmware/<ファイル名>`、`configs/<ファイル名>` というパスで指定します。Cisco IOS での例:
+配布するファイルは、Docker ホスト上で `firmware/` に置きます。ロール `admin` のユーザーは、OpenSSH のコンテナに SSH でログインして、`/tftpboot/firmware/` にファイルを置き、`/tftpboot/configs/` からコンフィグを取り出せます(「[ユーザーズガイド](user-guide.ja.md#ファームウェアを配るコンフィグを取り出すadmin-のみ)」を参照)。機器からは `firmware/<ファイル名>`、`configs/<ファイル名>` というパスで指定します。Cisco IOS での例:
 
 ```
 copy running-config tftp://<ホスト>/configs/core-switch.cfg

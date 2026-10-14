@@ -22,7 +22,7 @@
 | `OPENSSH_SUBNET`                      | Subnet of the Docker network that connects only OpenSSH and OpenLDAP, in CIDR notation. |
 | `OPENSSH_ALLOWED_NETWORKS`            | Networks that SSH connections are accepted from. See [Sources of SSH](ssh.md#sources-of-ssh). |
 | `OPENSSH_SERVICE_ACCOUNT_NAME`        | Account the OpenSSH container uses to search the directory.                    |
-| `PASSWDQC_MIN`                        | Minimum lengths of the passwords `passwd` accepts. See [Changing a password](ssh.md#changing-a-password). |
+| `PASSWDQC_MIN`                        | Minimum lengths of the passwords `passwd` accepts. See [Password rules](ssh.md#password-rules). |
 | `PPOLICY_MIN_LENGTH`                  | Minimum length of the passwords OpenLDAP accepts. See [Password policy](#password-policy). |
 | `PPOLICY_MAX_FAILURE`                 | Number of failed logins that locks a user.                                     |
 | `PPOLICY_FAILURE_WINDOW`              | Time in which the failures are counted, in seconds.                            |
@@ -101,7 +101,7 @@ bin/manage_users.sh delete alice                  # delete
 ```
 
 - A user has one role: `admin`, `operator` or `readonly`. A user who belongs to no role is rejected on every device. A user put into more than one role without the script is treated as the weakest of them (`readonly`, then `operator`, then `admin`), both on the devices and over SSH.
-- `add` and `passwd` ask for the password on the terminal. It is checked by the same rules as when a user changes it with `passwd` (see [Changing a password](ssh.md#changing-a-password)). Ask the user to log in over SSH and change the password you set.
+- `add` and `passwd` ask for the password on the terminal. It is checked by the same rules as when a user changes it with `passwd` (see [Password rules](ssh.md#password-rules)). Ask the user to log in over SSH and change the password you set.
 - A user name takes lowercase letters, digits, `_` and `-`, up to 32 characters.
 - `uidNumber` is handed out in order from 10000. A number is never reused, even after its user is deleted. The files a user leaves behind keep the number as their owner. The next number to hand out is kept in `cn=nextUidNumber` in the directory.
 - A change reaches SSH logins at once. `delete` and `role` close the sessions of that user.
@@ -140,7 +140,7 @@ The rules for passwords are enforced in two places.
 
 | Place                                | What it enforces                                                    |
 | ------------------------------------ | ------------------------------------------------------------------- |
-| `passwd` and `bin/manage_users.sh`   | Minimum lengths by character classes (`PASSWDQC_MIN`, see [Changing a password](ssh.md#changing-a-password)) |
+| `passwd` and `bin/manage_users.sh`   | Minimum lengths by character classes (`PASSWDQC_MIN`, see [Password rules](ssh.md#password-rules)) |
 | OpenLDAP (the ppolicy overlay)       | A minimum length (`PPOLICY_MIN_LENGTH`) and the lock                |
 
 OpenLDAP refuses a password that is written as a hash, as it cannot check its length. Set the passwords of the users with `bin/manage_users.sh` or `passwd`.

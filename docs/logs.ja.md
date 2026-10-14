@@ -2,12 +2,14 @@
 
 [English](logs.md)
 
-| パス                                    | 内容                         |
-| --------------------------------------- | ---------------------------- |
-| `syslog-ng/log/Hosts/<host>/<host>.log` | 各機器の syslog              |
-| `syslog-ng/log/debug.log`               | すべての生メッセージ(調査用) |
-| `freeradius/log/`                       | FreeRADIUS の認証ログ        |
-| `tftpd-hpa/log/tftpd.log`               | TFTP の転送の記録            |
+| パス                                    | 内容                         | ユーザーから(SSH)            |
+| --------------------------------------- | ---------------------------- | ----------------------------- |
+| `syslog-ng/log/Hosts/<host>/<host>.log` | 各機器の syslog              | `/logs/Hosts/<host>/<host>.log` |
+| `syslog-ng/log/debug.log`               | すべての生メッセージ(調査用) | 見えない                      |
+| `freeradius/log/`                       | FreeRADIUS の認証ログ        | 見えない                      |
+| `tftpd-hpa/log/tftpd.log`               | TFTP の転送の記録            | 見えない                      |
+
+ユーザーは Docker ホストに入れないので、各機器の syslog は、OpenSSH のコンテナに SSH でログインして読みます。読み方は「[ユーザーズガイド](user-guide.ja.md#ログを読む)」にあります。ほかのログは、こいとはん管理者が Docker ホストで読みます。
 
 `freeradius/log/` のファイルは uid 101 の所有です。読むときは `sudo` を使ってください。
 

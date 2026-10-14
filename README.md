@@ -71,7 +71,7 @@ FreeRADIUS runs as uid 101 and writes its logs to `freeradius/log/`. Without the
 
 The `install` hands the configuration of the log rotation to logrotate on the Docker host (see [Rotation](docs/logs.md#rotation)).
 
-The `chown` and `chmod` on `firmware/` open the directory to the users with the role `admin`, and to no other user who logs in over SSH (see [Working over SSH](docs/ssh.md)). The steps in [TFTP](docs/tftp.md) do the same for `configs/`.
+The `chown` and `chmod` on `firmware/` open the directory to the users with the role `admin`, and to no other user who logs in over SSH (see the [user guide](docs/user-guide.md#handing-out-firmware-and-taking-out-configurations-admin-only)). The steps in [TFTP](docs/tftp.md) do the same for `configs/`.
 
 Use `make up` instead of calling `docker compose up` directly on a fresh checkout. It makes sure the generated files exist before Docker mounts them.
 
@@ -171,9 +171,15 @@ TFTP has neither authentication nor encryption. Anyone who can reach 69/udp and 
 
 ## Documentation
 
+For the users, who log in to the devices:
+
+- [User guide](docs/user-guide.md): what Koitohan does for them, roles, reading the logs, firmware and configurations, passwords
+
+For the Koitohan administrators:
+
 - [Configuration](docs/configuration.md): `.env`, device networks, RADIUS clients, users and roles, passwords
 - [TFTP](docs/tftp.md): handing out firmware and backing up configs, limits on uploads
-- [Working over SSH](docs/ssh.md): the container for the users, changing a password, sources
+- [The OpenSSH container](docs/ssh.md): what the container for the users is for, password rules, sources
 - [Logs](docs/logs.md): where the logs are and how they rotate
 - [Basic design](docs/basic-design.md) (Japanese)
 

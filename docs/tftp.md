@@ -9,7 +9,7 @@ tftpd-hpa serves `tftpd-hpa/tftpboot/` as the TFTP root. It holds two directorie
 | `tftpd-hpa/tftpboot/firmware/` | Files you distribute to devices, such as firmware | Download only       |
 | `tftpd-hpa/tftpboot/configs/`  | Configuration backups that devices upload         | Download and upload |
 
-Put the files to distribute into `firmware/` on the Docker host. Devices refer to files as `firmware/<file>` and `configs/<file>`. An example on Cisco IOS:
+Put the files to distribute into `firmware/` on the Docker host. The users with the role `admin` can log in to the OpenSSH container over SSH, put files in `/tftpboot/firmware/` and take out configurations from `/tftpboot/configs/` (see the [user guide](user-guide.md#handing-out-firmware-and-taking-out-configurations-admin-only)). Devices refer to files as `firmware/<file>` and `configs/<file>`. An example on Cisco IOS:
 
 ```
 copy running-config tftp://<host>/configs/core-switch.cfg

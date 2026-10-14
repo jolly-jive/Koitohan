@@ -1,10 +1,14 @@
-# Working over SSH
+# The OpenSSH container
 
 [日本語](ssh.ja.md)
 
-## Changing a password
+The users cannot log in to the Docker host. Instead, there is a container they log in to over SSH, with the same user name and password as on the devices. There they read the logs of the devices, and the users with the role `admin` put firmware and take out configuration backups. They see only the logs and the files that are mounted for their role.
 
-passwdqc checks the new password. `PASSWDQC_MIN` in `.env` sets the minimum length for each number of character classes (upper case, lower case, digits and others). The value in `.env.sample`, `12,10,10,8,8`, means the following.
+How the users work there is in the [user guide](user-guide.md). Replace the host name and the port number in it with the values of your installation before you hand it out. This page covers what the Koitohan administrators set up.
+
+## Password rules
+
+passwdqc checks the new password that a user sets with `passwd`. `PASSWDQC_MIN` in `.env` sets the minimum length for each number of character classes (upper case, lower case, digits and others). The value in `.env.sample`, `12,10,10,8,8`, means the following.
 
 | Character classes used | Minimum length |
 | ---------------------- | -------------- |
