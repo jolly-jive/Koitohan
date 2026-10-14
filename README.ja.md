@@ -63,15 +63,15 @@ sudo install -m 644 -o root -g root logrotate/koitohan /etc/logrotate.d/koitohan
 make up
 ```
 
-`.env` にパスワードはありません。OpenLDAP の管理者のパスワードと、FreeRADIUS と OpenSSH のサービスアカウントのパスワードは、`make` が生成して `secrets/` に置きます(「[OpenLDAP の管理者のパスワード](#openldap-の管理者のパスワード)」と「[サービスアカウントのパスワード](#サービスアカウントのパスワード)」を参照)。
+`.env` にパスワードはありません。OpenLDAP の管理者のパスワードと、FreeRADIUS と OpenSSH のサービスアカウントのパスワードは、`make` が生成して `secrets/` に置きます(「[OpenLDAP の管理者のパスワード](docs/configuration.ja.md#openldap-の管理者のパスワード)」と「[サービスアカウントのパスワード](docs/configuration.ja.md#サービスアカウントのパスワード)」を参照)。
 
 `make` は `clients.conf.sample` から `freeradius/config/clients.conf` を作ります。`make up` の前に、サンプルのクライアントを自分の機器に書き換えてください。
 
 FreeRADIUS は uid 101 で動作し、`freeradius/log/` にログを書き込みます。`chown` をしないと、ログインを記録できず、すべての要求を拒否します。
 
-`install` は、ログのローテーションの設定を Docker ホストの logrotate に渡します(「[ローテーション](#ローテーション)」を参照)。
+`install` は、ログのローテーションの設定を Docker ホストの logrotate に渡します(「[ローテーション](docs/logs.ja.md#ローテーション)」を参照)。
 
-`firmware/` の `chown` と `chmod` は、SSH でログインしたユーザーのうち、ロール `admin` のユーザーにだけこのディレクトリを開きます(「[SSH での作業](#ssh-での作業)」を参照)。`configs/` の同じ設定は、「[TFTP](#tftp)」の手順に含まれています。
+`firmware/` の `chown` と `chmod` は、SSH でログインしたユーザーのうち、ロール `admin` のユーザーにだけこのディレクトリを開きます(「[SSH での作業](docs/ssh.ja.md)」を参照)。`configs/` の同じ設定は、「[TFTP](docs/tftp.ja.md)」の手順に含まれています。
 
 クローン直後は、`docker compose up` を直接実行せずに `make up` を使ってください。Docker がマウントする前に、生成ファイルが揃っていることを保証します。
 
@@ -131,7 +131,7 @@ docker compose build openldap tftpd-hpa openssh
 make up
 ```
 
-`make clean` は、sshd のホスト鍵(`openssh/hostkeys/`)を消しません。ホスト鍵が変わると、すべてのユーザーの手元で警告が出るためです。`secrets/` のパスワードも消しません(「[サービスアカウントのパスワード](#サービスアカウントのパスワード)」と「[OpenLDAP の管理者のパスワード](#openldap-の管理者のパスワード)」を参照)。
+`make clean` は、sshd のホスト鍵(`openssh/hostkeys/`)を消しません。ホスト鍵が変わると、すべてのユーザーの手元で警告が出るためです。`secrets/` のパスワードも消しません(「[サービスアカウントのパスワード](docs/configuration.ja.md#サービスアカウントのパスワード)」と「[OpenLDAP の管理者のパスワード](docs/configuration.ja.md#openldap-の管理者のパスワード)」を参照)。
 
 サービスのログを追う:
 
@@ -143,7 +143,7 @@ docker compose logs -f freeradius
 
 - `bin/manage_users.sh` を使わずに行ったユーザーとロールの変更は、`koitohan-update-users` を実行するまで、SSH のログインに反映されません。
 - `passwd` によるパスワードの判定は、ログインしたユーザーが迂回できます。この判定は、不注意で弱いパスワードを設定することを防ぐためのものです。迂回しても、OpenLDAP 自身が確かめる最小の長さ(`PPOLICY_MIN_LENGTH`)は守られます。
-- ネットワーク機器のログイン画面や SSH のポートに到達できる相手は、誤ったパスワードを送り続けることで、名前を知っているユーザーをロックできます。ロックは時間が過ぎると解除されます(「[パスワードポリシー](#パスワードポリシー)」を参照)。
+- ネットワーク機器のログイン画面や SSH のポートに到達できる相手は、誤ったパスワードを送り続けることで、名前を知っているユーザーをロックできます。ロックは時間が過ぎると解除されます(「[パスワードポリシー](docs/configuration.ja.md#パスワードポリシー)」を参照)。
 - SSH でログインしたユーザーは、OpenSSH のコンテナから、Docker ホストや外部のネットワークへ接続できます。Docker のネットワークで届かなくしているのは、OpenLDAP 以外のコンテナだけです。
 - FreeRADIUS を動かしたまま OpenLDAP が再起動すると(`docker compose restart openldap` など)、FreeRADIUS はその後のログインを拒否し、やがてセグメンテーション違反で異常終了します。Docker が起動し直すので、それ以降のログインは通ります。開発バージョンである FreeRADIUS 4.x の不具合です。ログインが拒否される時間をなくすには、OpenLDAP の再起動に続けて `docker compose restart freeradius` で FreeRADIUS も再起動してください。FreeRADIUS 側で修正されたら、この項目は削除します。
 
@@ -171,6 +171,10 @@ TFTP には認証も暗号化もありません。69/udp に到達できる相�
 
 ## ドキュメント
 
+- [設定](docs/configuration.ja.md): `.env`、機器のネットワーク、RADIUS クライアント、ユーザーとロール、パスワード
+- [TFTP](docs/tftp.ja.md): ファームウェアの配布とコンフィグのバックアップ、アップロードの上限
+- [SSH での作業](docs/ssh.ja.md): 利用者作業用コンテナ、パスワードの変更、接続元
+- [ログ](docs/logs.ja.md): ログの置き場所とローテーション
 - [基本設計書](docs/basic-design.md)
 
 ## ライセンス

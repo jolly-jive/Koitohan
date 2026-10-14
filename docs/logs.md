@@ -1,4 +1,6 @@
-## Logs
+# Logs
+
+[日本語](logs.ja.md)
 
 | Path                                    | Content                                |
 | --------------------------------------- | -------------------------------------- |
@@ -11,7 +13,7 @@ The files under `freeradius/log/` belong to uid 101. Read them with `sudo`.
 
 SSH logins are not logged to a file. See them with `docker compose logs openssh`.
 
-### Rotation
+## Rotation
 
 logrotate on the Docker host rotates the files in the table above once a day. `make` generates its configuration as `logrotate/koitohan`. Put it where logrotate reads it.
 
@@ -36,7 +38,7 @@ sudo install -m 644 -o root -g root logrotate/koitohan /etc/logrotate.d/koitohan
 - To keep the files for another number of days, change the values at the top of `scripts/generate_logrotate.sh`, then run the same two lines.
 - To try the configuration, use `sudo logrotate -d /etc/logrotate.d/koitohan`. It changes nothing, and shows the files and what it would do with them.
 
-### Standard output of the containers
+## Standard output of the containers
 
 The logs you read with `docker compose logs` (SSH logins, OpenLDAP, TFTP transfers) are kept by the logging driver of Docker. Of these, only the TFTP transfers are kept in a file as well. `compose.yaml` names no driver and follows the configuration of the Docker host.
 

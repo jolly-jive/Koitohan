@@ -1,6 +1,8 @@
-## Configuration
+# Configuration
 
-### `.env`
+[日本語](configuration.ja.md)
+
+## `.env`
 
 `.env` is the single source of configuration. The scripts and `compose.yaml` all read it.
 
@@ -13,14 +15,14 @@
 | `FREERADIUS_CONTAINER_NAME`           | Container name of FreeRADIUS.                                                  |
 | `SYSLOG_CONTAINER_NAME`               | Container name of syslog-ng.                                                   |
 | `TFTP_CONTAINER_NAME`                 | Container name of tftpd-hpa.                                                   |
-| `TFTP_UPLOAD_MAX_BYTES`               | Size limit, in bytes, for one file uploaded over TFTP. See [TFTP](#tftp).      |
+| `TFTP_UPLOAD_MAX_BYTES`               | Size limit, in bytes, for one file uploaded over TFTP. See [TFTP](tftp.md).      |
 | `OPENSSH_CONTAINER_NAME`              | Container name of OpenSSH.                                                     |
 | `OPENSSH_HOSTNAME`                    | Host name of the OpenSSH container. It appears in the prompt of the shell.     |
 | `OPENSSH_PORT`                        | Port of the Docker host that publishes SSH. Keep it apart from the host's own sshd. |
 | `OPENSSH_SUBNET`                      | Subnet of the Docker network that connects only OpenSSH and OpenLDAP, in CIDR notation. |
-| `OPENSSH_ALLOWED_NETWORKS`            | Networks that SSH connections are accepted from. See [Sources of SSH](#sources-of-ssh). |
+| `OPENSSH_ALLOWED_NETWORKS`            | Networks that SSH connections are accepted from. See [Sources of SSH](ssh.md#sources-of-ssh). |
 | `OPENSSH_SERVICE_ACCOUNT_NAME`        | Account the OpenSSH container uses to search the directory.                    |
-| `PASSWDQC_MIN`                        | Minimum lengths of the passwords `passwd` accepts. See [Changing a password](#changing-a-password). |
+| `PASSWDQC_MIN`                        | Minimum lengths of the passwords `passwd` accepts. See [Changing a password](ssh.md#changing-a-password). |
 | `PPOLICY_MIN_LENGTH`                  | Minimum length of the passwords OpenLDAP accepts. See [Password policy](#password-policy). |
 | `PPOLICY_MAX_FAILURE`                 | Number of failed logins that locks a user.                                     |
 | `PPOLICY_FAILURE_WINDOW`              | Time in which the failures are counted, in seconds.                            |
@@ -33,7 +35,7 @@ The container names of OpenLDAP, FreeRADIUS and OpenSSH are also the host names 
 
 Set `DOCKER_SUBNET` and `OPENSSH_SUBNET` to ranges that do not overlap the networks your devices are on, any network the host reaches, or each other. Apply a change with `make down && make up`.
 
-### Device networks
+## Device networks
 
 FreeRADIUS, syslog-ng and the TFTP server accept traffic only from the networks listed in `DEVICE_NETWORKS`. List IPv4 addresses or prefixes, separated by spaces.
 
@@ -46,7 +48,7 @@ The default is all the private address ranges. If your devices are managed from 
 - RADIUS is open only to the devices that are in these networks and also registered in `clients.conf` (see [RADIUS clients](#radius-clients)).
 - For TFTP, include the addresses that the devices use when they fetch firmware from their boot loader.
 - The containers see what the Docker host itself sends as coming from the gateway of `DOCKER_SUBNET`. Include `DOCKER_SUBNET` if you want to try the services from the host.
-- The sources of SSH (the workspace container) have a variable of their own (see [Sources of SSH](#sources-of-ssh)).
+- The sources of SSH (the workspace container) have a variable of their own (see [Sources of SSH](ssh.md#sources-of-ssh)).
 
 Apply a change with `make down && make up`.
 
@@ -54,7 +56,7 @@ Apply a change with `make down && make up`.
 
 `TZ` sets the time zone of the timestamps in the logs each container writes. Apply a change with `make up`.
 
-### RADIUS clients
+## RADIUS clients
 
 Describe each network device in `freeradius/config/clients.conf`. The `nas_type` of a client selects the reply attributes for that device.
 
@@ -86,7 +88,7 @@ The values for Fortinet, Juniper and Palo Alto are names of profiles or users on
 
 FreeRADIUS accepts requests only from the networks in `DEVICE_NETWORKS` (see [Device networks](#device-networks)) and loopback.
 
-### Users and roles
+## Users and roles
 
 Add and delete users, change a role, set a new password and unlock a user with `bin/manage_users.sh` on the Docker host. Run it while the stack is up.
 
@@ -99,7 +101,7 @@ bin/manage_users.sh delete alice                  # delete
 ```
 
 - A user has one role: `admin`, `operator` or `readonly`. A user who belongs to no role is rejected on every device. A user put into more than one role without the script is treated as the weakest of them (`readonly`, then `operator`, then `admin`), both on the devices and over SSH.
-- `add` and `passwd` ask for the password on the terminal. It is checked by the same rules as when a user changes it with `passwd` (see [Changing a password](#changing-a-password)). Ask the user to log in over SSH and change the password you set.
+- `add` and `passwd` ask for the password on the terminal. It is checked by the same rules as when a user changes it with `passwd` (see [Changing a password](ssh.md#changing-a-password)). Ask the user to log in over SSH and change the password you set.
 - A user name takes lowercase letters, digits, `_` and `-`, up to 32 characters.
 - `uidNumber` is handed out in order from 10000. A number is never reused, even after its user is deleted. The files a user leaves behind keep the number as their owner. The next number to hand out is kept in `cn=nextUidNumber` in the directory.
 - A change reaches SSH logins at once. `delete` and `role` close the sessions of that user.
@@ -132,13 +134,13 @@ loginShell: /bin/sh
 EOF
 ```
 
-### Password policy
+## Password policy
 
 The rules for passwords are enforced in two places.
 
 | Place                                | What it enforces                                                    |
 | ------------------------------------ | ------------------------------------------------------------------- |
-| `passwd` and `bin/manage_users.sh`   | Minimum lengths by character classes (`PASSWDQC_MIN`, see [Changing a password](#changing-a-password)) |
+| `passwd` and `bin/manage_users.sh`   | Minimum lengths by character classes (`PASSWDQC_MIN`, see [Changing a password](ssh.md#changing-a-password)) |
 | OpenLDAP (the ppolicy overlay)       | A minimum length (`PPOLICY_MIN_LENGTH`) and the lock                |
 
 OpenLDAP refuses a password that is written as a hash, as it cannot check its length. Set the passwords of the users with `bin/manage_users.sh` or `passwd`.
@@ -159,7 +161,7 @@ docker compose exec -T openldap ldapmodify -c -Q -Y EXTERNAL -H ldapi:/// < open
 
 It reports `Type or value exists`, `overlay "ppolicy" already in list` and `Already exists` for the module, the overlay and the entries that are already there, which is fine. Only the values are replaced.
 
-### Service account passwords
+## Service account passwords
 
 The FreeRADIUS and OpenSSH containers search the directory with a service account each. `make` (`make secrets`) generates the passwords of these accounts and puts them in `secrets/`.
 
@@ -187,7 +189,7 @@ The script generates a new password, writes it to the directory, replaces the fi
 
 If the script stops halfway, run it again. It does not need the current password, so the same command also repairs a file in `secrets/` that no longer matches the directory.
 
-### OpenLDAP administrator passwords
+## OpenLDAP administrator passwords
 
 OpenLDAP has two administrators that log in with a password. Neither is subject to the access control or to the password policy. `make` (`make secrets`) generates their passwords and puts them in `secrets/`.
 
@@ -209,11 +211,11 @@ bin/change_ldap_admin_password.sh
 docker compose restart freeradius
 ```
 
-The script generates the two passwords, replaces the files in `secrets/`, recreates the OpenLDAP container and checks that the new passwords work. Every login fails until OpenLDAP is up again. FreeRADIUS is restarted afterwards because it refuses logins for a while after OpenLDAP has restarted (see [Known limitations](#known-limitations)).
+The script generates the two passwords, replaces the files in `secrets/`, recreates the OpenLDAP container and checks that the new passwords work. Every login fails until OpenLDAP is up again. FreeRADIUS is restarted afterwards because it refuses logins for a while after OpenLDAP has restarted (see [Known limitations](../README.md#known-limitations)).
 
 If the script stops halfway, run it again. It does not need the current passwords.
 
-### Changing the directory seed
+## Changing the directory seed
 
 OpenLDAP loads the generated LDIF files only on its first start with an empty database. To apply changes to `.env` or the LDIF files afterwards, you have to delete `openldap/data/` and `openldap/config/` and start again. This deletes every user and role in the directory. A change of `PPOLICY_*` is the exception and needs no deletion (see [Password policy](#password-policy)).
 

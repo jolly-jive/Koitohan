@@ -508,7 +508,7 @@ passwdqc は Alpine のパッケージとしては入手できないので、利
 - 2つを同時に変えるのは、OpenLDAP の作り直しを1回にするためである。作り直しのあいだは、すべてのユーザの認証が止まる。
 - いまのパスワードを必要としないので、途中で止まったときは、もう一度実行すればよい。
 - 実行の前に、対象のコンテナが、これから書き換えるファイルをマウントしていることを確かめる（4.10 節と同じ理由による）。
-- OpenLDAP が再起動すると、FreeRADIUS はしばらく認証を拒否する（未解決の不具合）。スクリプトのあとで FreeRADIUS を再起動する手順を、README に書いている。
+- OpenLDAP が再起動すると、FreeRADIUS はしばらく認証を拒否する（未解決の不具合）。スクリプトのあとで FreeRADIUS を再起動する手順を、運用ガイド（`docs/configuration.md`）に書いている。
 
 ---
 
@@ -682,7 +682,7 @@ destination d_host_logs {
 - ホスト側の cron/systemd-timer が使える
 
 設定は `scripts/generate_logrotate.sh` が `logrotate/koitohan` に生成する（`make logrotate_conf`）。リポジトリの絶対パスと、syslog-ng のコンテナ名（`.env` の `SYSLOG_CONTAINER_NAME`）が入るためである。  
-`/etc/logrotate.d/` への配置は `sudo` が要る作業であり、`make` には含めず、README に手順を記載する。logrotate は root の所有でない設定を読まないので、シンボリックリンクではなく複製を置く。生成し直したときは、置き直す。
+`/etc/logrotate.d/` への配置は `sudo` が要る作業であり、`make` には含めず、運用ガイド（`docs/logs.md`）に手順を記載する。logrotate は root の所有でない設定を読まないので、シンボリックリンクではなく複製を置く。生成し直したときは、置き直す。
 
 **対象**
 
@@ -759,7 +759,7 @@ TFTP には認証がなく、69/udp に到達できる相手は誰でも `config
 - マウントポイント（`tftpd-hpa/tftpboot/configs`）の下のディレクトリは root の所有とし、マウントした側のルートだけを uid 1000 の所有とする。  
   イメージがマウントされていないときは、書き込みがホストのディスクに落ちずに失敗する。
 - マウントポイントはリポジトリで管理しない。管理すると、クローンした利用者の所有で作成され、上記の保護が働かないためである。
-- 作成には root 権限が必要であり、構築スクリプトには含めない。手順は README に記載し、実施を強く推奨する。
+- 作成には root 権限が必要であり、構築スクリプトには含めない。手順は運用ガイド（`docs/tftp.md`）に記載し、実施を強く推奨する。
 
 次の方式は採用しなかった。
 
@@ -808,7 +808,7 @@ TFTP には認証がなく、69/udp に到達できる相手は誰でも `config
 - ログドライバのオプションは、ドライバごとに異なる。たとえば `max-size` を `journald` に渡すと、コンテナが起動しない（`unknown log opt 'max-size' for journald log driver`）。共通の `logging:` を書くには、ドライバも固定することになる。
 - ドライバを固定すると、Docker ホストの設定（`/etc/docker/daemon.json`）を上書きする。ホストのログをどこに集めるかは、ホストごとに決めることである。
 - 検証環境は `journald` を使っている。上限は journald が管理し、`docker compose logs` でも `journalctl CONTAINER_NAME=<コンテナ名>` でも読める。
-- Docker の既定の `json-file` は、指定しないかぎりローテーションしない。この場合は、`daemon.json` でドライバを `local` か `journald` に変えるか、`json-file` に `max-size` と `max-file` を指定する。README に記載する。
+- Docker の既定の `json-file` は、指定しないかぎりローテーションしない。この場合は、`daemon.json` でドライバを `local` か `journald` に変えるか、`json-file` に `max-size` と `max-file` を指定する。運用ガイド（`docs/logs.md`）に記載する。
 
 **課題**
 
@@ -904,7 +904,7 @@ GID もファイルに数値で残るため、後から変更しない。
 - ルートファイルシステムを読み取り専用にする。
 - ユーザは非 root で動かし、`no-new-privileges` を付ける。
 - プロセス数、メモリ、CPU に上限を設ける。  
-  メモリの上限は、Docker ホストで cgroup のメモリコントローラが有効なときにだけ効く。Raspberry Pi OS の既定では無効である。有効にする作業は、構築の任意の手順として README に記載する（7.7 節）。
+  メモリの上限は、Docker ホストで cgroup のメモリコントローラが有効なときにだけ効く。Raspberry Pi OS の既定では無効である。有効にする作業は、構築の任意の手順として運用ガイド（`docs/ssh.md`）に記載する（7.7 節）。
 - 専用のネットワークで OpenLDAP とだけつなぎ、FreeRADIUS、syslog-ng、tftpd-hpa には届かないようにする。
 
 ### 7.5 パスワードの変更
@@ -1080,7 +1080,7 @@ PID 1 は Docker の init（`init: true`）とし、ユーザが残したプロ�
 
 **ホスト側のパーミッション**
 
-- `firmware/` と `configs/` は、7.7 節のとおり、所有者 uid 1000、グループ GID 10001、パーミッション 2770 にする。`sudo` が要る作業であり、`make` には含めず、README に手順を記載する。
+- `firmware/` と `configs/` は、7.7 節のとおり、所有者 uid 1000、グループ GID 10001、パーミッション 2770 にする。`sudo` が要る作業であり、`make` には含めず、README のクイックスタートと運用ガイド（`docs/tftp.md`）に手順を記載する。
 - syslog-ng は、機器ごとのディレクトリを 0755 で作るように変更した（`dir-perm`）。それまでの既定は 0700 で、ユーザが読めない。すでにあるディレクトリは、こいとはん管理者が直す。
   これにより、機器のログは Docker ホストのすべてのユーザから読める。
 

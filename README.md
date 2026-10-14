@@ -63,15 +63,15 @@ sudo install -m 644 -o root -g root logrotate/koitohan /etc/logrotate.d/koitohan
 make up
 ```
 
-There are no passwords in `.env`. `make` generates the passwords of the OpenLDAP administrators and of the service accounts of FreeRADIUS and OpenSSH, and puts them in `secrets/` (see [OpenLDAP administrator passwords](#openldap-administrator-passwords) and [Service account passwords](#service-account-passwords)).
+There are no passwords in `.env`. `make` generates the passwords of the OpenLDAP administrators and of the service accounts of FreeRADIUS and OpenSSH, and puts them in `secrets/` (see [OpenLDAP administrator passwords](docs/configuration.md#openldap-administrator-passwords) and [Service account passwords](docs/configuration.md#service-account-passwords)).
 
 `make` creates `freeradius/config/clients.conf` from `clients.conf.sample`. Replace the sample clients with your own devices before you run `make up`.
 
 FreeRADIUS runs as uid 101 and writes its logs to `freeradius/log/`. Without the `chown`, it cannot record a login there and rejects every request.
 
-The `install` hands the configuration of the log rotation to logrotate on the Docker host (see [Rotation](#rotation)).
+The `install` hands the configuration of the log rotation to logrotate on the Docker host (see [Rotation](docs/logs.md#rotation)).
 
-The `chown` and `chmod` on `firmware/` open the directory to the users with the role `admin`, and to no other user who logs in over SSH (see [Working over SSH](#working-over-ssh)). The steps in [TFTP](#tftp) do the same for `configs/`.
+The `chown` and `chmod` on `firmware/` open the directory to the users with the role `admin`, and to no other user who logs in over SSH (see [Working over SSH](docs/ssh.md)). The steps in [TFTP](docs/tftp.md) do the same for `configs/`.
 
 Use `make up` instead of calling `docker compose up` directly on a fresh checkout. It makes sure the generated files exist before Docker mounts them.
 
@@ -131,7 +131,7 @@ docker compose build openldap tftpd-hpa openssh
 make up
 ```
 
-`make clean` keeps the sshd host keys (`openssh/hostkeys/`). A new host key makes the client of every user show a warning. It keeps the passwords in `secrets/` as well (see [Service account passwords](#service-account-passwords) and [OpenLDAP administrator passwords](#openldap-administrator-passwords)).
+`make clean` keeps the sshd host keys (`openssh/hostkeys/`). A new host key makes the client of every user show a warning. It keeps the passwords in `secrets/` as well (see [Service account passwords](docs/configuration.md#service-account-passwords) and [OpenLDAP administrator passwords](docs/configuration.md#openldap-administrator-passwords)).
 
 Follow the logs of a service:
 
@@ -143,7 +143,7 @@ docker compose logs -f freeradius
 
 - Changes to users and roles made without `bin/manage_users.sh` do not reach SSH logins until you run `koitohan-update-users`.
 - A logged-in user can get around the password check of `passwd`. The check is there to prevent weak passwords set by carelessness. Even then, the minimum length that OpenLDAP checks by itself (`PPOLICY_MIN_LENGTH`) holds.
-- Anyone who can reach the login prompt of a network device or the SSH port can lock a user whose name they know, by sending wrong passwords. A lock ends by itself when its time is over (see [Password policy](#password-policy)).
+- Anyone who can reach the login prompt of a network device or the SSH port can lock a user whose name they know, by sending wrong passwords. A lock ends by itself when its time is over (see [Password policy](docs/configuration.md#password-policy)).
 - A user logged in over SSH can connect from the OpenSSH container to the Docker host and to outside networks. The Docker network keeps them only from the containers other than OpenLDAP.
 - When OpenLDAP restarts while FreeRADIUS keeps running, for example after `docker compose restart openldap`, FreeRADIUS rejects the logins that follow and then crashes with a segmentation fault. Docker starts it again, and logins work after that. This is a bug in FreeRADIUS 4.x, which is a development version. To avoid the rejected logins, restart FreeRADIUS right after OpenLDAP with `docker compose restart freeradius`. This item will be removed when FreeRADIUS fixes the bug.
 
@@ -171,6 +171,10 @@ TFTP has neither authentication nor encryption. Anyone who can reach 69/udp and 
 
 ## Documentation
 
+- [Configuration](docs/configuration.md): `.env`, device networks, RADIUS clients, users and roles, passwords
+- [TFTP](docs/tftp.md): handing out firmware and backing up configs, limits on uploads
+- [Working over SSH](docs/ssh.md): the container for the users, changing a password, sources
+- [Logs](docs/logs.md): where the logs are and how they rotate
 - [Basic design](docs/basic-design.md) (Japanese)
 
 ## License

@@ -1,4 +1,6 @@
-## TFTP
+# TFTP
+
+[日本語](tftp.ja.md)
 
 tftpd-hpa serves `tftpd-hpa/tftpboot/` as the TFTP root. It holds two directories with different roles.
 
@@ -14,7 +16,7 @@ copy running-config tftp://<host>/configs/core-switch.cfg
 copy tftp://<host>/firmware/image.bin flash:
 ```
 
-### Limit the space uploads can use (strongly recommended)
+## Limit the space uploads can use (strongly recommended)
 
 TFTP has no authentication. Anyone who can reach 69/udp can write to `configs/`. With no protection, uploaded data uses the disk of the Docker host. When that disk fills up, log collection, the LDAP database and the host itself stop working.
 
@@ -39,7 +41,7 @@ If you mount the image after the stack has started, apply it to the container wi
 
 If you start the stack without these steps, Docker creates `configs/` owned by root, and uploads fail. You can allow them with the `chown` and `chmod` above, but that leaves uploads with no space limit and is not recommended.
 
-### Limit for a single file
+## Limit for a single file
 
 `TFTP_UPLOAD_MAX_BYTES` in `.env` is the size limit, in bytes, for one uploaded file. The value in `.env.sample` is 16 MB. Apply a change with `make up`.
 
@@ -47,7 +49,7 @@ If you start the stack without these steps, Docker creates `configs/` owned by r
 - An upload over the limit does not get an error. It times out on the device. A file cut off at the limit stays in `configs/`, and you have to delete it by hand. The server log does not record that the upload was cut off.
 - The limit does not apply to downloads from `firmware/`.
 
-### Things to know
+## Things to know
 
 - Transfer files in binary mode. Some clients, such as the `tftp` command on Linux, default to text (netascii) mode.
 - The server replies from a UDP port other than 69. If a transfer from a PC fails, check that the firewall on the PC is not blocking those replies.

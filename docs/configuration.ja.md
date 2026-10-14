@@ -1,6 +1,8 @@
-## 設定
+# 設定
 
-### `.env`
+[English](configuration.md)
+
+## `.env`
 
 `.env` が唯一の設定元です。スクリプトも `compose.yaml` もこのファイルを読みます。
 
@@ -13,14 +15,14 @@
 | `FREERADIUS_CONTAINER_NAME`           | FreeRADIUS のコンテナ名。                                                             |
 | `SYSLOG_CONTAINER_NAME`               | syslog-ng のコンテナ名。                                                              |
 | `TFTP_CONTAINER_NAME`                 | tftpd-hpa のコンテナ名。                                                              |
-| `TFTP_UPLOAD_MAX_BYTES`               | TFTP でアップロードできる1ファイルあたりの上限(バイト数)。「[TFTP](#tftp)」を参照。   |
+| `TFTP_UPLOAD_MAX_BYTES`               | TFTP でアップロードできる1ファイルあたりの上限(バイト数)。「[TFTP](tftp.ja.md)」を参照。   |
 | `OPENSSH_CONTAINER_NAME`              | OpenSSH のコンテナ名。                                                                |
 | `OPENSSH_HOSTNAME`                    | OpenSSH のコンテナのホスト名。ログインしたシェルのプロンプトに表示されます。          |
 | `OPENSSH_PORT`                        | SSH を公開する Docker ホストのポート番号。ホスト自身の sshd とは別の番号にします。    |
 | `OPENSSH_SUBNET`                      | OpenSSH と OpenLDAP だけをつなぐ Docker ネットワークのサブネット(CIDR 表記)。         |
-| `OPENSSH_ALLOWED_NETWORKS`            | SSH の接続を受け付ける送信元のネットワーク。「[SSH の接続元](#ssh-の接続元)」を参照。 |
+| `OPENSSH_ALLOWED_NETWORKS`            | SSH の接続を受け付ける送信元のネットワーク。「[SSH の接続元](ssh.ja.md#ssh-の接続元)」を参照。 |
 | `OPENSSH_SERVICE_ACCOUNT_NAME`        | OpenSSH のコンテナがディレクトリの検索に使うアカウント。                              |
-| `PASSWDQC_MIN`                        | `passwd` が受け付けるパスワードの最小の長さ。「[パスワードの変更](#パスワードの変更)」を参照。 |
+| `PASSWDQC_MIN`                        | `passwd` が受け付けるパスワードの最小の長さ。「[パスワードの変更](ssh.ja.md#パスワードの変更)」を参照。 |
 | `PPOLICY_MIN_LENGTH`                  | OpenLDAP が受け付けるパスワードの最小の長さ。「[パスワードポリシー](#パスワードポリシー)」を参照。 |
 | `PPOLICY_MAX_FAILURE`                 | ユーザーをロックするまでの、認証の失敗の回数。                                        |
 | `PPOLICY_FAILURE_WINDOW`              | 失敗を数える期間(秒)。                                                                |
@@ -33,7 +35,7 @@ OpenLDAP、FreeRADIUS、OpenSSH のコンテナ名は、証明書のホスト名
 
 `DOCKER_SUBNET` と `OPENSSH_SUBNET` には、機器のいるネットワークやホストから到達するネットワークと重ならない範囲を、互いにも重ならないように指定してください。変更は `make down && make up` で反映されます。
 
-### 機器のネットワーク
+## 機器のネットワーク
 
 FreeRADIUS、syslog-ng、TFTP サーバーは、`DEVICE_NETWORKS` に書いたネットワークからの通信だけを受け付けます。IPv4 のアドレスかプレフィックスを、空白で区切って並べます。
 
@@ -46,7 +48,7 @@ DEVICE_NETWORKS='10.0.0.0/8 172.16.0.0/12 192.168.0.0/16'
 - RADIUS は、この範囲に加えて `clients.conf` にも登録された機器だけが使えます(「[RADIUS クライアント](#radius-クライアント)」を参照)。
 - TFTP は、機器がブートローダーからファームウェアを取りにくるときのアドレスも、範囲に含めてください。
 - Docker ホスト自身から送ったものは、コンテナからは `DOCKER_SUBNET` のゲートウェイから届いたように見えます。ホストから動作を確かめるなら、`DOCKER_SUBNET` も範囲に含めてください。
-- SSH(利用者作業用コンテナ)の接続元は、別の変数で指定します(「[SSH の接続元](#ssh-の接続元)」を参照)。
+- SSH(利用者作業用コンテナ)の接続元は、別の変数で指定します(「[SSH の接続元](ssh.ja.md#ssh-の接続元)」を参照)。
 
 変更は `make down && make up` で反映されます。
 
@@ -54,7 +56,7 @@ DEVICE_NETWORKS='10.0.0.0/8 172.16.0.0/12 192.168.0.0/16'
 
 `TZ` は、各コンテナが書き出すログの時刻のタイムゾーンを決めます。変更は `make up` で反映されます。
 
-### RADIUS クライアント
+## RADIUS クライアント
 
 ネットワーク機器を `freeradius/config/clients.conf` に1台ずつ記述します。クライアントの `nas_type` が、その機器に返す応答属性を決めます。
 
@@ -86,7 +88,7 @@ Fortinet、Juniper、Palo Alto の値は、機器側のプロファイル名や�
 
 FreeRADIUS は、`DEVICE_NETWORKS` のネットワーク(「[機器のネットワーク](#機器のネットワーク)」を参照)とループバックからの要求だけを受け付けます。
 
-### ユーザーとロール
+## ユーザーとロール
 
 ユーザーの登録、削除、ロールの変更、パスワードの再発行、ロックの解除は、Docker ホストで `bin/manage_users.sh` を使って行います。スタックが起動している状態で実行してください。
 
@@ -99,7 +101,7 @@ bin/manage_users.sh delete alice                  # 削除
 ```
 
 - ユーザーに割り当てるロールは、`admin`、`operator`、`readonly` のうちの1つです。どのロールにも所属していないユーザーは、すべての機器で拒否されます。スクリプトを使わずに複数のロールに所属させたユーザーは、そのうちいちばん弱いロール(`readonly`、`operator`、`admin` の順)として扱われます。機器へのログインでも、SSH でも同じです。
-- `add` と `passwd` は、パスワードを端末から尋ねます。パスワードは、ユーザーが `passwd` で変更するときと同じ規則で判定します(「[パスワードの変更](#パスワードの変更)」を参照)。発行したパスワードは、ユーザー本人に SSH でログインして変更してもらってください。
+- `add` と `passwd` は、パスワードを端末から尋ねます。パスワードは、ユーザーが `passwd` で変更するときと同じ規則で判定します(「[パスワードの変更](ssh.ja.md#パスワードの変更)」を参照)。発行したパスワードは、ユーザー本人に SSH でログインして変更してもらってください。
 - ユーザー名に使えるのは、英小文字、数字、`_`、`-` で、32 文字までです。
 - `uidNumber` は 10000 から順に割り当てます。一度使った番号は、ユーザーを削除したあとも再利用しません。ユーザーが置いたファイルの所有者は、番号で残るためです。次に割り当てる番号は、ディレクトリの `cn=nextUidNumber` に記録しています。
 - 変更は、SSH のログインにもすぐに反映されます。`delete` と `role` は、そのユーザーのログイン中のセッションを切ります。
@@ -132,13 +134,13 @@ loginShell: /bin/sh
 EOF
 ```
 
-### パスワードポリシー
+## パスワードポリシー
 
 パスワードの規則は、2か所で強制しています。
 
 | 場所                                             | 強制する内容                                   |
 | ------------------------------------------------ | ---------------------------------------------- |
-| `passwd` と `bin/manage_users.sh`                | 文字の種類に応じた最小の長さ(`PASSWDQC_MIN`。「[パスワードの変更](#パスワードの変更)」を参照) |
+| `passwd` と `bin/manage_users.sh`                | 文字の種類に応じた最小の長さ(`PASSWDQC_MIN`。「[パスワードの変更](ssh.ja.md#パスワードの変更)」を参照) |
 | OpenLDAP(ppolicy オーバーレイ)                   | 最小の長さ(`PPOLICY_MIN_LENGTH`)と、ロック     |
 
 OpenLDAP は、ハッシュ済みのパスワードの書き込みを受け付けません(長さを確かめられないためです)。ユーザーのパスワードは `bin/manage_users.sh` か `passwd` で設定してください。
@@ -159,7 +161,7 @@ docker compose exec -T openldap ldapmodify -c -Q -Y EXTERNAL -H ldapi:/// < open
 
 すでにあるモジュール、オーバーレイ、エントリには `Type or value exists`、`overlay "ppolicy" already in list`、`Already exists` と表示されますが、問題ありません。値だけが置き換わります。
 
-### サービスアカウントのパスワード
+## サービスアカウントのパスワード
 
 FreeRADIUS と OpenSSH のコンテナは、それぞれのサービスアカウントでディレクトリを検索します。そのパスワードは `make`(`make secrets`)が生成し、`secrets/` に置きます。
 
@@ -187,7 +189,7 @@ bin/change_service_account_password.sh openssh
 
 途中で止まったときは、もう一度実行してください。いまのパスワードを必要としないので、`secrets/` のファイルとディレクトリが食い違ってしまったときも、同じコマンドで直せます。
 
-### OpenLDAP の管理者のパスワード
+## OpenLDAP の管理者のパスワード
 
 OpenLDAP には、パスワードで入る管理者が2つあります。どちらも、アクセス制御とパスワードポリシーの判定を受けません。パスワードは `make`(`make secrets`)が生成し、`secrets/` に置きます。
 
@@ -209,11 +211,11 @@ bin/change_ldap_admin_password.sh
 docker compose restart freeradius
 ```
 
-スクリプトは、2つのパスワードを生成して `secrets/` のファイルを差し替え、OpenLDAP のコンテナを作り直し、新しいパスワードで入れることを確かめます。OpenLDAP が起動し直すまでのあいだ、ログインはすべて失敗します。続けて FreeRADIUS を再起動するのは、OpenLDAP の再起動のあと、FreeRADIUS がしばらくログインを拒否するためです(「[既知の制限](#既知の制限)」を参照)。
+スクリプトは、2つのパスワードを生成して `secrets/` のファイルを差し替え、OpenLDAP のコンテナを作り直し、新しいパスワードで入れることを確かめます。OpenLDAP が起動し直すまでのあいだ、ログインはすべて失敗します。続けて FreeRADIUS を再起動するのは、OpenLDAP の再起動のあと、FreeRADIUS がしばらくログインを拒否するためです(「[既知の制限](../README.ja.md#既知の制限)」を参照)。
 
 途中で止まったときは、もう一度実行してください。いまのパスワードを必要としません。
 
-### ディレクトリの初期データを変更する
+## ディレクトリの初期データを変更する
 
 OpenLDAP が生成済みの LDIF を読み込むのは、データベースが空の状態での初回起動時だけです。その後に `.env` や LDIF の変更を反映するには、`openldap/data/` と `openldap/config/` を削除して起動し直す必要があります。このとき、ディレクトリ内のユーザーとロールはすべて失われます。`PPOLICY_*` の変更は例外で、データを消さずに反映できます(「[パスワードポリシー](#パスワードポリシー)」を参照)。
 

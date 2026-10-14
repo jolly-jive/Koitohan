@@ -1,4 +1,6 @@
-## ログ
+# ログ
+
+[English](logs.md)
 
 | パス                                    | 内容                         |
 | --------------------------------------- | ---------------------------- |
@@ -11,7 +13,7 @@
 
 SSH のログインの記録はファイルには保存されません。`docker compose logs openssh` で確認します。
 
-### ローテーション
+## ローテーション
 
 上の表のファイルは、Docker ホストの logrotate が1日ごとに切り替えます。設定は `make` が `logrotate/koitohan` に生成するので、logrotate が読む場所に置いてください。
 
@@ -36,7 +38,7 @@ sudo install -m 644 -o root -g root logrotate/koitohan /etc/logrotate.d/koitohan
 - 残す日数を変えるときは、`scripts/generate_logrotate.sh` の先頭の値を変えて、同じく2行を実行します。
 - 設定を試すには、`sudo logrotate -d /etc/logrotate.d/koitohan` を使います。何も変更せずに、対象のファイルと判定を表示します。
 
-### コンテナの標準出力
+## コンテナの標準出力
 
 `docker compose logs` で読むログ(SSH のログイン、OpenLDAP、TFTP の転送)は、Docker のログドライバが保存します。このうち TFTP の転送だけは、同じものがファイルにも残ります。`compose.yaml` はドライバを指定せず、Docker ホストの設定に従います。
 
