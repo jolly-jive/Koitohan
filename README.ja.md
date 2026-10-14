@@ -60,6 +60,7 @@ sudo chown -R 101:101 freeradius/log
 sudo chown 1000:10001 tftpd-hpa/tftpboot/firmware
 sudo chmod 2770 tftpd-hpa/tftpboot/firmware
 sudo install -m 644 -o root -g root logrotate/koitohan /etc/logrotate.d/koitohan
+make host_check        # ここまでの手作業を確かめる
 make up
 ```
 
@@ -72,6 +73,8 @@ FreeRADIUS は uid 101 で動作し、`freeradius/log/` にログを書き込み
 `install` は、ログのローテーションの設定を Docker ホストの logrotate に渡します(「[ローテーション](docs/logs.ja.md#ローテーション)」を参照)。
 
 `firmware/` の `chown` と `chmod` は、SSH でログインしたユーザーのうち、ロール `admin` のユーザーにだけこのディレクトリを開きます(「[ユーザーズガイド](docs/user-guide.ja.md#ファームウェアを配るコンフィグを取り出すadmin-のみ)」を参照)。`configs/` の同じ設定は、「[TFTP](docs/tftp.ja.md)」の手順に含まれています。
+
+`make host_check` は、Docker ホストの状態のうち `make` が作らないものを確かめます。上の `sudo` の手作業、「[TFTP](docs/tftp.ja.md)」のイメージファイル、「[SSH](docs/ssh.ja.md)」が必要とするメモリのコントローラが対象です。`sudo` を使わずに実行でき、何も変更しません。項目ごとに `OK`、`NG`、`WARN`、`SKIP` を表示し、`NG` と `WARN` には対処を添えます。`NG` が1つでもあれば失敗します。`WARN` は、推奨の手順が抜けていることを表します。ホストの設定を変えたときや、logrotate の設定を生成し直したときにも実行してください。
 
 クローン直後は、`docker compose up` を直接実行せずに `make up` を使ってください。Docker がマウントする前に、生成ファイルが揃っていることを保証します。
 
@@ -101,6 +104,7 @@ make freeradius_conf    # FreeRADIUS の LDAP モジュール設定と clients.c
 make device_networks    # FreeRADIUS と syslog-ng に渡す、機器のネットワークの設定
 make ssh_hostkeys       # sshd のホスト鍵(すでにあれば作り直さない)
 make logrotate_conf     # Docker ホストの logrotate に渡す設定
+make host_check         # Docker ホストの状態のうち、make が作らないものを確かめる
 make test               # スモークテスト
 make up                 # スタックを起動
 make down               # スタックを停止

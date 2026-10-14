@@ -4,7 +4,7 @@ ENV_FILE := .env
 # half-written file does not pass for an up-to-date one on the next run.
 .DELETE_ON_ERROR:
 
-.PHONY: all private_dirs certs secrets ldap_dir freeradius_conf device_networks ssh_hostkeys logrotate_conf test clean up down
+.PHONY: all private_dirs certs secrets ldap_dir freeradius_conf device_networks ssh_hostkeys logrotate_conf host_check test clean up down
 
 all: private_dirs certs secrets ldap_dir freeradius_conf device_networks ssh_hostkeys logrotate_conf
 
@@ -102,6 +102,11 @@ logrotate_conf: $(LOGROTATE_CONF)
 
 $(LOGROTATE_CONF): $(ENV_FILE) scripts/generate_logrotate.sh
 	./scripts/generate_logrotate.sh
+
+### state of the Docker host
+# what make does not make: the steps done by hand with sudo
+host_check:
+	./bin/check_host.sh
 
 ### smoke test
 # does not depend on all, so that a test never regenerates the certificates

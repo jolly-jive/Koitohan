@@ -24,6 +24,8 @@ make logrotate_conf
 sudo install -m 644 -o root -g root logrotate/koitohan /etc/logrotate.d/koitohan
 ```
 
+`make host_check` checks that the installed file is owned by root, that the group and the others cannot write it (logrotate skips such a file), and that it is the same as `logrotate/koitohan`.
+
 | File                                               | Name after the rotation               | Days kept |
 | -------------------------------------------------- | ------------------------------------- | --------- |
 | `syslog-ng/log/Hosts/<host>/<host>.log`            | `<host>.log-2026-10-10.gz`            | 1096 (three years) |

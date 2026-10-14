@@ -37,7 +37,9 @@ sudo chmod 2770 tftpd-hpa/tftpboot/configs
 
 Always run `chown` and `chmod` after `mount`. The owner, 1000, is tftpd-hpa. The group, 10001, is the users with the role `admin` who log in over SSH. The commands change the directory inside the image, and the directory underneath stays owned by root. That way, when the image is not mounted, uploads simply fail instead of landing on the host's disk.
 
-If you mount the image after the stack has started, apply it to the container with `docker compose restart tftpd-hpa`.
+If you mount the image after the stack has started, apply it to the containers with `docker compose restart tftpd-hpa openssh`. The OpenSSH container mounts `configs/` too.
+
+`make host_check` checks these steps: the owner and the mode of `configs/`, the mount and its options, the line in `/etc/fstab`, and, when the stack is running, that the containers see the image.
 
 If you start the stack without these steps, Docker creates `configs/` owned by root, and uploads fail. You can allow them with the `chown` and `chmod` above, but that leaves uploads with no space limit and is not recommended.
 
