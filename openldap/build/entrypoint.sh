@@ -10,7 +10,8 @@ SLAPD_CERT_DIR="${RUN_DIR}/certs"
 SEED_DIR=/etc/koitohan/ldif
 SECRETS_DIR=/etc/koitohan/secrets
 
-# 初期投入が最後まで済んだ目印。途中で止まった設定とデータで待ち受けないために置く
+# marks a seed that ran to the end, so that slapd does not serve a config
+# and data that were left halfway
 SEEDED="${CONF_DIR}/koitohan-seeded"
 
 if [ -z "${LDAP_DOMAIN:-}" ]; then
@@ -19,7 +20,8 @@ if [ -z "${LDAP_DOMAIN:-}" ]; then
 fi
 LDAP_SUFFIX="dc=$(echo "${LDAP_DOMAIN}" | sed 's/\./,dc=/g')"
 
-# slappasswd の -T は改行もパスワードに含めるので、ファイルには改行を付けない
+# the -T of slappasswd takes a newline as part of the password, so the
+# files have none
 for WHICH in admin config; do
   if [ ! -s "${SECRETS_DIR}/ldap_${WHICH}_password" ]; then
     echo "the password of the administrator (${WHICH}) is missing or empty" >&2
@@ -27,11 +29,14 @@ for WHICH in admin config; do
   fi
 done
 
-# slapd は syslog に出力するので、コンテナの標準出力へ流す(-d で標準エラーに出すと、時刻が 16 進数になる)
-# musl の syslog() は時刻を UTC で付けるので、-t で捨てて syslogd に TZ の時刻を付け直させる
+# slapd writes to syslog, so pass it on to the stdout of the container
+# (with -d it writes to stderr, but stamps the time in hexadecimal).
+# The syslog() of musl stamps the time in UTC; -t drops it, and syslogd
+# stamps it again in TZ.
 syslogd -n -t -O - &
 
-# slapd は降格したあとで証明書と秘密鍵を読む。マウント元は root しか入れないので、専用のディレクトリへ写す
+# slapd reads the certificate and the key after it drops root. Only root
+# can enter where they are mounted, so copy them into a directory of its own.
 install -d -m 700 -o ldap -g ldap "${SLAPD_CERT_DIR}"
 install -m 400 -o ldap -g ldap \
   "${CERT_DIR}/ca.crt" "${CERT_DIR}/ldap.crt" "${CERT_DIR}/ldap.key" "${SLAPD_CERT_DIR}/"
@@ -39,8 +44,9 @@ install -m 400 -o ldap -g ldap \
 chown ldap:ldap "${SOCKET_DIR}"
 
 if [ ! -e "${SEEDED}" ]; then
-  # 目印がないのに中身があるのは、途中で止まった初期投入か、別のイメージが作ったもの
-  # どちらも続きからは使えない。消すかどうかは、こいとはん管理者が決める
+  # Contents without the mark come from a seed that stopped halfway, or
+  # from another image. Neither can be carried on from. Whether to delete
+  # them is for the administrator of Koitohan to decide.
   if [ -e "${CONF_DIR}/cn=config.ldif" ] || [ -e "${DATA_DIR}/data.mdb" ]; then
     echo 'openldap/config or openldap/data holds a directory that this image did not finish making.' >&2
     echo 'Delete what is in both (everything in the directory is lost), then start again.' >&2
@@ -49,8 +55,8 @@ if [ ! -e "${SEEDED}" ]; then
 
   echo 'seeding the empty directory'
 
-  # 待ち受けは ldaps:/// と ldapi:/// だけにする(389 は開けない)
-  # クライアント証明書を必ず求め、TLS は 1.3 に限る
+  # Listens on ldaps:/// and ldapi:/// only (not on 389). Demands a client
+  # certificate, and takes TLS 1.3 only.
   slapadd -n 0 -F "${CONF_DIR}" <<EOF
 dn: cn=config
 objectClass: olcGlobal
@@ -145,7 +151,8 @@ EOF
 
   chown -R ldap:ldap "${CONF_DIR}" "${DATA_DIR}"
 
-  # LDIF はソケットだけで待ち受ける slapd に入れる。投入の途中のディレクトリには、外から届かない
+  # load the LDIF into a slapd that listens on the socket only, so that the
+  # directory cannot be reached from outside while it is half seeded
   slapd -u ldap -g ldap -F "${CONF_DIR}" -h 'ldapi:///' -d 0 &
   SEED_PID=$!
   TRY=0
@@ -158,14 +165,16 @@ EOF
     sleep 0.1
   done
 
-  # ファイル名の順に入れる。1つでも失敗したら起動しない(欠けたディレクトリで待ち受けない)
+  # in the order of the file names. If any one fails, do not start (do not
+  # serve a directory with parts missing).
   for LDIF in "${SEED_DIR}"/*.ldif; do
     echo "seeding ${LDIF}"
     if ! ldapadd -Q -Y EXTERNAL -H ldapi:/// -f "${LDIF}"; then
       echo "could not load ${LDIF}" >&2
       kill ${SEED_PID}
       wait ${SEED_PID} || true
-      # いま空から作ったものなので、消して次の起動でやり直せるようにする
+      # all of it was made just now from nothing, so delete it and let the
+      # next start try again
       rm -rf "${CONF_DIR}/cn=config" "${CONF_DIR}/cn=config.ldif" "${DATA_DIR}/data.mdb" "${DATA_DIR}/lock.mdb"
       exit 1
     fi
@@ -177,9 +186,12 @@ EOF
   echo 'seeded'
 fi
 
-# 管理者のパスワードとログのレベルは、起動のたびに入れ直す。正はファイルと環境変数にある
-# TLS の2つは、以前の初期投入が作った設定を直す(下限は 1.2 で、DH パラメータのファイルを指していた)
-# 値のない replace は、属性があれば消し、なければ何もしない
+# The passwords of the administrators and the log level are written on
+# every start. The files and the environment are where they are kept.
+# The two of TLS mend the config that earlier seeds made (the minimum was
+# 1.2, and it named a file of DH parameters).
+# A replace without a value deletes the attribute if there is one, and
+# does nothing otherwise.
 slapmodify -n 0 -F "${CONF_DIR}" <<EOF
 dn: cn=config
 changetype: modify
@@ -202,7 +214,7 @@ replace: olcRootPW
 olcRootPW: $(slappasswd -T "${SECRETS_DIR}/ldap_admin_password")
 EOF
 
-# slapmodify は root で書くので、slapd が読み書きできるように戻す
+# slapmodify writes as root, so hand the files back to slapd
 chown -R ldap:ldap "${CONF_DIR}" "${DATA_DIR}"
 
 exec slapd -u ldap -g ldap -F "${CONF_DIR}" -h 'ldaps:/// ldapi:///' -d 0

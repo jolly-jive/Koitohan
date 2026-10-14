@@ -1,6 +1,7 @@
 FROM alpine:3.24
 
-# パッケージの slapd.conf と slapd.ldif は使わない。設定は entrypoint.sh が slapd.d に作る
+# the slapd.conf and slapd.ldif of the package are not used. entrypoint.sh
+# makes the config in slapd.d.
 RUN apk add --no-cache \
       openldap \
       openldap-back-mdb \
@@ -13,10 +14,13 @@ RUN apk add --no-cache \
 
 COPY entrypoint.sh /entrypoint.sh
 
-# ルートファイルシステムは読み取り専用で使う。起動時に書くものは、マウントされた
-# 設定(/etc/openldap/slapd.d)とデータ(/var/lib/openldap/openldap-data)、tmpfs の
-# /run と /var/lib/openldap/run(ldapi:/// のソケット。場所はパッケージのビルドで決まっている)
-# /etc/koitohan は証明書、初期投入の LDIF、管理者のパスワードのマウント先で、root しか入れない
+# The root filesystem is read-only. What is written at the start goes in
+# the config (/etc/openldap/slapd.d) and the data
+# (/var/lib/openldap/openldap-data), both mounted, and in /run and
+# /var/lib/openldap/run, both tmpfs (the socket of ldapi:///, where the
+# build of the package put it).
+# /etc/koitohan is where the certificates, the LDIF of the seed and the
+# passwords of the administrators are mounted. Only root can enter it.
 RUN mkdir -m 700 /etc/koitohan \
  && mkdir /etc/koitohan/certs /etc/koitohan/ldif /etc/koitohan/secrets \
  && mkdir -p /etc/openldap/slapd.d /var/lib/openldap/openldap-data /var/lib/openldap/run

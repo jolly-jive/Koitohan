@@ -90,6 +90,7 @@ TFTP のルートは `tftpd-hpa/tftpboot/`。`firmware/` は `:ro` でマウン�
 
 ## 注意点
 
+- コードのコメントは英語で書く(Dockerfile、スクリプト、設定ファイルのすべて)。周りのコメントが日本語でも合わせないこと。ドキュメント(`README.ja.md`、`docs/basic-design.md`、このファイル)は対象外。
 - LDIF のターゲットは1つのスクリプトが複数ファイルを書き出すため、グループターゲット(`&:`)を使っている。GNU Make 4.3 以上が必要。
 - 生成物と実行時データは gitignore 済み(`CA/*`、`openldap/data`、`openldap/config`、`openldap/ldif/*.ldif`、`freeradius/config/device_networks`、`*/log`、`openssh/hostkeys/*`、`secrets/*`、`logrotate/*`、`tests/generated/`、`scripts/openssl.conf`、`syslog-ng/config` の `syslog-ng.conf` 以外、`tftpd-hpa/log/*`、`tftpd-hpa/configs.img`、`tftpd-hpa/tftpboot/` の `firmware/.gitkeep` 以外)。ディレクトリは `.gitkeep` で維持している。`.gitignore` では `!.gitkeep` を末尾に置くこと(後に書いたパターンが優先されるため)。
 - `CA/`、`.env`、`secrets/`、`openssh/hostkeys/`、`freeradius/config/clients.conf`、`freeradius/config/mods-available/ldap_openldap`、生成された LDIF には秘密鍵、共有シークレット、パスワードが含まれる。LDIF は `umask 077` で生成する(0600)。既存のファイルに上書きするときは元の権限が残るので、古い 0664 のファイルは `chmod 600` で直す。

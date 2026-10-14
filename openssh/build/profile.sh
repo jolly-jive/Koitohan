@@ -1,3 +1,3 @@
-# ユーザ名と、接続先のホスト名(.env の OPENSSH_HOSTNAME)をプロンプトに出す
-# ホームディレクトリが / なので、\w だと / にいるときに ~ と表示される
+# Shows the user and the name of the host (OPENSSH_HOSTNAME in .env) in
+# the prompt. The home directory is /, so \w would show ~ there.
 PS1='\u@\h:${PWD}\$ '
