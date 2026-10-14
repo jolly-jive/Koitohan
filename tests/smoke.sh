@@ -852,7 +852,16 @@ else
   printf 'ok    %-13s %-11s %s\n' 'service pass' 'secrets/' 'untouched'
 fi
 
+# The minimum of TLS is written on every start as well. Lowered over
+# ldapi:/// here, it has to be back after the restart.
+check_ldap 'tls minimum' 'config' 'modifying entry "cn=config"' \
+  'ldapmodify -Q -Y EXTERNAL -H ldapi:///' \
+  'dn: cn=config\nchangetype: modify\nreplace: olcTLSProtocolMin\nolcTLSProtocolMin: 3.3\n'
+
 check_restart
+
+check_ldap 'tls minimum' 'config' 'olcTLSProtocolMin: 3.4' \
+  'ldapsearch -LLL -Q -Y EXTERNAL -H ldapi:/// -b cn=config -s base olcTLSProtocolMin'
 
 # the image sets the passwords on every start, from the files it has now
 check_admin_bind 'ldap restart' admin "${NEW_ADMIN}" 'dn:cn=admin,dc='
