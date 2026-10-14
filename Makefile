@@ -23,7 +23,6 @@ CERT_FILES := CA/*.pem CA/*.crt CA/*.key CA/*.csr
 certs: $(CERT_STAMP)
 
 $(CERT_STAMP): $(ENV_FILE) scripts/create_certs.sh
-	rm -f $(CERT_FILES)
 	cd CA && ../scripts/create_certs.sh
 	touch $(CERT_STAMP)
 

@@ -44,9 +44,9 @@ install -m 400 -o ldap -g ldap \
 chown ldap:ldap "${SOCKET_DIR}"
 
 if [ ! -e "${SEEDED}" ]; then
-  # Contents without the mark come from a seed that stopped halfway, or
-  # from another image. Neither can be carried on from. Whether to delete
-  # them is for the administrator of Koitohan to decide.
+  # Contents without the mark come from a seed that stopped halfway, and
+  # cannot be carried on from. Whether to delete them is for the
+  # administrator of Koitohan to decide.
   if [ -e "${CONF_DIR}/cn=config.ldif" ] || [ -e "${DATA_DIR}/data.mdb" ]; then
     echo 'openldap/config or openldap/data holds a directory that this image did not finish making.' >&2
     echo 'Delete what is in both (everything in the directory is lost), then start again.' >&2
@@ -186,12 +186,9 @@ EOF
   echo 'seeded'
 fi
 
-# The passwords of the administrators and the log level are written on
-# every start. The files and the environment are where they are kept.
-# The two of TLS mend the config that earlier seeds made (the minimum was
-# 1.2, and it named a file of DH parameters).
-# A replace without a value deletes the attribute if there is one, and
-# does nothing otherwise.
+# The passwords of the administrators, the log level and the minimum of
+# TLS are written on every start. The files and the environment are where
+# they are kept, and a change made over ldapi:/// does not outlive a start.
 slapmodify -n 0 -F "${CONF_DIR}" <<EOF
 dn: cn=config
 changetype: modify
@@ -200,8 +197,6 @@ olcLogLevel: ${LDAP_LOG_LEVEL:-stats}
 -
 replace: olcTLSProtocolMin
 olcTLSProtocolMin: 3.4
--
-replace: olcTLSDHParamFile
 
 dn: olcDatabase={0}config,cn=config
 changetype: modify
