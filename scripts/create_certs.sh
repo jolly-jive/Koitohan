@@ -1,7 +1,9 @@
 #!/bin/bash
 
+set -euo pipefail
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-ROOT_DIR="$(dirname "${SCRIPT_DIR}")"
+ROOT_DIR="${SCRIPT_DIR%/*}"
 
 source "${ROOT_DIR}/.env"
 
@@ -10,25 +12,25 @@ OUT_DIR="${ROOT_DIR}/CA"
 function domain2dn() {
   local DOMAIN=${1}
 
-  echo ${DOMAIN} \
-  | tr . '\n' \
-  | awk '{print "dc="$1}' \
-  | paste -s -d ','
+  echo "dc=${DOMAIN//./,dc=}"
 }
 
+# openssl req -subj knows the short names in upper case only, and skips
+# "dc" with a warning: the subject would keep the first component alone
 LDAP_SUFFIX=$(domain2dn ${LDAP_DOMAIN})
+LDAP_SUFFIX=${LDAP_SUFFIX//dc=/DC=}
 
 function comma_dn2slash_dn() {
   local COMMA_DN=${1}
 
-  echo "/$(echo ${COMMA_DN} | tr ',' '/')"
+  echo "/${COMMA_DN//,//}"
 }
 
 
 function set_names() {
   local SUBJ_HOSTNAME=${1}
   local SUBJ_ID=${2}
-  local SUBJ_ID_LOWER=$(echo ${SUBJ_ID} | tr '[:upper:]' '[:lower:]')
+  local SUBJ_ID_LOWER=${SUBJ_ID,,}
 
   cat <<-EOF
 	${SUBJ_ID}_HOSTNAME="${SUBJ_HOSTNAME}"
@@ -82,12 +84,12 @@ echo "  DN_SLASH = ${CA_DN_SLASH}"
 CNF_FILE="${SCRIPT_DIR}/openssl.conf"
 
 echo -e "\n# CREATE CONFIG FILE: ${CNF_FILE}"
-(
+{
   cat "${CNF_FILE}.template"
   echo "DNS.1 = ${OPENLDAP_SERVER_HOSTNAME}"
   echo "DNS.2 = ${OPENLDAP_SERVER_FQDN}"
   echo "DNS.3 = localhost"
-) > ${CNF_FILE}
+} > ${CNF_FILE}
 
 
 function generate_key() {
@@ -129,6 +131,16 @@ function issue_cert() {
     -out ${CRT} \
     -text
 }
+
+# Every run makes a new CA, so its key has no use once the certificates
+# are signed. Left behind, it could sign a certificate that OpenLDAP takes.
+# Removed on the way out, also when a step below fails.
+function remove_ca_key() {
+  echo -e "\n# REMOVE CA KEY AND CSRS"
+  rm -f ${CA_KEY_FILE} \
+    ${OPENLDAP_SERVER_CSR_FILE} ${FREERADIUS_CLIENT_CSR_FILE} ${OPENSSH_CLIENT_CSR_FILE}
+}
+trap remove_ca_key EXIT
 
 echo -e "\n# CREATE KEYS AND CERTS"
 
@@ -178,10 +190,3 @@ create_csr ${OPENSSH_CLIENT_KEY_FILE}  ${OPENSSH_CLIENT_CSR_FILE}  ${OPENSSH_CLI
 
 echo -e "\n## SIGN CRT: ${OPENSSH_CLIENT_CRT_FILE}"
 issue_cert client_cert  ${OPENSSH_CLIENT_CSR_FILE}  ${OPENSSH_CLIENT_CRT_FILE}
-
-
-# Every run makes a new CA, so its key has no use once the certificates
-# are signed. Left behind, it could sign a certificate that OpenLDAP takes.
-echo -e "\n# REMOVE CA KEY AND CSRS"
-rm -f ${CA_KEY_FILE} \
-  ${OPENLDAP_SERVER_CSR_FILE} ${FREERADIUS_CLIENT_CSR_FILE} ${OPENSSH_CLIENT_CSR_FILE}

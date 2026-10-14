@@ -1,5 +1,9 @@
 ENV_FILE := .env
 
+# A target that a failed recipe has written to is removed, so that a
+# half-written file does not pass for an up-to-date one on the next run.
+.DELETE_ON_ERROR:
+
 .PHONY: all private_dirs certs secrets ldap_dir freeradius_conf device_networks ssh_hostkeys logrotate_conf test clean up down
 
 all: private_dirs certs secrets ldap_dir freeradius_conf device_networks ssh_hostkeys logrotate_conf
