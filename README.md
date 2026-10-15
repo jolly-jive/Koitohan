@@ -112,6 +112,8 @@ make clean              # delete generated certificates, LDIF files and config
 bin/manage_users.sh     # add and delete users, change a role, set a new password, unlock
 bin/change_service_account_password.sh   # change the password of a service account
 bin/change_ldap_admin_password.sh        # change the passwords of the OpenLDAP administrators
+bin/backup.sh           # take a backup of the running stack
+bin/restore_ldap.sh     # load the directory of a backup into an empty OpenLDAP
 ```
 
 Check the FreeRADIUS configuration without starting the stack:
@@ -126,7 +128,7 @@ Check authentication and authorization end to end:
 make test
 ```
 
-`make test` starts every container as a separate project (`koitohan-test`), adds test users with `bin/manage_users.sh`, authenticates as them, and compares the reply attributes for every combination of device type and role. It also checks that FreeRADIUS makes a detail log again after the rotation has moved it away. For RADIUS, syslog and TFTP, it checks that traffic from the networks in `DEVICE_NETWORKS` arrives and that traffic from elsewhere does not. It also checks that a TFTP transfer is recorded in the file. It then logs in over SSH as a user of each role and checks the permissions on the directories, the reading of a compressed log and a password change. After that it runs each operation of `bin/manage_users.sh` and checks the password policy (the minimum length, the lock and the unlock) and the change of the passwords of the service accounts and of the OpenLDAP administrators. At the end it restarts the OpenLDAP container and checks that it comes up again. It publishes no ports, keeps no data and generates passwords of its own (`tests/generated/`), so it does not affect a running stack. Run `make` beforehand. To look into a failed check, keep the test stack up with `KEEP=1 tests/smoke.sh`.
+`make test` starts every container as a separate project (`koitohan-test`), adds test users with `bin/manage_users.sh`, authenticates as them, and compares the reply attributes for every combination of device type and role. It also checks that FreeRADIUS makes a detail log again after the rotation has moved it away. For RADIUS, syslog and TFTP, it checks that traffic from the networks in `DEVICE_NETWORKS` arrives and that traffic from elsewhere does not. It also checks that a TFTP transfer is recorded in the file. It then logs in over SSH as a user of each role and checks the permissions on the directories, the reading of a compressed log and a password change. After that it runs each operation of `bin/manage_users.sh` and checks the password policy (the minimum length, the lock and the unlock) and the change of the passwords of the service accounts and of the OpenLDAP administrators. Then it restarts the OpenLDAP container and checks that it comes up again. At the end it takes a backup with `bin/backup.sh`, makes OpenLDAP again with empty data, restores the backup with `bin/restore_ldap.sh` and checks that the users and the files in `configs/` are back. It publishes no ports, keeps no data and generates passwords of its own (`tests/generated/`), so it does not affect a running stack. Run `make` beforehand. To look into a failed check, keep the test stack up with `KEEP=1 tests/smoke.sh`.
 
 The OpenLDAP, FreeRADIUS, tftpd-hpa and OpenSSH images are built automatically by the first `make up`. After you change `openldap/build/`, `freeradius/build/`, `tftpd-hpa/build/` or `openssh/build/`, rebuild them before you start the stack.
 
@@ -153,7 +155,7 @@ docker compose logs -f freeradius
 
 ## Security notes
 
-These files contain private keys, shared secrets or passwords. Git ignores all of them. Keep them out of backups and copies that others can read.
+These files contain private keys, shared secrets or passwords. Git ignores all of them. Keep them out of backups and copies that others can read. The archive that `bin/backup.sh` writes holds most of them, unencrypted (see [Backup and restore](docs/backup.md#keep-the-archive-safe)).
 
 - `CA/`
 - `freeradius/config/clients.conf`
@@ -185,6 +187,7 @@ For the Koitohan administrators:
 - [TFTP](docs/tftp.md): handing out firmware and backing up configs, limits on uploads
 - [The OpenSSH container](docs/ssh.md): what the container for the users is for, password rules, sources
 - [Logs](docs/logs.md): where the logs are and how they rotate
+- [Backup and restore](docs/backup.md): what a backup holds, running it every day, restoring onto a new host
 - [Basic design](docs/basic-design.md) (Japanese)
 
 ## License
