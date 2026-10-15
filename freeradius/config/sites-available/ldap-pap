@@ -8,11 +8,10 @@ server ldap-pap {
 		udp {
 			ipaddr = *
 			port = 1812
-			networks {
-				allow = 127/8
-				# DEVICE_NETWORKS of .env (scripts/generate_device_networks.sh)
-				$INCLUDE ${confdir}/device_networks
-			}
+			# The source is limited (DEVICE_NETWORKS of .env) by the
+			# packet filter of the container (freeradius/build/entrypoint.sh).
+			# The "networks" section here would apply to dynamic
+			# clients only.
 		}
 	}
 	recv Access-Request {

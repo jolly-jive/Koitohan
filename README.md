@@ -36,7 +36,7 @@ Koitohan is at the verification stage. It is not hardened for production use.
 | Log rotation                     | logrotate on the Docker host                    | Working   |
 | DHCP and DNS                     | Kea, BIND9                                      | Undecided |
 
-FreeRADIUS 4.x is a development version. Koitohan uses it ahead of its official release. The image is built from the development branch in [freeradius-server-image](https://github.com/jolly-jive/freeradius-server-image), and `compose.yaml` pins it to one build.
+FreeRADIUS 4.x is a development version. Koitohan uses it ahead of its official release. The image is built from the development branch in [freeradius-server-image](https://github.com/jolly-jive/freeradius-server-image). Koitohan builds its own image on one build of it, pinned in `freeradius/build/Dockerfile`, and adds the packet filter that limits the sources of the requests.
 
 ## Requirements
 
@@ -101,7 +101,7 @@ make certs              # private CA, server and client certificates
 make secrets            # passwords of the service accounts and of the OpenLDAP administrators (kept if they already exist)
 make ldap_dir           # LDIF files for OUs, roles, the service accounts, the password policy and ACLs
 make freeradius_conf    # FreeRADIUS LDAP module config and clients.conf
-make device_networks    # the device networks, in the config of FreeRADIUS and of syslog-ng
+make device_networks    # the device networks, in the config of syslog-ng
 make ssh_hostkeys       # sshd host keys (kept if they already exist)
 make logrotate_conf     # config for logrotate on the Docker host
 make host_check         # check the state of the Docker host that make does not make
@@ -126,12 +126,12 @@ Check authentication and authorization end to end:
 make test
 ```
 
-`make test` starts every container as a separate project (`koitohan-test`), adds test users with `bin/manage_users.sh`, authenticates as them, and compares the reply attributes for every combination of device type and role. It also checks that FreeRADIUS makes a detail log again after the rotation has moved it away. For syslog and TFTP, it checks that traffic from the networks in `DEVICE_NETWORKS` arrives and that traffic from elsewhere does not. It also checks that a TFTP transfer is recorded in the file. It then logs in over SSH as a user of each role and checks the permissions on the directories, the reading of a compressed log and a password change. After that it runs each operation of `bin/manage_users.sh` and checks the password policy (the minimum length, the lock and the unlock) and the change of the passwords of the service accounts and of the OpenLDAP administrators. At the end it restarts the OpenLDAP container and checks that it comes up again. It publishes no ports, keeps no data and generates passwords of its own (`tests/generated/`), so it does not affect a running stack. Run `make` beforehand. To look into a failed check, keep the test stack up with `KEEP=1 tests/smoke.sh`.
+`make test` starts every container as a separate project (`koitohan-test`), adds test users with `bin/manage_users.sh`, authenticates as them, and compares the reply attributes for every combination of device type and role. It also checks that FreeRADIUS makes a detail log again after the rotation has moved it away. For RADIUS, syslog and TFTP, it checks that traffic from the networks in `DEVICE_NETWORKS` arrives and that traffic from elsewhere does not. It also checks that a TFTP transfer is recorded in the file. It then logs in over SSH as a user of each role and checks the permissions on the directories, the reading of a compressed log and a password change. After that it runs each operation of `bin/manage_users.sh` and checks the password policy (the minimum length, the lock and the unlock) and the change of the passwords of the service accounts and of the OpenLDAP administrators. At the end it restarts the OpenLDAP container and checks that it comes up again. It publishes no ports, keeps no data and generates passwords of its own (`tests/generated/`), so it does not affect a running stack. Run `make` beforehand. To look into a failed check, keep the test stack up with `KEEP=1 tests/smoke.sh`.
 
-The OpenLDAP, tftpd-hpa and OpenSSH images are built automatically by the first `make up`. After you change `openldap/build/`, `tftpd-hpa/build/` or `openssh/build/`, rebuild them before you start the stack.
+The OpenLDAP, FreeRADIUS, tftpd-hpa and OpenSSH images are built automatically by the first `make up`. After you change `openldap/build/`, `freeradius/build/`, `tftpd-hpa/build/` or `openssh/build/`, rebuild them before you start the stack.
 
 ```sh
-docker compose build openldap tftpd-hpa openssh
+docker compose build openldap freeradius tftpd-hpa openssh
 make up
 ```
 

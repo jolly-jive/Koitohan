@@ -36,7 +36,7 @@ Koitohan は検証段階です。本番利用に耐える堅牢化はしてい�
 | ログローテーション | Docker ホスト側の logrotate                    | 動作中   |
 | DHCP と DNS        | Kea、BIND9                                     | 未決定   |
 
-FreeRADIUS 4.x は開発バージョンです。Koitohan は正式リリースに先行して採用しています。イメージは [freeradius-server-image](https://github.com/jolly-jive/freeradius-server-image) で開発ブランチからビルドしたもので、`compose.yaml` では特定のビルドに固定しています。
+FreeRADIUS 4.x は開発バージョンです。Koitohan は正式リリースに先行して採用しています。イメージは [freeradius-server-image](https://github.com/jolly-jive/freeradius-server-image) で開発ブランチからビルドしたものです。Koitohan はその特定のビルド(`freeradius/build/Dockerfile` で固定)をもとに自前のイメージをビルドし、要求の送信元を制限するパケットフィルタを加えています。
 
 ## 必要なもの
 
@@ -101,7 +101,7 @@ make certs              # プライベート CA、サーバー証明書、クラ
 make secrets            # サービスアカウントと OpenLDAP の管理者のパスワード(すでにあれば作り直さない)
 make ldap_dir           # OU、ロール、サービスアカウント、パスワードポリシー、ACL の LDIF
 make freeradius_conf    # FreeRADIUS の LDAP モジュール設定と clients.conf
-make device_networks    # FreeRADIUS と syslog-ng に渡す、機器のネットワークの設定
+make device_networks    # syslog-ng に渡す、機器のネットワークの設定
 make ssh_hostkeys       # sshd のホスト鍵(すでにあれば作り直さない)
 make logrotate_conf     # Docker ホストの logrotate に渡す設定
 make host_check         # Docker ホストの状態のうち、make が作らないものを確かめる
@@ -126,12 +126,12 @@ docker compose run --rm --no-deps freeradius radiusd -XC
 make test
 ```
 
-`make test` は、すべてのコンテナを別のプロジェクト(`koitohan-test`)として起動し、`bin/manage_users.sh` でテストユーザーを登録して認証し、機器種別とロールの組み合わせごとに応答属性を照合します。FreeRADIUS が、ローテーションで移動された detail ログを作り直すことも確かめます。syslog と TFTP については、`DEVICE_NETWORKS` の範囲からは届き、範囲の外からは届かないことを確かめます。TFTP の転送がファイルに記録されることも確かめます。続いて、各ロールのユーザーで SSH でログインし、ディレクトリの権限、圧縮されたログの読み取り、パスワードの変更を確かめます。そのあと、`bin/manage_users.sh` の各操作と、パスワードポリシー(最小の長さ、ロックとその解除)、サービスアカウントと OpenLDAP の管理者のパスワードの変更を確かめます。最後に OpenLDAP のコンテナを再起動し、起動し直せることを確かめます。ポートを公開せず、データも残さず、パスワードもテスト用に生成する(`tests/generated/`)ので、稼働中のスタックには影響しません。事前に `make` を済ませておいてください。失敗した項目は `KEEP=1 tests/smoke.sh` でテスト用のスタックを残して調べられます。
+`make test` は、すべてのコンテナを別のプロジェクト(`koitohan-test`)として起動し、`bin/manage_users.sh` でテストユーザーを登録して認証し、機器種別とロールの組み合わせごとに応答属性を照合します。FreeRADIUS が、ローテーションで移動された detail ログを作り直すことも確かめます。RADIUS、syslog、TFTP については、`DEVICE_NETWORKS` の範囲からは届き、範囲の外からは届かないことを確かめます。TFTP の転送がファイルに記録されることも確かめます。続いて、各ロールのユーザーで SSH でログインし、ディレクトリの権限、圧縮されたログの読み取り、パスワードの変更を確かめます。そのあと、`bin/manage_users.sh` の各操作と、パスワードポリシー(最小の長さ、ロックとその解除)、サービスアカウントと OpenLDAP の管理者のパスワードの変更を確かめます。最後に OpenLDAP のコンテナを再起動し、起動し直せることを確かめます。ポートを公開せず、データも残さず、パスワードもテスト用に生成する(`tests/generated/`)ので、稼働中のスタックには影響しません。事前に `make` を済ませておいてください。失敗した項目は `KEEP=1 tests/smoke.sh` でテスト用のスタックを残して調べられます。
 
-OpenLDAP、tftpd-hpa、OpenSSH のイメージは、最初の `make up` で自動的にビルドされます。`openldap/build/`、`tftpd-hpa/build/`、`openssh/build/` を変更したときは、ビルドし直してから起動します。
+OpenLDAP、FreeRADIUS、tftpd-hpa、OpenSSH のイメージは、最初の `make up` で自動的にビルドされます。`openldap/build/`、`freeradius/build/`、`tftpd-hpa/build/`、`openssh/build/` を変更したときは、ビルドし直してから起動します。
 
 ```sh
-docker compose build openldap tftpd-hpa openssh
+docker compose build openldap freeradius tftpd-hpa openssh
 make up
 ```
 
