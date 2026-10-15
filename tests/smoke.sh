@@ -853,6 +853,14 @@ check_users 'users unlock' 'smoke01 is not locked' '' unlock smoke01
 MAX_FAILURE=$("${COMPOSE[@]}" exec -T openldap sh -c "${LDAP_SUFFIX_SET};"'
   ldapsearch -Q -Y EXTERNAL -H ldapi:/// -LLL -b "cn=default,ou=Policies,${SUFFIX}" -s base pwdMaxFailure' \
   2> /dev/null | awk '$1 == "pwdMaxFailure:" { print $2 }')
+# the lock below and the check of the service accounts count on it
+COUNT=$((COUNT + 1))
+if [[ "${MAX_FAILURE}" =~ ^[1-9][0-9]*$ ]]; then
+  printf 'ok    %-13s %-11s %s\n' 'ppolicy' 'default' "pwdMaxFailure ${MAX_FAILURE}"
+else
+  FAILED=$((FAILED + 1))
+  printf 'FAIL  %-13s %-11s %s\n' 'ppolicy' 'default' 'could not read pwdMaxFailure'
+fi
 for (( TRY = 1; TRY <= ${MAX_FAILURE:-0}; TRY++ )); do
   send_request 127.0.0.1 smoke01 wrong > /dev/null
 done
@@ -864,17 +872,40 @@ check_ssh 'users unlock' smoke01 "${NEW_PASS2}" 'koitohan admin' 'id -Gn' < /dev
 
 # The service accounts are never locked, or nobody could log in.
 # FreeRADIUS and nslcd keep their connections, so a login would not
-# show a lock. This looks at the entries.
+# show a lock. This looks at the entries. Their policy records no
+# failure, so the entries cannot show that the failures were counted at
+# all: smoke01, under the default policy, fails the same way first and
+# has to be locked. It is unlocked again here, or the checks of the
+# deletion below would pass on the lock alone.
+FREERADIUS_ACCOUNT=$(source .env && echo "${FREERADIUS_SERVICE_ACCOUNT_NAME}")
+OPENSSH_ACCOUNT=$(source .env && echo "${OPENSSH_SERVICE_ACCOUNT_NAME}")
 check_ldap 'no lock' 'service' 'never locked' '
-  for DN in $(ldapsearch -Q -Y EXTERNAL -H ldapi:/// -LLL -o ldif-wrap=no -b "ou=ServiceAccounts,${SUFFIX}" -s one dn | sed -n "s/^dn: //p"); do
+  fail() {
     for TRY in $(seq '"${MAX_FAILURE:-0}"'); do
-      ldapwhoami -x -H ldapi:/// -D "${DN}" -w wrong 2>&1 | grep -q "Invalid credentials" || echo "${DN}: no failure"
+      ldapwhoami -x -H ldapi:/// -D "${1}" -w wrong 2>&1 | grep -q "Invalid credentials" || echo "${1}: no failure"
     done
-    FOUND=1
+  }
+  locked() {
+    ldapsearch -Q -Y EXTERNAL -H ldapi:/// -LLL -b "${1}" -s base "(pwdAccountLockedTime=*)" dn
+  }
+  OK=1
+  CONTROL="uid=smoke01,ou=People,${SUFFIX}"
+  fail "${CONTROL}"
+  [ -n "$(locked "${CONTROL}")" ] || { echo "${CONTROL}: not locked"; OK=; }
+  printf "dn: %s\nchangetype: modify\ndelete: pwdAccountLockedTime\n" "${CONTROL}" \
+  | ldapmodify -Q -Y EXTERNAL -H ldapi:/// > /dev/null 2>&1
+  [ -z "$(locked "${CONTROL}")" ] || { echo "${CONTROL}: still locked"; OK=; }
+  for NAME in '"${FREERADIUS_ACCOUNT} ${OPENSSH_ACCOUNT}"'; do
+    DN="uid=${NAME},ou=ServiceAccounts,${SUFFIX}"
+    if ! ldapsearch -Q -Y EXTERNAL -H ldapi:/// -LLL -b "${DN}" -s base dn 2> /dev/null | grep -q "^dn:"; then
+      echo "${DN}: missing"
+      OK=
+      continue
+    fi
+    fail "${DN}"
+    [ -z "$(locked "${DN}")" ] || { echo "${DN}: locked"; OK=; }
   done
-  LOCKED=$(ldapsearch -Q -Y EXTERNAL -H ldapi:/// -LLL -b "ou=ServiceAccounts,${SUFFIX}" "(pwdAccountLockedTime=*)" dn)
-  echo "${LOCKED}"
-  [ -n "${FOUND}" ] && [ -z "${LOCKED}" ] && echo "never locked"'
+  [ -n "${OK}" ] && echo "never locked"'
 
 check_users 'users delete' 'deleted smoke01' '' delete smoke01
 check_ssh 'users delete' smoke01 "${NEW_PASS2}" denied 'id -Gn' < /dev/null
@@ -886,7 +917,6 @@ check_users 'users add' 'uidNumber 10005' "${NEW_PASS}" add smoke02 readonly
 # container, which then has to bind with the new password: the old one
 # is gone from the directory. The file of the running stack stays.
 check_service_password bogus 'usage:'
-FREERADIUS_ACCOUNT=$(source .env && echo "${FREERADIUS_SERVICE_ACCOUNT_NAME}")
 OLD_FREERADIUS=$(< "${KOITOHAN_GENERATED_ROOT}/secrets/freeradius_service_account_password")
 check_service_password freeradius 'recreated freeradius'
 if ! wait_ready; then
