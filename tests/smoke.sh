@@ -459,17 +459,30 @@ function check_syslog_networks() {
 
 # Fetches a file over TFTP from the Docker host to the address of the
 # container. EXPECT is a fixed string to find in the file, or 'timed out'.
+# A transfer times out as well when in.tftpd does not answer at all, so
+# before that, the file has to come over the loopback, which the rules
+# always let through. The client of tftp-hpa exits with 0 on an error
+# as well, so what it fetched is what counts.
 function check_tftp_networks() {
   local NAME=${1}
   local EXPECT=${2}
-  local ADDR OUT WHY=''
+  local ADDR OUT='' WHY=''
 
   ADDR=$(address_of tftpd-hpa)
-  OUT=$(curl -s -S -m 5 "tftp://${ADDR}/firmware/smoke.txt" 2>&1)
-  if [[ "${EXPECT}" == 'timed out' ]]; then
-    grep -q -i -F 'timed out' <<< "${OUT}" || WHY='expected the transfer to time out'
-  elif ! grep -q -F -- "${EXPECT}" <<< "${OUT}"; then
-    WHY="expected ${EXPECT}"
+  if [[ -z "${ADDR}" ]]; then
+    WHY='could not find the address of tftpd-hpa'
+  elif [[ "${EXPECT}" == 'timed out' ]]; then
+    OUT=$("${COMPOSE[@]}" exec -T tftpd-hpa \
+            timeout 5 tftp -m octet 127.0.0.1 -c get firmware/smoke.txt /dev/stdout 2>&1)
+    if ! grep -q -F koitohan-smoke <<< "${OUT}"; then
+      WHY='tftpd-hpa does not answer on the loopback'
+    else
+      OUT=$(curl -s -S -m 5 "tftp://${ADDR}/firmware/smoke.txt" 2>&1)
+      grep -q -i -F 'timed out' <<< "${OUT}" || WHY='expected the transfer to time out'
+    fi
+  else
+    OUT=$(curl -s -S -m 5 "tftp://${ADDR}/firmware/smoke.txt" 2>&1)
+    grep -q -F -- "${EXPECT}" <<< "${OUT}" || WHY="expected ${EXPECT}"
   fi
 
   COUNT=$((COUNT + 1))
