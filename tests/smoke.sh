@@ -7,8 +7,8 @@
 # on an empty directory, and makes the test accounts with
 # bin/manage_users.sh. Checks the reply for every combination of reply
 # type and role, then that the detail logs survive a rotation, then
-# that syslog-ng and tftpd-hpa take nothing from outside the networks
-# of the devices, and that tftpd-hpa records a transfer in a file, then
+# that FreeRADIUS, syslog-ng and tftpd-hpa take nothing from outside the
+# networks of the devices, and that tftpd-hpa records a transfer in a file, then
 # logs in over ssh as each role, then manages a user
 # with bin/manage_users.sh, then runs into the password policy of
 # OpenLDAP, then changes the passwords of the service accounts and of
@@ -364,6 +364,37 @@ function address_of() {
     "$("${COMPOSE[@]}" ps -q ${1})" 2> /dev/null
 }
 
+# Sends an Access-Request to the address of the freeradius container
+# from another container of the same image, on the same network: the
+# Docker host has no radclient. EXPECT is 'Accept' or 'timed out'.
+function check_radius_networks() {
+  local NAME=${1}
+  local EXPECT=${2}
+  local ADDR OUT WHY=''
+
+  ADDR=$(address_of freeradius)
+  OUT=$("${COMPOSE[@]}" run --rm --no-deps -T --entrypoint radclient freeradius \
+          -x -t 3 -r 1 "${ADDR}:1812" auth ${SECRET} 2>&1 \
+        <<< "User-Name = \"admin01\", User-Password = \"${PASS_ADMIN}\"")
+  if [[ "${EXPECT}" == 'timed out' ]]; then
+    if grep -q '^Received ' <<< "${OUT}" || ! grep -q -F 'No reply' <<< "${OUT}"; then
+      WHY='expected no reply'
+    fi
+  elif ! grep -q "^Received Access-${EXPECT}" <<< "${OUT}"; then
+    WHY="expected Access-${EXPECT}"
+  fi
+
+  COUNT=$((COUNT + 1))
+  if [[ -z "${WHY}" ]]; then
+    printf 'ok    %-13s %-11s %s\n' 'networks' "${NAME}" "radius ${EXPECT}"
+  else
+    FAILED=$((FAILED + 1))
+    printf 'FAIL  %-13s %-11s %s\n' 'networks' "${NAME}" "${WHY}"
+    sed 's/^/      | /' <<< "${OUT}"
+    "${COMPOSE[@]}" logs --tail 5 freeradius 2>&1 | sed 's/^/      | /'
+  fi
+}
+
 # Sends a syslog message and fetches a file over TFTP, both from the
 # Docker host to the addresses of the containers. SYSLOG is 'received'
 # or 'dropped', TFTP is a fixed string to find in the file, or
@@ -635,20 +666,26 @@ check_detail
 check_tls tls1_3 accepted
 check_tls tls1_2 refused
 
-# The limit on the source of syslog and TFTP. The same message and the
-# same file, first from a network that is allowed, then with the
+# The limit on the source of RADIUS, syslog and TFTP. The same request,
+# message and file, first from a network that is allowed, then with the
 # containers made again for another network. In between, the file
-# that keeps the record of the transfer. FreeRADIUS takes the same
-# list (it has started with it), but every request of this test comes
-# from the loopback, which it always allows.
+# that keeps the record of the transfer. The other requests of this
+# test come from the loopback, which FreeRADIUS always allows.
 "${COMPOSE[@]}" exec -T tftpd-hpa sh -c 'echo koitohan-smoke > /tftpboot/firmware/smoke.txt'
+check_radius_networks allowed 'Accept'
 check_device_networks allowed 'received' 'koitohan-smoke'
 check_tftp_log
 if ! { DEVICE_NETWORKS="${OTHER_NETWORKS}" scripts/generate_device_networks.sh \
-       && DEVICE_NETWORKS="${OTHER_NETWORKS}" "${COMPOSE[@]}" up -d --force-recreate syslog-ng tftpd-hpa > /dev/null 2>&1; }; then
-  echo 'could not make syslog-ng and tftpd-hpa again'
+       && DEVICE_NETWORKS="${OTHER_NETWORKS}" "${COMPOSE[@]}" up -d --force-recreate freeradius syslog-ng tftpd-hpa > /dev/null 2>&1; }; then
+  echo 'could not make freeradius, syslog-ng and tftpd-hpa again'
   exit 1
 fi
+if ! wait_ready; then
+  echo 'FreeRADIUS did not become ready again'
+  "${COMPOSE[@]}" logs --tail 30 freeradius
+  exit 1
+fi
+check_radius_networks other 'timed out'
 check_device_networks other 'dropped' 'timed out'
 
 if ! wait_ssh_ready; then

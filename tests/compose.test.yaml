@@ -31,7 +31,6 @@ services:
     volumes:
       - ./tests/clients.conf:/etc/freeradius/clients.conf:ro
       - ./tests/generated/freeradius/config/mods-available/ldap_openldap:/etc/freeradius/mods-available/ldap_openldap:ro
-      - ./tests/generated/freeradius/config/device_networks:/etc/freeradius/device_networks:ro
       # keeps the test out of freeradius/log
       - /var/log/freeradius
     ports: !reset []

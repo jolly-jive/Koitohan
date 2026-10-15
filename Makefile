@@ -72,10 +72,9 @@ $(FREERADIUS_CLIENTS):
 	install -m 640 $(FREERADIUS_CLIENTS).sample $@
 
 ### networks of the devices
-# FreeRADIUS and syslog-ng limit the source by themselves, each in its
-# own syntax. tftpd-hpa takes DEVICE_NETWORKS from compose.yaml.
+# syslog-ng limits the source by itself, in its own syntax. FreeRADIUS
+# and tftpd-hpa take DEVICE_NETWORKS from compose.yaml.
 DEVICE_NETWORKS_FILES := \
-	freeradius/config/device_networks \
 	syslog-ng/config/device_networks.conf
 
 device_networks: $(DEVICE_NETWORKS_FILES)

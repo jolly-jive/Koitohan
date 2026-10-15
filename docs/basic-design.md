@@ -1104,20 +1104,20 @@ PID 1 は Docker の init（`init: true`）とし、ユーザが残したプロ�
 
 ### コンテナ一覧
 
-| コンテナ     | イメージ                       | 公開ポート         | 状況     |
-| ------------ | ------------------------------ | ------------------ | -------- |
-| `openldap`   | 自前でビルド（Alpine）         | 636/tcp            | 実装済み |
-| `freeradius` | `cayenneryo/freeradius-server` | 1812/udp           | 実装済み |
-| `syslog-ng`  | `linuxserver/syslog-ng`        | 514/udp、514/tcp   | 実装済み |
-| `tftpd-hpa`  | 自前でビルド（Alpine）         | 69/udp             | 実装済み |
-| `openssh`    | 自前でビルド（Alpine）         | 2222/tcp           | 実装済み |
+| コンテナ     | イメージ                                  | 公開ポート         | 状況     |
+| ------------ | ----------------------------------------- | ------------------ | -------- |
+| `openldap`   | 自前でビルド（Alpine）                    | 636/tcp            | 実装済み |
+| `freeradius` | `cayenneryo/freeradius-server` から派生   | 1812/udp           | 実装済み |
+| `syslog-ng`  | `linuxserver/syslog-ng`                   | 514/udp、514/tcp   | 実装済み |
+| `tftpd-hpa`  | 自前でビルド（Alpine）                    | 69/udp             | 実装済み |
+| `openssh`    | 自前でビルド（Alpine）                    | 2222/tcp           | 実装済み |
 
 最後の行は利用者作業用コンテナ（7 節）である。公開するポートの番号は `.env` の `OPENSSH_PORT` で変えられる。
 
 コンテナ名は `.env` で指定する。
 
 イメージは、再現性のためバージョンを固定する。  
-FreeRADIUS 4.x にはリリースの区切りがないため、開発ブランチからビルドしたイメージ（[freeradius-server-image](https://github.com/jolly-jive/freeradius-server-image)）を特定のビルドに固定して使う。  
+FreeRADIUS 4.x にはリリースの区切りがないため、開発ブランチからビルドしたイメージ（[freeradius-server-image](https://github.com/jolly-jive/freeradius-server-image)）を特定のビルドに固定して使う。固定は、それをもとに送信元の制限（「接続元の制限」）を加える `freeradius/build/Dockerfile` の `FROM` で行う。  
 自前でビルドするイメージ（OpenLDAP、tftpd-hpa、OpenSSH）は、Alpine のリリース（3.24）に固定する。パッケージの版は、ビルドした時点のそのリリースのものになる。
 
 OpenLDAP を自前でビルドするのは、既製のイメージに頼ると、その更新が止まったときに古い OpenLDAP を使い続けることになるためである（3.1 節）。Alpine のパッケージ（`openldap`、`openldap-back-mdb`、`memberof`・`refint`・`ppolicy` のオーバーレイ）に起動スクリプトを足しただけの構成で、ルートファイルシステムは読み取り専用にしている。`slapd` は syslog に出力させ、tftpd-hpa と同じく busybox の `syslogd` でコンテナの標準出力へ流す（`TZ` の時刻が付く）。ログのレベルは `compose.yaml` の `LDAP_LOG_LEVEL`（既定は `stats`）で、起動のたびに設定へ書き込む。
@@ -1148,13 +1148,18 @@ IPv6 に対応するときは、ネットワークに IPv6 を持たせ、送信
 
 | サービス   | 方法                                               | 設定の渡し方                                                     |
 | ---------- | -------------------------------------------------- | ---------------------------------------------------------------- |
-| FreeRADIUS | 待ち受けの `networks`（`allow`）                    | 生成した `freeradius/config/device_networks` を `$INCLUDE` する  |
+| FreeRADIUS | コンテナの中のパケットフィルタ（nftables）          | 環境変数。`entrypoint.sh` が起動の前にルールを入れる             |
 | syslog-ng  | ログの経路に置くフィルタ（`netmask()`）             | 生成した `syslog-ng/config/device_networks.conf` を `@include` する |
 | tftpd-hpa  | コンテナの中のパケットフィルタ（nftables）          | 環境変数。`entrypoint.sh` が起動の前にルールを入れる             |
 | OpenSSH    | コンテナの中のパケットフィルタ（nftables）          | 環境変数。`entrypoint.sh` が起動の前にルールを入れる             |
 
-- 2つのファイルは `scripts/generate_device_networks.sh`（`make device_networks`）が書く。
-- 本体に機能があるものは、それを使う。FreeRADIUS と syslog-ng は外部のイメージであり、パケットフィルタを入れるには、派生したイメージをビルドして起動の処理を包むことになる。イメージを更新するたびに、その包みが働いているかを確かめる必要が生じる。
+- syslog-ng のファイルは `scripts/generate_device_networks.sh`（`make device_networks`）が書く。
+- 本体に機能があるものは、それを使う。syslog-ng は外部のイメージであり、パケットフィルタを入れるには、派生したイメージをビルドして起動の処理を包むことになる。イメージを更新するたびに、その包みが働いているかを確かめる必要が生じる。
+- FreeRADIUS も外部のイメージだが、本体の機能では制限できないので、派生したイメージ（`freeradius/build/`）をビルドしてパケットフィルタを使う。
+  - v4 の待ち受けにも `networks`（`allow`）があるが、これは dynamic clients を定義してよい送信元の制限で、dynamic clients を使わないときは無視される。当初はこれで制限していたつもりだったが、効いていなかった（`clients.conf` に登録した機器なら、範囲の外からでも応答した）。
+  - `recv Access-Request` のポリシーで送信元を見て応答しない方式も考えられる。採らなかったのは、パケットが `radiusd` に届き、クライアントの照合を済ませたあとの判定になるため、またほかのサービスと仕組みが揃わないためである。
+  - tftpd-hpa と同じく、ルールを入れたあとで `NET_ADMIN` を落としてから、元のイメージの起動の処理に渡す。`radiusd` は root で起動してから降格する。
+  - イメージを更新するときは、`FROM` のタグを変えてビルドし直し、スモークテストでフィルタが働いていることを確かめる。
 - tftpd-hpa には機能がないので、パケットフィルタを使う。イメージは自前でビルドしているので、起動の処理に組み込める。
   - コンテナに `NET_ADMIN` のケーパビリティを与える。`entrypoint.sh` はルールを入れたあと、このケーパビリティを落としてから `in.tftpd` を起動する。`in.tftpd` の待ち受けのプロセスは root のまま残るので、落とさないとルールを書き換えられる。
   - 見るのは要求（69/udp）だけでよい。転送はサーバが別のポートから送り始めるので、確立済みの通信として通る。
@@ -1176,7 +1181,7 @@ Docker ホスト側のファイアウォールで一括して制限する方式�
 
 Docker ホスト自身から送ったものは、コンテナからはネットワークのゲートウェイから届いたように見える。ホストから動作を確かめるには、`DOCKER_SUBNET`（SSH は `OPENSSH_SUBNET`）が範囲に含まれている必要がある。
 
-スモークテストは、Docker ホストからテスト用のスタックの syslog-ng と tftpd-hpa に送り、範囲に含まれるときは届き、範囲を変えて作り直すと届かないことを確かめる。SSH も同じで、範囲を変えて作り直すと、sshd が待ち受けていても接続がタイムアウトすることを確かめる。FreeRADIUS については、同じ生成物を読んで起動することまでを確かめる。テストの要求はループバックから送るので、範囲の外からの拒否は確かめていない。
+スモークテストは、Docker ホストからテスト用のスタックの syslog-ng と tftpd-hpa に送り、範囲に含まれるときは届き、範囲を変えて作り直すと届かないことを確かめる。FreeRADIUS も同じで、Docker ホストには `radclient` がないので、同じイメージの別のコンテナ（同じネットワーク）から送る。SSH も同じで、範囲を変えて作り直すと、sshd が待ち受けていても接続がタイムアウトすることを確かめる。
 
 **課題**
 
@@ -1222,6 +1227,7 @@ FreeRADIUS の設定と証明書は永続化対象ではなく、ホスト側の
   │     ├── config/        ← 永続データ（設定）
   │     └── data/          ← 永続データ（ディレクトリ）
   ├── freeradius/
+  │     └── build/         ← イメージの Dockerfile
   ├── syslog-ng/
   ├── tftpd-hpa/
   │     ├── build/         ← イメージの Dockerfile

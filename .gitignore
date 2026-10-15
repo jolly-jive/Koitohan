@@ -6,7 +6,6 @@
 
 /freeradius/log/*
 /freeradius/config/clients.conf
-/freeradius/config/device_networks
 /freeradius/config/mods-available/ldap_openldap
 
 /openldap/data/*
