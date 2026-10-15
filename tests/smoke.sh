@@ -12,7 +12,8 @@
 # logs in over ssh as each role, then manages a user
 # with bin/manage_users.sh, then runs into the password policy of
 # OpenLDAP, then changes the passwords of the service accounts and of
-# the administrators of OpenLDAP. The running stack is left alone: the
+# the administrators of OpenLDAP, then takes a backup and restores it
+# into an openldap made again. The running stack is left alone: the
 # test generates its own passwords, LDIFs and ldap_openldap into
 # tests/generated.
 #
@@ -916,6 +917,117 @@ fi
 
 # nslcd has to find the restarted OpenLDAP again
 check_ssh 'ldap restart' admin01 "${PASS_ADMIN}" 'koitohan admin' 'id -Gn' < /dev/null
+
+# OUT is the output of what was run. EXPECT is a fixed string to find in it.
+function check_found() {
+  local NAME=${1}
+  local WHO=${2}
+  local EXPECT=${3}
+  local OUT=${4}
+
+  COUNT=$((COUNT + 1))
+  if grep -q -F -- "${EXPECT}" <<< "${OUT}"; then
+    printf 'ok    %-13s %-11s %s\n' "${NAME}" "${WHO}" "${EXPECT}"
+  else
+    FAILED=$((FAILED + 1))
+    printf 'FAIL  %-13s %-11s %s\n' "${NAME}" "${WHO}" "expected ${EXPECT}"
+    sed 's/^/      | /' <<< "${OUT}"
+  fi
+}
+
+# Backup and restore. A backup of the test stack, a change after it,
+# then openldap made again with empty volumes and the backup loaded into
+# it. The change has to be gone, and what was there at the backup has to
+# be back: the users, their passwords and roles, the next uidNumber, and
+# the files in configs/ with their owners. bin/backup.sh and
+# bin/restore_ldap.sh find the files of the test stack through
+# KOITOHAN_GENERATED_ROOT and the mounts of its containers.
+STACK=(env COMPOSE_PROJECT_NAME=koitohan-test COMPOSE_FILE=compose.yaml:tests/compose.test.yaml)
+BACKUP_DIR="${KOITOHAN_GENERATED_ROOT}/backup"
+BACKUP_HOST=${HOSTNAME%%.*}
+mkdir -p "${BACKUP_DIR}"
+"${COMPOSE[@]}" exec -T tftpd-hpa sh -c '
+  echo koitohan-smoke > /tftpboot/configs/smoke.cfg \
+  && chown 1000:10001 /tftpboot/configs/smoke.cfg \
+  && chmod 640 /tftpboot/configs/smoke.cfg'
+# older archives of this host. -k 2 keeps the newer one and the new one.
+touch "${BACKUP_DIR}/koitohan-${BACKUP_HOST}-20000101-000000.tar.gz" \
+      "${BACKUP_DIR}/koitohan-${BACKUP_HOST}-20000102-000000.tar.gz"
+OUT=$("${STACK[@]}" bin/backup.sh -k 2 "${BACKUP_DIR}" 2>&1 < /dev/null)
+check_found 'backup' 'write' 'wrote' "${OUT}"
+ARCHIVE=$(sed -n 's/^wrote //p' <<< "${OUT}")
+
+OUT=$(ls "${BACKUP_DIR}")
+[[ "${OUT}" == "koitohan-${BACKUP_HOST}-20000102-000000.tar.gz"$'\n'"${ARCHIVE##*/}" ]] && OUT='kept 2'
+check_found 'backup' 'keep' 'kept 2' "${OUT}"
+
+OUT=$(stat -c '%a' "${ARCHIVE}" 2>&1)
+check_found 'backup' 'mode' '600' "${OUT}"
+
+# what has to be there, and no directory entries
+OUT=$(tar -t -z -f "${ARCHIVE}" 2>&1)
+WHY=''
+for MEMBER in .env freeradius/config/clients.conf \
+  secrets/{freeradius,openssh}_service_account_password secrets/ldap_{admin,config}_password \
+  openssh/hostkeys/ssh_host_ed25519_key ldap/config.ldif ldap/data.ldif \
+  tftp-configs.tar koitohan-backup.txt
+do
+  grep -q -x -F -- "${MEMBER}" <<< "${OUT}" || WHY="${WHY} ${MEMBER}"
+done
+grep -q '/$' <<< "${OUT}" && WHY="${WHY} (directories)"
+[[ -z "${WHY}" ]] && OUT='all members'
+check_found 'backup' 'members' 'all members' "${OUT}"
+
+# the files of the test stack, not those of the running one
+OUT='other files'
+tar -x -O -z -f "${ARCHIVE}" freeradius/config/clients.conf | cmp -s - tests/clients.conf \
+  && tar -x -O -z -f "${ARCHIVE}" secrets/freeradius_service_account_password \
+     | cmp -s - "${KOITOHAN_GENERATED_ROOT}/secrets/freeradius_service_account_password" \
+  && OUT='files of the stack'
+check_found 'backup' 'files' 'files of the stack' "${OUT}"
+
+# the change after the backup
+check_users 'backup' 'deleted smoke02' '' delete smoke02
+"${COMPOSE[@]}" exec -T tftpd-hpa rm -f /tftpboot/configs/smoke.cfg
+
+OUT=$("${STACK[@]}" bin/restore_ldap.sh "${ARCHIVE}" 2>&1 < /dev/null)
+check_found 'restore' 'running' 'is not empty' "${OUT}"
+
+# the container goes with its anonymous volumes, and restore_ldap.sh
+# makes it again
+"${COMPOSE[@]}" rm -s -f -v openldap > /dev/null 2>&1
+OUT=$("${STACK[@]}" bin/restore_ldap.sh "${ARCHIVE}" 2>&1 < /dev/null)
+check_found 'restore' 'ldap' 'restored the directory' "${OUT}"
+grep -q '^warning:' <<< "${OUT}" || OUT='no warning'
+check_found 'restore' 'secrets' 'no warning' "${OUT}"
+
+# FreeRADIUS does not get over the change of openldap (README), so it is
+# made again as well
+if ! { "${COMPOSE[@]}" up -d --no-deps openldap > /dev/null 2>&1 \
+       && "${COMPOSE[@]}" up -d --no-deps --force-recreate freeradius > /dev/null 2>&1; }; then
+  echo 'could not start openldap and freeradius after the restore'
+  exit 1
+fi
+if ! wait_ldap_ready || ! wait_ready || ! wait_ssh_ready; then
+  echo 'the test stack did not become ready after the restore'
+  "${COMPOSE[@]}" logs --tail 30 openldap freeradius openssh
+  exit 1
+fi
+
+OUT=$("${COMPOSE[@]}" logs openldap 2>&1)
+grep -q -F 'seeding' <<< "${OUT}" || OUT='not seeded'
+check_found 'restore' 'openldap' 'not seeded' "${OUT}"
+check 'restore' 127.0.0.1 smoke02 "${NEW_PASS}" Accept 'AVPair = "shell:priv-lvl=1"'
+check_ssh 'restore' readonly01 "${NEW_PASS}" 'koitohan readonly' 'id -Gn' < /dev/null
+check_users 'restore' 'uidNumber 10006' "${NEW_PASS}" add smoke03 operator
+check_admin_bind 'restore' admin "${NEW_ADMIN}" 'dn:cn=admin,dc='
+
+# configs/, as docs/backup.md restores it
+OUT=$(tar -x -O -z -f "${ARCHIVE}" tftp-configs.tar \
+      | "${COMPOSE[@]}" exec -T tftpd-hpa tar -x -f - -C /tftpboot 2>&1 \
+      && "${COMPOSE[@]}" exec -T tftpd-hpa sh -c '
+           F=/tftpboot/configs/smoke.cfg; echo "$(stat -c "%u:%g %a" ${F}) $(cat ${F})"' 2>&1)
+check_found 'restore' 'configs' '1000:10001 640 koitohan-smoke' "${OUT}"
 
 echo
 if [[ ${FAILED} -ne 0 ]]; then

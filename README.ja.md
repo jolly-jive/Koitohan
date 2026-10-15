@@ -112,6 +112,8 @@ make clean              # 生成した証明書、LDIF、設定を削除
 bin/manage_users.sh     # ユーザーの登録、削除、ロールの変更、パスワードの再発行、ロックの解除
 bin/change_service_account_password.sh   # サービスアカウントのパスワードの変更
 bin/change_ldap_admin_password.sh        # OpenLDAP の管理者のパスワードの変更
+bin/backup.sh           # 稼働中のスタックのバックアップ
+bin/restore_ldap.sh     # バックアップのディレクトリを、空の OpenLDAP に読み込む
 ```
 
 スタックを起動せずに FreeRADIUS の設定を検査する:
@@ -126,7 +128,7 @@ docker compose run --rm --no-deps freeradius radiusd -XC
 make test
 ```
 
-`make test` は、すべてのコンテナを別のプロジェクト(`koitohan-test`)として起動し、`bin/manage_users.sh` でテストユーザーを登録して認証し、機器種別とロールの組み合わせごとに応答属性を照合します。FreeRADIUS が、ローテーションで移動された detail ログを作り直すことも確かめます。RADIUS、syslog、TFTP については、`DEVICE_NETWORKS` の範囲からは届き、範囲の外からは届かないことを確かめます。TFTP の転送がファイルに記録されることも確かめます。続いて、各ロールのユーザーで SSH でログインし、ディレクトリの権限、圧縮されたログの読み取り、パスワードの変更を確かめます。そのあと、`bin/manage_users.sh` の各操作と、パスワードポリシー(最小の長さ、ロックとその解除)、サービスアカウントと OpenLDAP の管理者のパスワードの変更を確かめます。最後に OpenLDAP のコンテナを再起動し、起動し直せることを確かめます。ポートを公開せず、データも残さず、パスワードもテスト用に生成する(`tests/generated/`)ので、稼働中のスタックには影響しません。事前に `make` を済ませておいてください。失敗した項目は `KEEP=1 tests/smoke.sh` でテスト用のスタックを残して調べられます。
+`make test` は、すべてのコンテナを別のプロジェクト(`koitohan-test`)として起動し、`bin/manage_users.sh` でテストユーザーを登録して認証し、機器種別とロールの組み合わせごとに応答属性を照合します。FreeRADIUS が、ローテーションで移動された detail ログを作り直すことも確かめます。RADIUS、syslog、TFTP については、`DEVICE_NETWORKS` の範囲からは届き、範囲の外からは届かないことを確かめます。TFTP の転送がファイルに記録されることも確かめます。続いて、各ロールのユーザーで SSH でログインし、ディレクトリの権限、圧縮されたログの読み取り、パスワードの変更を確かめます。そのあと、`bin/manage_users.sh` の各操作と、パスワードポリシー(最小の長さ、ロックとその解除)、サービスアカウントと OpenLDAP の管理者のパスワードの変更を確かめます。続いて OpenLDAP のコンテナを再起動し、起動し直せることを確かめます。最後に `bin/backup.sh` でバックアップを取り、OpenLDAP を空のデータで作り直して `bin/restore_ldap.sh` で復元し、ユーザーと `configs/` のファイルが戻ることを確かめます。ポートを公開せず、データも残さず、パスワードもテスト用に生成する(`tests/generated/`)ので、稼働中のスタックには影響しません。事前に `make` を済ませておいてください。失敗した項目は `KEEP=1 tests/smoke.sh` でテスト用のスタックを残して調べられます。
 
 OpenLDAP、FreeRADIUS、tftpd-hpa、OpenSSH のイメージは、最初の `make up` で自動的にビルドされます。`openldap/build/`、`freeradius/build/`、`tftpd-hpa/build/`、`openssh/build/` を変更したときは、ビルドし直してから起動します。
 
@@ -153,7 +155,7 @@ docker compose logs -f freeradius
 
 ## セキュリティ上の注意
 
-次のファイルには、秘密鍵、共有シークレット、パスワードが含まれます。いずれも git の管理対象外です。他人が読めるバックアップやコピーに含めないでください。
+次のファイルには、秘密鍵、共有シークレット、パスワードが含まれます。いずれも git の管理対象外です。他人が読めるバックアップやコピーに含めないでください。`bin/backup.sh` が書き出すアーカイブには、その多くが暗号化されずに入っています(「[バックアップと復元](docs/backup.ja.md#アーカイブの扱い)」を参照)。
 
 - `CA/`
 - `freeradius/config/clients.conf`
@@ -185,6 +187,7 @@ TFTP には認証も暗号化もありません。69/udp に到達できる相�
 - [TFTP](docs/tftp.ja.md): ファームウェアの配布とコンフィグのバックアップ、アップロードの上限
 - [OpenSSH のコンテナ](docs/ssh.ja.md): 利用者作業用コンテナの目的、パスワードの規則、接続元
 - [ログ](docs/logs.ja.md): ログの置き場所とローテーション
+- [バックアップと復元](docs/backup.ja.md): バックアップに入るもの、毎日の実行、新しいホストへの復元
 - [基本設計書](docs/basic-design.md)
 
 ## ライセンス
