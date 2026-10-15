@@ -396,55 +396,85 @@ function check_radius_networks() {
   fi
 }
 
-# Sends a syslog message and fetches a file over TFTP, both from the
-# Docker host to the addresses of the containers. SYSLOG is 'received'
-# or 'dropped', TFTP is a fixed string to find in the file, or
-# 'timed out'.
-function check_device_networks() {
-  local NAME=${1}
-  local SYSLOG=${2}
-  local TFTP=${3}
-  local LOG="/var/log/Hosts/smoke-${NAME}/smoke-${NAME}.log"
-  local ADDR OUT TRY GOT='dropped' WHY=''
+# the number of messages that have come in to syslog-ng, before the
+# filter. Empty while syslog-ng does not answer on its control socket.
+function syslog_count() {
+  "${COMPOSE[@]}" exec -T syslog-ng syslog-ng-ctl stats --control=/config/syslog-ng.ctl 2> /dev/null \
+  | awk -F ';' '$1 == "source" && $2 == "s_network" { print $6 }'
+}
 
-  # syslog-ng takes a while to start, and says nothing about a message
-  # it drops. Its control socket is how the test knows it listens.
+# Sends a syslog message from the Docker host to the address of the
+# container. EXPECT is 'received' or 'dropped'. syslog-ng says nothing
+# about a message it drops, so a message counts as dropped only when
+# syslog-ng has taken it in and has not written it: one that never got
+# there says nothing about the filter.
+function check_syslog_networks() {
+  local NAME=${1}
+  local EXPECT=${2}
+  local LOG="/var/log/Hosts/smoke-${NAME}/smoke-${NAME}.log"
+  local ADDR TRY BEFORE='' AFTER='' GOT='dropped' WHY=''
+
+  # syslog-ng takes a while to start
   for (( TRY = 1; TRY <= WAIT_TRIES; TRY++ )); do
-    "${COMPOSE[@]}" exec -T syslog-ng syslog-ng-ctl stats --control=/config/syslog-ng.ctl > /dev/null 2>&1 && break
+    BEFORE=$(syslog_count)
+    [[ -n "${BEFORE}" ]] && break
     sleep 1
   done
   ADDR=$(address_of syslog-ng)
-  echo "<134>Jan  1 00:00:00 smoke-${NAME} smoke: koitohan-smoke" > "/dev/udp/${ADDR}/1514"
-  for TRY in 1 2 3 4 5; do
-    if "${COMPOSE[@]}" exec -T syslog-ng grep -q -F koitohan-smoke "${LOG}" 2> /dev/null; then
-      GOT='received'
-      break
+  if [[ -z "${BEFORE}" ]]; then
+    WHY='syslog-ng did not start'
+  elif [[ -z "${ADDR}" ]]; then
+    WHY='could not find the address of syslog-ng'
+  elif ! echo "<134>Jan  1 00:00:00 smoke-${NAME} smoke: koitohan-smoke" > "/dev/udp/${ADDR}/1514"; then
+    WHY='could not send the message'
+  else
+    for TRY in 1 2 3 4 5; do
+      AFTER=$(syslog_count)
+      [[ ${AFTER:-0} -gt ${BEFORE} ]] && break
+      sleep 1
+    done
+    if [[ ${AFTER:-0} -le ${BEFORE} ]]; then
+      WHY='the message did not reach syslog-ng'
+    else
+      for TRY in 1 2 3 4 5; do
+        if "${COMPOSE[@]}" exec -T syslog-ng grep -q -F koitohan-smoke "${LOG}" 2> /dev/null; then
+          GOT='received'
+          break
+        fi
+        sleep 1
+      done
+      [[ "${GOT}" == "${EXPECT}" ]] || WHY="expected the message to be ${EXPECT}"
     fi
-    sleep 1
-  done
-  [[ "${GOT}" == "${SYSLOG}" ]] || WHY="expected the message to be ${SYSLOG}"
+  fi
 
   COUNT=$((COUNT + 1))
   if [[ -z "${WHY}" ]]; then
-    printf 'ok    %-13s %-11s %s\n' 'networks' "${NAME}" "syslog ${SYSLOG}"
+    printf 'ok    %-13s %-11s %s\n' 'networks' "${NAME}" "syslog ${EXPECT}"
   else
     FAILED=$((FAILED + 1))
     printf 'FAIL  %-13s %-11s %s\n' 'networks' "${NAME}" "${WHY}"
     "${COMPOSE[@]}" logs --tail 5 syslog-ng 2>&1 | sed 's/^/      | /'
   fi
+}
 
-  WHY=''
+# Fetches a file over TFTP from the Docker host to the address of the
+# container. EXPECT is a fixed string to find in the file, or 'timed out'.
+function check_tftp_networks() {
+  local NAME=${1}
+  local EXPECT=${2}
+  local ADDR OUT WHY=''
+
   ADDR=$(address_of tftpd-hpa)
   OUT=$(curl -s -S -m 5 "tftp://${ADDR}/firmware/smoke.txt" 2>&1)
-  if [[ "${TFTP}" == 'timed out' ]]; then
+  if [[ "${EXPECT}" == 'timed out' ]]; then
     grep -q -i -F 'timed out' <<< "${OUT}" || WHY='expected the transfer to time out'
-  elif ! grep -q -F -- "${TFTP}" <<< "${OUT}"; then
-    WHY="expected ${TFTP}"
+  elif ! grep -q -F -- "${EXPECT}" <<< "${OUT}"; then
+    WHY="expected ${EXPECT}"
   fi
 
   COUNT=$((COUNT + 1))
   if [[ -z "${WHY}" ]]; then
-    printf 'ok    %-13s %-11s %s\n' 'networks' "${NAME}" "tftp ${TFTP}"
+    printf 'ok    %-13s %-11s %s\n' 'networks' "${NAME}" "tftp ${EXPECT}"
   else
     FAILED=$((FAILED + 1))
     printf 'FAIL  %-13s %-11s %s\n' 'networks' "${NAME}" "${WHY}"
@@ -683,7 +713,8 @@ check_tls tls1_2 refused
 # test come from the loopback, which FreeRADIUS always allows.
 "${COMPOSE[@]}" exec -T tftpd-hpa sh -c 'echo koitohan-smoke > /tftpboot/firmware/smoke.txt'
 check_radius_networks allowed 'Accept'
-check_device_networks allowed 'received' 'koitohan-smoke'
+check_syslog_networks allowed 'received'
+check_tftp_networks allowed 'koitohan-smoke'
 check_tftp_log
 if ! { DEVICE_NETWORKS="${OTHER_NETWORKS}" scripts/generate_device_networks.sh \
        && DEVICE_NETWORKS="${OTHER_NETWORKS}" "${COMPOSE[@]}" up -d --force-recreate freeradius syslog-ng tftpd-hpa > /dev/null 2>&1; }; then
@@ -696,7 +727,8 @@ if ! wait_ready; then
   exit 1
 fi
 check_radius_networks other 'timed out'
-check_device_networks other 'dropped' 'timed out'
+check_syslog_networks other 'dropped'
+check_tftp_networks other 'timed out'
 
 if ! wait_ssh_ready; then
   echo 'the openssh container did not become ready'
