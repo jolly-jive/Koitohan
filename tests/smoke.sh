@@ -514,24 +514,33 @@ function check_tftp_log() {
 }
 
 # OpenLDAP takes TLS 1.3 and nothing older. The handshake comes from
-# the Docker host, with the client certificate of FreeRADIUS.
+# the Docker host, with the client certificate of FreeRADIUS. A refusal
+# has to be the alert for the version: a handshake that fails for any
+# other reason says nothing about it. Without an address, openssl goes
+# to the loopback, where the running stack may listen.
 function check_tls() {
   local VERSION=${1}
   local EXPECT=${2}
-  local ADDR OUT GOT WHY=''
+  local ADDR OUT='' GOT WHY=''
 
   ADDR=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}} {{end}}' \
     "$("${COMPOSE[@]}" ps -q openldap)" 2> /dev/null | cut -d ' ' -f 1)
-  OUT=$(timeout 10 openssl s_client -connect "${ADDR}:636" "-${VERSION}" \
-    -CAfile CA/default-ca.pem \
-    -cert CA/freeradius_client.crt -key CA/freeradius_client.key < /dev/null 2>&1)
-
-  if grep -q '^New, TLSv' <<< "${OUT}"; then
-    GOT='accepted'
+  if [[ -z "${ADDR}" ]]; then
+    WHY='could not find the address of openldap'
   else
-    GOT='refused'
+    OUT=$(timeout 10 openssl s_client -connect "${ADDR}:636" "-${VERSION}" \
+      -CAfile CA/default-ca.pem \
+      -cert CA/freeradius_client.crt -key CA/freeradius_client.key < /dev/null 2>&1)
+
+    if grep -q '^New, TLSv' <<< "${OUT}"; then
+      GOT='accepted'
+    elif grep -q -F 'alert protocol version' <<< "${OUT}"; then
+      GOT='refused'
+    else
+      GOT='failed'
+    fi
+    [[ "${GOT}" == "${EXPECT}" ]] || WHY="expected ${EXPECT}, got ${GOT}"
   fi
-  [[ "${GOT}" == "${EXPECT}" ]] || WHY="expected ${EXPECT}"
 
   COUNT=$((COUNT + 1))
   if [[ -z "${WHY}" ]]; then
