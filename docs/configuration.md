@@ -94,6 +94,18 @@ The values for Fortinet, Juniper and Palo Alto are names of profiles or users on
 
 FreeRADIUS accepts requests only from the networks in `DEVICE_NETWORKS` (see [Device networks](#device-networks)) and loopback.
 
+### Local authentication on the devices
+
+How a network device configured for RADIUS chooses between RADIUS and its local authentication depends on the device and its configuration. In what we have checked so far, some devices fall back to local authentication only when the RADIUS server does not reply, and do not try local authentication when the RADIUS server rejects the user (or accepts them). Not every device necessarily behaves this way, though. Some devices probably let you set the order of authentication and try local authentication first. Check the manual and the actual behavior of your devices.
+
+On devices that behave as described above, keep the following in mind.
+
+- Keep a local emergency account on each device. Use it to log in while Koitohan is down.
+- Locked users and users without a role are rejected, so they do not fall back to the local authentication of the device.
+- FreeRADIUS does not reply to requests from devices that are not in `clients.conf`, or from outside `DEVICE_NETWORKS`. The device then falls back to local authentication, so local passwords still work, and it is easy to miss that RADIUS is not in use. After you register a device, make sure that you can log in to it with a Koitohan account and that a record appears under `freeradius/log/radacct/<device address>/`.
+
+On devices set to try local authentication first, users who have a local account on the device can log in regardless of their lock or role in Koitohan.
+
 ## Users and roles
 
 Add and delete users, change a role, set a new password and unlock a user with `bin/manage_users.sh` on the Docker host. Run it while the stack is up.
