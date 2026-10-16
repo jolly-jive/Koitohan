@@ -770,7 +770,7 @@ trap cleanup EXIT
 
 # The same scripts as make runs, on passwords of the test's own
 rm -rf "${KOITOHAN_GENERATED_ROOT}"
-mkdir -p "${KOITOHAN_GENERATED_ROOT}"/{secrets,openldap/ldif,freeradius/config/mods-available,syslog-ng/config,tftpboot/firmware}
+mkdir -p "${KOITOHAN_GENERATED_ROOT}"/{secrets,openldap/ldif,freeradius/config/mods-available,syslog-ng/config,syslog-ng/log/Hosts,tftpboot/firmware}
 # the file to fetch over TFTP, in the firmware of the test stack
 echo koitohan-smoke > "${KOITOHAN_GENERATED_ROOT}/tftpboot/firmware/smoke.txt"
 if ! { scripts/generate_service_account_password.sh freeradius \
@@ -938,9 +938,8 @@ if ! wait_ssh_ready; then
 fi
 
 # a rotated log, as logrotate leaves it on the Docker host
-"${COMPOSE[@]}" exec -T openssh sh -c '
-  mkdir -p /logs/Hosts/smoke \
-  && echo "smoke LINK-3" | gzip > /logs/Hosts/smoke/smoke.log-2026-10-10.gz'
+mkdir -p "${KOITOHAN_GENERATED_ROOT}/syslog-ng/log/Hosts/smoke" \
+  && echo "smoke LINK-3" | gzip > "${KOITOHAN_GENERATED_ROOT}/syslog-ng/log/Hosts/smoke/smoke.log-2026-10-10.gz"
 
 NEW_PASS='x9#Kq!vT2m@Lz7Pw'
 NEW_PASS2='Gh4$wN8^rB1&yD6s'
