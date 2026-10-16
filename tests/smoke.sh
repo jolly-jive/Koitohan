@@ -216,6 +216,70 @@ function check_ssh() {
   fi
 }
 
+# The files in the openssh container that hold a password or a private
+# key. A user who logs in must not read any of them.
+SECRET_FILES=(
+  /run/koitohan/bindpw
+  /etc/koitohan/secrets/bindpw
+  /etc/koitohan/certs/client.key
+  /run/koitohan/nslcd-certs/client.key
+  /etc/nslcd.conf
+  /etc/koitohan/hostkeys/ssh_host_ed25519_key
+  /etc/koitohan/hostkeys/ssh_host_rsa_key
+)
+
+# Checks that USER can read none of SECRET_FILES. It asks only whether
+# a file is readable, so nothing of a file comes into the output. The
+# files have to be there, or a file that has moved would pass.
+function check_secrets() {
+  local USER=${1}
+  local PASS=${2}
+  local OUT WHY=''
+
+  OUT=$("${COMPOSE[@]}" exec -T openssh sh -c "
+    for F in ${SECRET_FILES[*]}; do [ -e \"\${F}\" ] || echo \"\${F}: missing\"; done" 2>&1)
+  if [[ -n "${OUT}" ]]; then
+    WHY='expected the files to be there'
+  else
+    OUT=$(ssh_run ${USER} "${PASS}" "
+      for F in ${SECRET_FILES[*]}; do [ -r \"\${F}\" ] && echo \"\${F}: readable\"; done; echo checked" < /dev/null)
+    if grep -q -F ': readable' <<< "${OUT}"; then
+      WHY='expected no file to be readable'
+    elif ! grep -q -x checked <<< "${OUT}"; then
+      WHY='expected to log in'
+    fi
+  fi
+
+  COUNT=$((COUNT + 1))
+  if [[ -z "${WHY}" ]]; then
+    printf 'ok    %-13s %-11s %s\n' 'secrets' "${USER}" 'none readable'
+  else
+    FAILED=$((FAILED + 1))
+    printf 'FAIL  %-13s %-11s %s\n' 'secrets' "${USER}" "${WHY}"
+    sed 's/^/      | /' <<< "${OUT}"
+  fi
+}
+
+# The root file system of SERVICE is read-only (read_only: true). root
+# writes there, so nothing but the mount can stop it.
+function check_read_only() {
+  local SERVICE=${1}
+  local OUT WHY=''
+
+  OUT=$("${COMPOSE[@]}" exec -T "${SERVICE}" sh -c '
+    touch /koitohan-smoke; rm -f /koitohan-smoke' 2>&1)
+  grep -q -F 'Read-only file system' <<< "${OUT}" || WHY='expected a read-only file system'
+
+  COUNT=$((COUNT + 1))
+  if [[ -z "${WHY}" ]]; then
+    printf 'ok    %-13s %-11s %s\n' 'root fs' "${SERVICE}" 'read-only'
+  else
+    FAILED=$((FAILED + 1))
+    printf 'FAIL  %-13s %-11s %s\n' 'root fs' "${SERVICE}" "${WHY}"
+    sed 's/^/      | /' <<< "${OUT}"
+  fi
+}
+
 # Runs bin/manage_users.sh against the test stack. EXPECT is a fixed
 # string to find in the output. INPUT is the password it reads.
 function check_users() {
@@ -396,55 +460,98 @@ function check_radius_networks() {
   fi
 }
 
-# Sends a syslog message and fetches a file over TFTP, both from the
-# Docker host to the addresses of the containers. SYSLOG is 'received'
-# or 'dropped', TFTP is a fixed string to find in the file, or
-# 'timed out'.
-function check_device_networks() {
-  local NAME=${1}
-  local SYSLOG=${2}
-  local TFTP=${3}
-  local LOG="/var/log/Hosts/smoke-${NAME}/smoke-${NAME}.log"
-  local ADDR OUT TRY GOT='dropped' WHY=''
+# the number of messages that have come in to syslog-ng, before the
+# filter. Empty while syslog-ng does not answer on its control socket.
+function syslog_count() {
+  "${COMPOSE[@]}" exec -T syslog-ng syslog-ng-ctl stats --control=/config/syslog-ng.ctl 2> /dev/null \
+  | awk -F ';' '$1 == "source" && $2 == "s_network" { print $6 }'
+}
 
-  # syslog-ng takes a while to start, and says nothing about a message
-  # it drops. Its control socket is how the test knows it listens.
+# Sends a syslog message from the Docker host to the address of the
+# container. EXPECT is 'received' or 'dropped'. syslog-ng says nothing
+# about a message it drops, so a message counts as dropped only when
+# syslog-ng has taken it in and has not written it: one that never got
+# there says nothing about the filter.
+function check_syslog_networks() {
+  local NAME=${1}
+  local EXPECT=${2}
+  local LOG="/var/log/Hosts/smoke-${NAME}/smoke-${NAME}.log"
+  local ADDR TRY BEFORE='' AFTER='' GOT='dropped' WHY=''
+
+  # syslog-ng takes a while to start
   for (( TRY = 1; TRY <= WAIT_TRIES; TRY++ )); do
-    "${COMPOSE[@]}" exec -T syslog-ng syslog-ng-ctl stats --control=/config/syslog-ng.ctl > /dev/null 2>&1 && break
+    BEFORE=$(syslog_count)
+    [[ -n "${BEFORE}" ]] && break
     sleep 1
   done
   ADDR=$(address_of syslog-ng)
-  echo "<134>Jan  1 00:00:00 smoke-${NAME} smoke: koitohan-smoke" > "/dev/udp/${ADDR}/1514"
-  for TRY in 1 2 3 4 5; do
-    if "${COMPOSE[@]}" exec -T syslog-ng grep -q -F koitohan-smoke "${LOG}" 2> /dev/null; then
-      GOT='received'
-      break
+  if [[ -z "${BEFORE}" ]]; then
+    WHY='syslog-ng did not start'
+  elif [[ -z "${ADDR}" ]]; then
+    WHY='could not find the address of syslog-ng'
+  elif ! echo "<134>Jan  1 00:00:00 smoke-${NAME} smoke: koitohan-smoke" > "/dev/udp/${ADDR}/1514"; then
+    WHY='could not send the message'
+  else
+    for TRY in 1 2 3 4 5; do
+      AFTER=$(syslog_count)
+      [[ ${AFTER:-0} -gt ${BEFORE} ]] && break
+      sleep 1
+    done
+    if [[ ${AFTER:-0} -le ${BEFORE} ]]; then
+      WHY='the message did not reach syslog-ng'
+    else
+      for TRY in 1 2 3 4 5; do
+        if "${COMPOSE[@]}" exec -T syslog-ng grep -q -F koitohan-smoke "${LOG}" 2> /dev/null; then
+          GOT='received'
+          break
+        fi
+        sleep 1
+      done
+      [[ "${GOT}" == "${EXPECT}" ]] || WHY="expected the message to be ${EXPECT}"
     fi
-    sleep 1
-  done
-  [[ "${GOT}" == "${SYSLOG}" ]] || WHY="expected the message to be ${SYSLOG}"
+  fi
 
   COUNT=$((COUNT + 1))
   if [[ -z "${WHY}" ]]; then
-    printf 'ok    %-13s %-11s %s\n' 'networks' "${NAME}" "syslog ${SYSLOG}"
+    printf 'ok    %-13s %-11s %s\n' 'networks' "${NAME}" "syslog ${EXPECT}"
   else
     FAILED=$((FAILED + 1))
     printf 'FAIL  %-13s %-11s %s\n' 'networks' "${NAME}" "${WHY}"
     "${COMPOSE[@]}" logs --tail 5 syslog-ng 2>&1 | sed 's/^/      | /'
   fi
+}
 
-  WHY=''
+# Fetches a file over TFTP from the Docker host to the address of the
+# container. EXPECT is a fixed string to find in the file, or 'timed out'.
+# A transfer times out as well when in.tftpd does not answer at all, so
+# before that, the file has to come over the loopback, which the rules
+# always let through. The client of tftp-hpa exits with 0 on an error
+# as well, so what it fetched is what counts.
+function check_tftp_networks() {
+  local NAME=${1}
+  local EXPECT=${2}
+  local ADDR OUT='' WHY=''
+
   ADDR=$(address_of tftpd-hpa)
-  OUT=$(curl -s -S -m 5 "tftp://${ADDR}/firmware/smoke.txt" 2>&1)
-  if [[ "${TFTP}" == 'timed out' ]]; then
-    grep -q -i -F 'timed out' <<< "${OUT}" || WHY='expected the transfer to time out'
-  elif ! grep -q -F -- "${TFTP}" <<< "${OUT}"; then
-    WHY="expected ${TFTP}"
+  if [[ -z "${ADDR}" ]]; then
+    WHY='could not find the address of tftpd-hpa'
+  elif [[ "${EXPECT}" == 'timed out' ]]; then
+    OUT=$("${COMPOSE[@]}" exec -T tftpd-hpa \
+            timeout 5 tftp -m octet 127.0.0.1 -c get firmware/smoke.txt /dev/stdout 2>&1)
+    if ! grep -q -F koitohan-smoke <<< "${OUT}"; then
+      WHY='tftpd-hpa does not answer on the loopback'
+    else
+      OUT=$(curl -s -S -m 5 "tftp://${ADDR}/firmware/smoke.txt" 2>&1)
+      grep -q -i -F 'timed out' <<< "${OUT}" || WHY='expected the transfer to time out'
+    fi
+  else
+    OUT=$(curl -s -S -m 5 "tftp://${ADDR}/firmware/smoke.txt" 2>&1)
+    grep -q -F -- "${EXPECT}" <<< "${OUT}" || WHY="expected ${EXPECT}"
   fi
 
   COUNT=$((COUNT + 1))
   if [[ -z "${WHY}" ]]; then
-    printf 'ok    %-13s %-11s %s\n' 'networks' "${NAME}" "tftp ${TFTP}"
+    printf 'ok    %-13s %-11s %s\n' 'networks' "${NAME}" "tftp ${EXPECT}"
   else
     FAILED=$((FAILED + 1))
     printf 'FAIL  %-13s %-11s %s\n' 'networks' "${NAME}" "${WHY}"
@@ -514,24 +621,33 @@ function check_tftp_log() {
 }
 
 # OpenLDAP takes TLS 1.3 and nothing older. The handshake comes from
-# the Docker host, with the client certificate of FreeRADIUS.
+# the Docker host, with the client certificate of FreeRADIUS. A refusal
+# has to be the alert for the version: a handshake that fails for any
+# other reason says nothing about it. Without an address, openssl goes
+# to the loopback, where the running stack may listen.
 function check_tls() {
   local VERSION=${1}
   local EXPECT=${2}
-  local ADDR OUT GOT WHY=''
+  local ADDR OUT='' GOT WHY=''
 
   ADDR=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}} {{end}}' \
     "$("${COMPOSE[@]}" ps -q openldap)" 2> /dev/null | cut -d ' ' -f 1)
-  OUT=$(timeout 10 openssl s_client -connect "${ADDR}:636" "-${VERSION}" \
-    -CAfile CA/default-ca.pem \
-    -cert CA/freeradius_client.crt -key CA/freeradius_client.key < /dev/null 2>&1)
-
-  if grep -q '^New, TLSv' <<< "${OUT}"; then
-    GOT='accepted'
+  if [[ -z "${ADDR}" ]]; then
+    WHY='could not find the address of openldap'
   else
-    GOT='refused'
+    OUT=$(timeout 10 openssl s_client -connect "${ADDR}:636" "-${VERSION}" \
+      -CAfile CA/default-ca.pem \
+      -cert CA/freeradius_client.crt -key CA/freeradius_client.key < /dev/null 2>&1)
+
+    if grep -q '^New, TLSv' <<< "${OUT}"; then
+      GOT='accepted'
+    elif grep -q -F 'alert protocol version' <<< "${OUT}"; then
+      GOT='refused'
+    else
+      GOT='failed'
+    fi
+    [[ "${GOT}" == "${EXPECT}" ]] || WHY="expected ${EXPECT}, got ${GOT}"
   fi
-  [[ "${GOT}" == "${EXPECT}" ]] || WHY="expected ${EXPECT}"
 
   COUNT=$((COUNT + 1))
   if [[ -z "${WHY}" ]]; then
@@ -674,7 +790,8 @@ check_tls tls1_2 refused
 # test come from the loopback, which FreeRADIUS always allows.
 "${COMPOSE[@]}" exec -T tftpd-hpa sh -c 'echo koitohan-smoke > /tftpboot/firmware/smoke.txt'
 check_radius_networks allowed 'Accept'
-check_device_networks allowed 'received' 'koitohan-smoke'
+check_syslog_networks allowed 'received'
+check_tftp_networks allowed 'koitohan-smoke'
 check_tftp_log
 if ! { DEVICE_NETWORKS="${OTHER_NETWORKS}" scripts/generate_device_networks.sh \
        && DEVICE_NETWORKS="${OTHER_NETWORKS}" "${COMPOSE[@]}" up -d --force-recreate freeradius syslog-ng tftpd-hpa > /dev/null 2>&1; }; then
@@ -687,7 +804,8 @@ if ! wait_ready; then
   exit 1
 fi
 check_radius_networks other 'timed out'
-check_device_networks other 'dropped' 'timed out'
+check_syslog_networks other 'dropped'
+check_tftp_networks other 'timed out'
 
 if ! wait_ssh_ready; then
   echo 'the openssh container did not become ready'
@@ -722,9 +840,14 @@ configs|admin01|${PASS_ADMIN}|written|touch /tftpboot/configs/smoke ${TOUCH}
 configs|operator01|${PASS_OPERATOR}|refused|ls /tftpboot/configs ${TOUCH}
 configs|readonly01|${PASS_READONLY}|refused|ls /tftpboot/configs ${TOUCH}
 logs|readonly01|${PASS_READONLY}|smoke LINK-3|zgrep -h LINK-3 /logs/Hosts/*/*.log-2026-10-10.gz
-root fs|admin01|${PASS_ADMIN}|refused|touch /smoke ${TOUCH}
-secrets|admin01|${PASS_ADMIN}|refused|cat /run/koitohan/bindpw /etc/koitohan/secrets/bindpw /etc/koitohan/certs/client.key ${TOUCH}
 CASES
+
+check_read_only openssh
+check_read_only openldap
+
+check_secrets admin01 "${PASS_ADMIN}"
+check_secrets operator01 "${PASS_OPERATOR}"
+check_secrets readonly01 "${PASS_READONLY}"
 
 # passwd reads the current password, then the new one twice
 check_ssh 'weak password' readonly01 "${PASS_READONLY}" 'Weak password' passwd \
@@ -764,18 +887,29 @@ add_role_by_hand smoke01 readonly
 check 'three roles' 127.0.0.1 smoke01 "${NEW_PASS}" Accept 'AVPair = "shell:priv-lvl=1"'
 check_ssh 'three roles' smoke01 "${NEW_PASS}" 'koitohan readonly' 'id -Gn' < /dev/null
 
-# the session that is open has to end with the change of the role
-ssh_run smoke01 "${NEW_PASS}" 'sleep 30' < /dev/null > /dev/null &
-sleep 3
+# The session that is open has to end with the change of the role. A
+# session that never got in ends quickly as well, so the role changes
+# only once the session has said that it runs.
+SESSION_OUT="${KOITOHAN_GENERATED_ROOT}/session.out"
+ssh_run smoke01 "${NEW_PASS}" 'echo started; sleep 30' < /dev/null > "${SESSION_OUT}" &
+SESSION_PID=$!
+for (( TRY = 1; TRY <= WAIT_TRIES; TRY++ )); do
+  grep -q -x started "${SESSION_OUT}" && break
+  sleep 1
+done
+WHY=''
+grep -q -x started "${SESSION_OUT}" || WHY='the session did not start'
 check_users 'users role' 'smoke01 is admin now' '' role smoke01 admin
 SECONDS=0
-wait
+wait "${SESSION_PID}"
+[[ -z "${WHY}" && ${SECONDS} -ge 10 ]] && WHY='expected the session to be cut'
 COUNT=$((COUNT + 1))
-if [[ ${SECONDS} -lt 10 ]]; then
+if [[ -z "${WHY}" ]]; then
   printf 'ok    %-13s %-11s %s\n' 'users role' smoke01 'session cut'
 else
   FAILED=$((FAILED + 1))
-  printf 'FAIL  %-13s %-11s %s\n' 'users role' smoke01 'expected the session to be cut'
+  printf 'FAIL  %-13s %-11s %s\n' 'users role' smoke01 "${WHY}"
+  sed 's/^/      | /' "${SESSION_OUT}"
 fi
 check_ssh 'users role' smoke01 "${NEW_PASS}" 'koitohan admin' 'id -Gn' < /dev/null
 
@@ -799,6 +933,14 @@ check_users 'users unlock' 'smoke01 is not locked' '' unlock smoke01
 MAX_FAILURE=$("${COMPOSE[@]}" exec -T openldap sh -c "${LDAP_SUFFIX_SET};"'
   ldapsearch -Q -Y EXTERNAL -H ldapi:/// -LLL -b "cn=default,ou=Policies,${SUFFIX}" -s base pwdMaxFailure' \
   2> /dev/null | awk '$1 == "pwdMaxFailure:" { print $2 }')
+# the lock below and the check of the service accounts count on it
+COUNT=$((COUNT + 1))
+if [[ "${MAX_FAILURE}" =~ ^[1-9][0-9]*$ ]]; then
+  printf 'ok    %-13s %-11s %s\n' 'ppolicy' 'default' "pwdMaxFailure ${MAX_FAILURE}"
+else
+  FAILED=$((FAILED + 1))
+  printf 'FAIL  %-13s %-11s %s\n' 'ppolicy' 'default' 'could not read pwdMaxFailure'
+fi
 for (( TRY = 1; TRY <= ${MAX_FAILURE:-0}; TRY++ )); do
   send_request 127.0.0.1 smoke01 wrong > /dev/null
 done
@@ -810,17 +952,40 @@ check_ssh 'users unlock' smoke01 "${NEW_PASS2}" 'koitohan admin' 'id -Gn' < /dev
 
 # The service accounts are never locked, or nobody could log in.
 # FreeRADIUS and nslcd keep their connections, so a login would not
-# show a lock. This looks at the entries.
+# show a lock. This looks at the entries. Their policy records no
+# failure, so the entries cannot show that the failures were counted at
+# all: smoke01, under the default policy, fails the same way first and
+# has to be locked. It is unlocked again here, or the checks of the
+# deletion below would pass on the lock alone.
+FREERADIUS_ACCOUNT=$(source .env && echo "${FREERADIUS_SERVICE_ACCOUNT_NAME}")
+OPENSSH_ACCOUNT=$(source .env && echo "${OPENSSH_SERVICE_ACCOUNT_NAME}")
 check_ldap 'no lock' 'service' 'never locked' '
-  for DN in $(ldapsearch -Q -Y EXTERNAL -H ldapi:/// -LLL -o ldif-wrap=no -b "ou=ServiceAccounts,${SUFFIX}" -s one dn | sed -n "s/^dn: //p"); do
+  fail() {
     for TRY in $(seq '"${MAX_FAILURE:-0}"'); do
-      ldapwhoami -x -H ldapi:/// -D "${DN}" -w wrong 2>&1 | grep -q "Invalid credentials" || echo "${DN}: no failure"
+      ldapwhoami -x -H ldapi:/// -D "${1}" -w wrong 2>&1 | grep -q "Invalid credentials" || echo "${1}: no failure"
     done
-    FOUND=1
+  }
+  locked() {
+    ldapsearch -Q -Y EXTERNAL -H ldapi:/// -LLL -b "${1}" -s base "(pwdAccountLockedTime=*)" dn
+  }
+  OK=1
+  CONTROL="uid=smoke01,ou=People,${SUFFIX}"
+  fail "${CONTROL}"
+  [ -n "$(locked "${CONTROL}")" ] || { echo "${CONTROL}: not locked"; OK=; }
+  printf "dn: %s\nchangetype: modify\ndelete: pwdAccountLockedTime\n" "${CONTROL}" \
+  | ldapmodify -Q -Y EXTERNAL -H ldapi:/// > /dev/null 2>&1
+  [ -z "$(locked "${CONTROL}")" ] || { echo "${CONTROL}: still locked"; OK=; }
+  for NAME in '"${FREERADIUS_ACCOUNT} ${OPENSSH_ACCOUNT}"'; do
+    DN="uid=${NAME},ou=ServiceAccounts,${SUFFIX}"
+    if ! ldapsearch -Q -Y EXTERNAL -H ldapi:/// -LLL -b "${DN}" -s base dn 2> /dev/null | grep -q "^dn:"; then
+      echo "${DN}: missing"
+      OK=
+      continue
+    fi
+    fail "${DN}"
+    [ -z "$(locked "${DN}")" ] || { echo "${DN}: locked"; OK=; }
   done
-  LOCKED=$(ldapsearch -Q -Y EXTERNAL -H ldapi:/// -LLL -b "ou=ServiceAccounts,${SUFFIX}" "(pwdAccountLockedTime=*)" dn)
-  echo "${LOCKED}"
-  [ -n "${FOUND}" ] && [ -z "${LOCKED}" ] && echo "never locked"'
+  [ -n "${OK}" ] && echo "never locked"'
 
 check_users 'users delete' 'deleted smoke01' '' delete smoke01
 check_ssh 'users delete' smoke01 "${NEW_PASS2}" denied 'id -Gn' < /dev/null
@@ -832,7 +997,6 @@ check_users 'users add' 'uidNumber 10005' "${NEW_PASS}" add smoke02 readonly
 # container, which then has to bind with the new password: the old one
 # is gone from the directory. The file of the running stack stays.
 check_service_password bogus 'usage:'
-FREERADIUS_ACCOUNT=$(source .env && echo "${FREERADIUS_SERVICE_ACCOUNT_NAME}")
 OLD_FREERADIUS=$(< "${KOITOHAN_GENERATED_ROOT}/secrets/freeradius_service_account_password")
 check_service_password freeradius 'recreated freeradius'
 if ! wait_ready; then
