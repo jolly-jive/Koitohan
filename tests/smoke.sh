@@ -216,6 +216,50 @@ function check_ssh() {
   fi
 }
 
+# The files in the openssh container that hold a password or a private
+# key. A user who logs in must not read any of them.
+SECRET_FILES=(
+  /run/koitohan/bindpw
+  /etc/koitohan/secrets/bindpw
+  /etc/koitohan/certs/client.key
+  /run/koitohan/nslcd-certs/client.key
+  /etc/nslcd.conf
+  /etc/koitohan/hostkeys/ssh_host_ed25519_key
+  /etc/koitohan/hostkeys/ssh_host_rsa_key
+)
+
+# Checks that USER can read none of SECRET_FILES. It asks only whether
+# a file is readable, so nothing of a file comes into the output. The
+# files have to be there, or a file that has moved would pass.
+function check_secrets() {
+  local USER=${1}
+  local PASS=${2}
+  local OUT WHY=''
+
+  OUT=$("${COMPOSE[@]}" exec -T openssh sh -c "
+    for F in ${SECRET_FILES[*]}; do [ -e \"\${F}\" ] || echo \"\${F}: missing\"; done" 2>&1)
+  if [[ -n "${OUT}" ]]; then
+    WHY='expected the files to be there'
+  else
+    OUT=$(ssh_run ${USER} "${PASS}" "
+      for F in ${SECRET_FILES[*]}; do [ -r \"\${F}\" ] && echo \"\${F}: readable\"; done; echo checked" < /dev/null)
+    if grep -q -F ': readable' <<< "${OUT}"; then
+      WHY='expected no file to be readable'
+    elif ! grep -q -x checked <<< "${OUT}"; then
+      WHY='expected to log in'
+    fi
+  fi
+
+  COUNT=$((COUNT + 1))
+  if [[ -z "${WHY}" ]]; then
+    printf 'ok    %-13s %-11s %s\n' 'secrets' "${USER}" 'none readable'
+  else
+    FAILED=$((FAILED + 1))
+    printf 'FAIL  %-13s %-11s %s\n' 'secrets' "${USER}" "${WHY}"
+    sed 's/^/      | /' <<< "${OUT}"
+  fi
+}
+
 # Runs bin/manage_users.sh against the test stack. EXPECT is a fixed
 # string to find in the output. INPUT is the password it reads.
 function check_users() {
@@ -777,8 +821,11 @@ configs|operator01|${PASS_OPERATOR}|refused|ls /tftpboot/configs ${TOUCH}
 configs|readonly01|${PASS_READONLY}|refused|ls /tftpboot/configs ${TOUCH}
 logs|readonly01|${PASS_READONLY}|smoke LINK-3|zgrep -h LINK-3 /logs/Hosts/*/*.log-2026-10-10.gz
 root fs|admin01|${PASS_ADMIN}|refused|touch /smoke ${TOUCH}
-secrets|admin01|${PASS_ADMIN}|refused|cat /run/koitohan/bindpw /etc/koitohan/secrets/bindpw /etc/koitohan/certs/client.key ${TOUCH}
 CASES
+
+check_secrets admin01 "${PASS_ADMIN}"
+check_secrets operator01 "${PASS_OPERATOR}"
+check_secrets readonly01 "${PASS_READONLY}"
 
 # passwd reads the current password, then the new one twice
 check_ssh 'weak password' readonly01 "${PASS_READONLY}" 'Weak password' passwd \
