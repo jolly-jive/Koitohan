@@ -55,8 +55,11 @@ services:
   tftpd-hpa:
     container_name: !reset null
     volumes:
-      # empty volumes. The test puts the file to fetch into firmware.
-      - /tftpboot/firmware
+      # The test puts the file to fetch into firmware before the start.
+      # Read-only as in compose.yaml, which the test checks on its own.
+      - ./tests/generated/tftpboot/firmware:/tftpboot/firmware:ro
+      # an empty volume, which the test gives the ownership and the mode
+      # of configs on the Docker host (docs/tftp.md)
       - /tftpboot/configs
       # keeps the test out of tftpd-hpa/log
       - /var/log/tftpd

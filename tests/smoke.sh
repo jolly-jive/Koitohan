@@ -39,6 +39,10 @@ OTHER_NETWORKS='192.0.2.0/24'
 export DEVICE_NETWORKS="${ALLOWED_NETWORKS}"
 # the same for the networks of the terminals: ssh goes from the Docker host
 export OPENSSH_ALLOWED_NETWORKS="${ALLOWED_NETWORKS}"
+# the limit on the size of an upload, small enough to reach over TFTP
+# in a moment
+TFTP_MAX_BYTES=65536
+export TFTP_UPLOAD_MAX_BYTES="${TFTP_MAX_BYTES}"
 WAIT_TRIES=40
 
 function cleanup() {
@@ -681,7 +685,9 @@ trap cleanup EXIT
 
 # The same scripts as make runs, on passwords of the test's own
 rm -rf "${KOITOHAN_GENERATED_ROOT}"
-mkdir -p "${KOITOHAN_GENERATED_ROOT}"/{secrets,openldap/ldif,freeradius/config/mods-available,syslog-ng/config}
+mkdir -p "${KOITOHAN_GENERATED_ROOT}"/{secrets,openldap/ldif,freeradius/config/mods-available,syslog-ng/config,tftpboot/firmware}
+# the file to fetch over TFTP, in the firmware of the test stack
+echo koitohan-smoke > "${KOITOHAN_GENERATED_ROOT}/tftpboot/firmware/smoke.txt"
 if ! { scripts/generate_service_account_password.sh freeradius \
        && scripts/generate_service_account_password.sh openssh \
        && scripts/generate_ldap_admin_password.sh admin \
@@ -703,6 +709,14 @@ fi
 if ! wait_ldap_ready; then
   echo 'the test stack did not become ready'
   "${COMPOSE[@]}" logs --tail 30 openldap openssh
+  exit 1
+fi
+
+# configs as docs/tftp.md sets it up on the Docker host: in.tftpd (1000)
+# writes, the role admin (10001) reads
+if ! "${COMPOSE[@]}" exec -T tftpd-hpa sh -c '
+       chown 1000:10001 /tftpboot/configs && chmod 2770 /tftpboot/configs'; then
+  echo 'could not set up configs of tftpd-hpa'
   exit 1
 fi
 
@@ -788,7 +802,6 @@ check_tls tls1_2 refused
 # containers made again for another network. In between, the file
 # that keeps the record of the transfer. The other requests of this
 # test come from the loopback, which FreeRADIUS always allows.
-"${COMPOSE[@]}" exec -T tftpd-hpa sh -c 'echo koitohan-smoke > /tftpboot/firmware/smoke.txt'
 check_radius_networks allowed 'Accept'
 check_syslog_networks allowed 'received'
 check_tftp_networks allowed 'koitohan-smoke'
