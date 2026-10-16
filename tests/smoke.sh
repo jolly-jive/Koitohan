@@ -62,6 +62,7 @@ PASS_ADMIN='Kd7-wPq2.Xm9+Rt4z'
 PASS_OPERATOR='Vb3_hJy8=Ns5.Lc6w'
 PASS_READONLY='Tz6+mGf4-Qr9_Hk2x'
 PASS_NOROLE='Wn8.cDs3+Yp7=Fj5v'
+PASS_OTHER='Qm5+tRz8-Hv2.Wc7k'
 
 function password_of() {
   case ${1} in
@@ -69,6 +70,7 @@ function password_of() {
     operator01) echo "${PASS_OPERATOR}" ;;
     readonly01) echo "${PASS_READONLY}" ;;
     norole01)   echo "${PASS_NOROLE}" ;;
+    other0?)    echo "${PASS_OTHER}" ;;
     *)          echo 'nopass' ;;
   esac
 }
@@ -816,6 +818,26 @@ check_users 'users add' 'uidNumber 10001' "${PASS_ADMIN}" add admin01 admin
 check_users 'users add' 'uidNumber 10002' "${PASS_OPERATOR}" add operator01 operator
 check_users 'users add' 'uidNumber 10003' "${PASS_READONLY}" add readonly01 readonly
 
+# Users in groups other than the roles, which give nothing: guest is a
+# role that is not one of the three, staff is outside ou=Roles. other03
+# is in operator as well, which counts alone. bin/manage_users.sh makes
+# none of them, so they are made by hand, after the test accounts and
+# with numbers of their own, which leaves the numbers of the script as
+# they are. The login of other03 shows that the users were read again.
+check_ldap 'by hand' other01-03 'made other01 to other03' "
+  for N in 1 2 3; do
+    printf 'dn: uid=other0%s,ou=People,%s\nobjectClass: inetOrgPerson\nobjectClass: posixAccount\nuid: other0%s\nuidNumber: 2000%s\ngidNumber: 10000\nhomeDirectory: /home/other0%s\nloginShell: /bin/sh\ncn: other0%s\nsn: other0%s\n\n' \
+      \"\${N}\" \"\${SUFFIX}\" \"\${N}\" \"\${N}\" \"\${N}\" \"\${N}\" \"\${N}\"
+  done | ldapadd ${AS_MANAGER} > /dev/null \\
+  && for N in 1 2 3; do
+       ldappasswd ${AS_MANAGER} -s '${PASS_OTHER}' \"uid=other0\${N},ou=People,\${SUFFIX}\" || exit 1
+     done \\
+  && printf 'dn: cn=guest,ou=Roles,%s\nobjectClass: groupOfUniqueNames\ncn: guest\nuniqueMember: uid=other01,ou=People,%s\nuniqueMember: uid=other03,ou=People,%s\n\ndn: cn=staff,%s\nobjectClass: groupOfUniqueNames\ncn: staff\nuniqueMember: uid=other02,ou=People,%s\n\ndn: cn=operator,ou=Roles,%s\nchangetype: modify\nadd: uniqueMember\nuniqueMember: uid=other03,ou=People,%s\n' \
+       \"\${SUFFIX}\" \"\${SUFFIX}\" \"\${SUFFIX}\" \"\${SUFFIX}\" \"\${SUFFIX}\" \"\${SUFFIX}\" \"\${SUFFIX}\" \\
+     | ldapadd ${AS_MANAGER} > /dev/null \\
+  && echo 'made other01 to other03'"
+"${COMPOSE[@]}" exec -T openssh koitohan-update-users > /dev/null 2>&1
+
 if [[ ${FAILED} -ne 0 ]]; then
   echo 'could not make the test accounts'
   exit 1
@@ -870,6 +892,11 @@ none|127.0.0.9|norole01|Reject|-
 unknown|127.0.0.10|admin01|Accept|Management-Privilege-Level = 15
 unknown|127.0.0.10|readonly01|Accept|unknown nas_type: 'bogus'
 unknown|127.0.0.10|norole01|Reject|-
+cisco|127.0.0.1|other01|Reject|-
+aruba-ap|127.0.0.3|other01|Reject|-
+none|127.0.0.9|other01|Reject|-
+cisco|127.0.0.1|other02|Reject|-
+cisco|127.0.0.1|other03|Accept|AVPair = "shell:priv-lvl=7"
 CASES
 
 check 'bad password' 127.0.0.1 admin01 wrong Reject '-'
@@ -930,6 +957,9 @@ ssh login|norole01|${PASS_NOROLE}|denied|id -Gn
 ssh login|admin01|wrong|denied|id -Gn
 ssh login|nobody01|nopass|denied|id -Gn
 ssh login|root|nopass|denied|id -Gn
+ssh login|other01|${PASS_OTHER}|denied|id -Gn
+ssh login|other02|${PASS_OTHER}|denied|id -Gn
+ssh login|other03|${PASS_OTHER}|koitohan operator|id -Gn
 firmware|admin01|${PASS_ADMIN}|written|touch /tftpboot/firmware/smoke ${TOUCH}
 firmware|operator01|${PASS_OPERATOR}|refused|touch /tftpboot/firmware/smoke ${TOUCH}
 firmware|readonly01|${PASS_READONLY}|refused|touch /tftpboot/firmware/smoke ${TOUCH}
