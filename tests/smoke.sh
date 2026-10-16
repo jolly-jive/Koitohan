@@ -39,6 +39,10 @@ OTHER_NETWORKS='192.0.2.0/24'
 export DEVICE_NETWORKS="${ALLOWED_NETWORKS}"
 # the same for the networks of the terminals: ssh goes from the Docker host
 export OPENSSH_ALLOWED_NETWORKS="${ALLOWED_NETWORKS}"
+# the limit on the size of an upload, small enough to reach over TFTP
+# in a moment
+TFTP_MAX_BYTES=65536
+export TFTP_UPLOAD_MAX_BYTES="${TFTP_MAX_BYTES}"
 WAIT_TRIES=40
 
 function cleanup() {
@@ -58,6 +62,7 @@ PASS_ADMIN='Kd7-wPq2.Xm9+Rt4z'
 PASS_OPERATOR='Vb3_hJy8=Ns5.Lc6w'
 PASS_READONLY='Tz6+mGf4-Qr9_Hk2x'
 PASS_NOROLE='Wn8.cDs3+Yp7=Fj5v'
+PASS_OTHER='Qm5+tRz8-Hv2.Wc7k'
 
 function password_of() {
   case ${1} in
@@ -65,6 +70,7 @@ function password_of() {
     operator01) echo "${PASS_OPERATOR}" ;;
     readonly01) echo "${PASS_READONLY}" ;;
     norole01)   echo "${PASS_NOROLE}" ;;
+    other0?)    echo "${PASS_OTHER}" ;;
     *)          echo 'nopass' ;;
   esac
 }
@@ -467,14 +473,78 @@ function syslog_count() {
   | awk -F ';' '$1 == "source" && $2 == "s_network" { print $6 }'
 }
 
+# A container started with a wrong value of the networks it takes has
+# to stop before it listens, and say why: the message tells this from a
+# start that fails for some other reason. One that starts after all is
+# stopped after a while, and removed either way.
+function check_bad_networks() {
+  local SERVICE=${1}
+  local VALUE=${2}
+  local EXPECT=${3}
+  local VARIABLE=DEVICE_NETWORKS
+  local NAME="koitohan-test-networks-${SERVICE}"
+  local OUT RC WHY=''
+
+  [[ "${SERVICE}" == 'openssh' ]] && VARIABLE=OPENSSH_ALLOWED_NETWORKS
+  OUT=$(timeout 30 "${COMPOSE[@]}" run --rm --no-deps -T --name "${NAME}" \
+          -e "${VARIABLE}=${VALUE}" "${SERVICE}" 2>&1 < /dev/null)
+  RC=$?
+  docker rm -f "${NAME}" > /dev/null 2>&1
+  if [[ ${RC} -eq 0 || ${RC} -eq 124 ]]; then
+    WHY='expected the container to stop'
+  elif ! grep -q -F -- "${EXPECT}" <<< "${OUT}"; then
+    WHY="expected ${EXPECT}"
+  fi
+
+  COUNT=$((COUNT + 1))
+  if [[ -z "${WHY}" ]]; then
+    printf 'ok    %-13s %-11s %s\n' 'bad networks' "${SERVICE}" "'${VALUE}': ${EXPECT}"
+  else
+    FAILED=$((FAILED + 1))
+    printf 'FAIL  %-13s %-11s %s\n' 'bad networks' "${SERVICE}" "'${VALUE}': ${WHY}"
+    tail -n 5 <<< "${OUT}" | sed 's/^/      | /'
+  fi
+}
+
+# The same for the filter of syslog-ng, which the script writes on the
+# Docker host: syslog-ng itself takes what looks like a network. The
+# file has to stay as it was, and is put back if not.
+function check_bad_generated() {
+  local VALUE=${1}
+  local FILE="${KOITOHAN_GENERATED_ROOT}/syslog-ng/config/device_networks.conf"
+  local BEFORE OUT WHY=''
+
+  BEFORE=$(< "${FILE}")
+  if OUT=$(DEVICE_NETWORKS="${VALUE}" scripts/generate_device_networks.sh 2>&1); then
+    WHY='expected the script to fail'
+  elif ! grep -q -F 'has to be IPv4' <<< "${OUT}"; then
+    WHY='expected has to be IPv4'
+  elif [[ "$(< "${FILE}")" != "${BEFORE}" ]]; then
+    WHY='expected device_networks.conf to stay'
+  fi
+  [[ "$(< "${FILE}")" == "${BEFORE}" ]] || printf '%s\n' "${BEFORE}" > "${FILE}"
+
+  COUNT=$((COUNT + 1))
+  if [[ -z "${WHY}" ]]; then
+    printf 'ok    %-13s %-11s %s\n' 'bad networks' 'syslog-ng' "'${VALUE}': has to be IPv4"
+  else
+    FAILED=$((FAILED + 1))
+    printf 'FAIL  %-13s %-11s %s\n' 'bad networks' 'syslog-ng' "'${VALUE}': ${WHY}"
+    sed 's/^/      | /' <<< "${OUT}"
+  fi
+}
+
 # Sends a syslog message from the Docker host to the address of the
-# container. EXPECT is 'received' or 'dropped'. syslog-ng says nothing
-# about a message it drops, so a message counts as dropped only when
-# syslog-ng has taken it in and has not written it: one that never got
-# there says nothing about the filter.
+# container, over PROTO ('udp', the default, or 'tcp'). EXPECT is
+# 'received' or 'dropped'. syslog-ng says nothing about a message it
+# drops, so a message counts as dropped only when syslog-ng has taken it
+# in and has not written it: one that never got there says nothing about
+# the filter. The filter is in syslog-ng, so over TCP the connection is
+# made either way.
 function check_syslog_networks() {
   local NAME=${1}
   local EXPECT=${2}
+  local PROTO=${3:-udp}
   local LOG="/var/log/Hosts/smoke-${NAME}/smoke-${NAME}.log"
   local ADDR TRY BEFORE='' AFTER='' GOT='dropped' WHY=''
 
@@ -489,7 +559,8 @@ function check_syslog_networks() {
     WHY='syslog-ng did not start'
   elif [[ -z "${ADDR}" ]]; then
     WHY='could not find the address of syslog-ng'
-  elif ! echo "<134>Jan  1 00:00:00 smoke-${NAME} smoke: koitohan-smoke" > "/dev/udp/${ADDR}/1514"; then
+  elif ! echo "<134>Jan  1 00:00:00 smoke-${NAME} smoke: koitohan-smoke" 2> /dev/null \
+           > "/dev/${PROTO}/${ADDR}/1514"; then
     WHY='could not send the message'
   else
     for TRY in 1 2 3 4 5; do
@@ -513,7 +584,7 @@ function check_syslog_networks() {
 
   COUNT=$((COUNT + 1))
   if [[ -z "${WHY}" ]]; then
-    printf 'ok    %-13s %-11s %s\n' 'networks' "${NAME}" "syslog ${EXPECT}"
+    printf 'ok    %-13s %-11s %s\n' 'networks' "${NAME}" "syslog/${PROTO} ${EXPECT}"
   else
     FAILED=$((FAILED + 1))
     printf 'FAIL  %-13s %-11s %s\n' 'networks' "${NAME}" "${WHY}"
@@ -620,6 +691,89 @@ function check_tftp_log() {
   fi
 }
 
+# OUT is the output of what was run. EXPECT is a fixed string to find in it.
+function check_found() {
+  local NAME=${1}
+  local WHO=${2}
+  local EXPECT=${3}
+  local OUT=${4}
+
+  COUNT=$((COUNT + 1))
+  if grep -q -F -- "${EXPECT}" <<< "${OUT}"; then
+    printf 'ok    %-13s %-11s %s\n' "${NAME}" "${WHO}" "${EXPECT}"
+  else
+    FAILED=$((FAILED + 1))
+    printf 'FAIL  %-13s %-11s %s\n' "${NAME}" "${WHO}" "expected ${EXPECT}"
+    sed 's/^/      | /' <<< "${OUT}"
+  fi
+}
+
+# what tftpd-hpa holds as PATH under /tftpboot: owner, mode, size and
+# checksum, or 'missing'
+function tftp_stored() {
+  "${COMPOSE[@]}" exec -T tftpd-hpa sh -c "
+    F=/tftpboot/${1}
+    if [ -e \"\${F}\" ]; then
+      echo \"\$(stat -c '%u:%g %a %s' \"\${F}\") \$(md5sum < \"\${F}\" | cut -d ' ' -f 1)\"
+    else
+      echo missing
+    fi" 2>&1
+}
+
+# what tftpd-hpa has to hold of the first SIZE bytes of FILE: written by
+# in.tftpd (1000) into configs (10001, setgid) with --umask 022
+function tftp_expected() {
+  echo "1000:10001 644 ${2} $(head -c "${2}" "${1}" | md5sum | cut -d ' ' -f 1)"
+}
+
+# Uploads from the Docker host, as the devices back up their
+# configurations: to configs, which keeps what comes, also over a file
+# of the same name, and only up to the limit on the size; and to
+# firmware, which takes nothing. The test stack mounts a firmware of its
+# own, so the mount of compose.yaml is looked at as well.
+function check_tftp_uploads() {
+  local DIR="${KOITOHAN_GENERATED_ROOT}/upload"
+  local ADDR OUT FILE
+
+  mkdir -p "${DIR}"
+  head -c 1000 /dev/urandom > "${DIR}/first"
+  head -c 300 /dev/urandom > "${DIR}/second"
+  head -c "${TFTP_MAX_BYTES}" /dev/urandom > "${DIR}/max"
+  head -c $((TFTP_MAX_BYTES + 1)) /dev/urandom > "${DIR}/over"
+  ADDR=$(address_of tftpd-hpa)
+
+  # a new file, then a shorter one over it, which has to cut it short
+  for FILE in first second; do
+    OUT=$(curl -s -S -m 5 -T "${DIR}/${FILE}" "tftp://${ADDR}/configs/smoke-upload.cfg" 2>&1)
+    check_found 'tftp upload' "${FILE}" \
+      "$(tftp_expected "${DIR}/${FILE}" "$(stat -c %s "${DIR}/${FILE}")")" \
+      "$(tftp_stored configs/smoke-upload.cfg) ${OUT}"
+  done
+
+  # The limit itself goes through. One byte over it times out and leaves
+  # what fits.
+  OUT=$(curl -s -S -m 5 -T "${DIR}/max" "tftp://${ADDR}/configs/smoke-max.cfg" 2>&1)
+  check_found 'tftp upload' 'limit' "$(tftp_expected "${DIR}/max" "${TFTP_MAX_BYTES}")" \
+    "$(tftp_stored configs/smoke-max.cfg) ${OUT}"
+  OUT=$(curl -s -S -m 5 -T "${DIR}/over" "tftp://${ADDR}/configs/smoke-over.cfg" 2>&1)
+  check_found 'tftp upload' 'over limit' "$(tftp_expected "${DIR}/over" "${TFTP_MAX_BYTES}")" \
+    "$(tftp_stored configs/smoke-over.cfg) ${OUT}"
+
+  # tftpd-hpa has to answer with an error: no file and no answer at all
+  # would look the same
+  OUT=$(curl -s -S -m 5 -T "${DIR}/first" "tftp://${ADDR}/firmware/smoke-upload.bin" 2>&1)
+  [[ "$(tftp_stored firmware/smoke-upload.bin)" == 'missing' ]] \
+    && grep -q -F 'TFTP: ' <<< "${OUT}" && OUT='refused'
+  check_found 'tftp upload' 'firmware' 'refused' "${OUT}"
+
+  OUT=$(docker compose -f compose.yaml config 2>&1 | awk '
+    /^  [^ ]/ { SERVICE = $1 }
+    $1 == "-" { TARGET = "" }
+    SERVICE == "tftpd-hpa:" && $1 == "target:" { TARGET = $2 }
+    TARGET == "/tftpboot/firmware" && $1 == "read_only:" { print "read_only " $2; exit }')
+  check_found 'tftp upload' 'compose' 'read_only true' "${OUT}"
+}
+
 # OpenLDAP takes TLS 1.3 and nothing older. The handshake comes from
 # the Docker host, with the client certificate of FreeRADIUS. A refusal
 # has to be the alert for the version: a handshake that fails for any
@@ -681,7 +835,9 @@ trap cleanup EXIT
 
 # The same scripts as make runs, on passwords of the test's own
 rm -rf "${KOITOHAN_GENERATED_ROOT}"
-mkdir -p "${KOITOHAN_GENERATED_ROOT}"/{secrets,openldap/ldif,freeradius/config/mods-available,syslog-ng/config}
+mkdir -p "${KOITOHAN_GENERATED_ROOT}"/{secrets,openldap/ldif,freeradius/config/mods-available,syslog-ng/config,syslog-ng/log/Hosts,tftpboot/firmware}
+# the file to fetch over TFTP, in the firmware of the test stack
+echo koitohan-smoke > "${KOITOHAN_GENERATED_ROOT}/tftpboot/firmware/smoke.txt"
 if ! { scripts/generate_service_account_password.sh freeradius \
        && scripts/generate_service_account_password.sh openssh \
        && scripts/generate_ldap_admin_password.sh admin \
@@ -706,6 +862,14 @@ if ! wait_ldap_ready; then
   exit 1
 fi
 
+# configs as docs/tftp.md sets it up on the Docker host: in.tftpd (1000)
+# writes, the role admin (10001) reads
+if ! "${COMPOSE[@]}" exec -T tftpd-hpa sh -c '
+       chown 1000:10001 /tftpboot/configs && chmod 2770 /tftpboot/configs'; then
+  echo 'could not set up configs of tftpd-hpa'
+  exit 1
+fi
+
 # The test accounts. bin/manage_users.sh does not make a user without a
 # role, so norole01 is made by hand, and first: the numbers of the
 # script have to start after it.
@@ -718,6 +882,26 @@ check_ldap 'by hand' norole01 'made norole01' "
 check_users 'users add' 'uidNumber 10001' "${PASS_ADMIN}" add admin01 admin
 check_users 'users add' 'uidNumber 10002' "${PASS_OPERATOR}" add operator01 operator
 check_users 'users add' 'uidNumber 10003' "${PASS_READONLY}" add readonly01 readonly
+
+# Users in groups other than the roles, which give nothing: guest is a
+# role that is not one of the three, staff is outside ou=Roles. other03
+# is in operator as well, which counts alone. bin/manage_users.sh makes
+# none of them, so they are made by hand, after the test accounts and
+# with numbers of their own, which leaves the numbers of the script as
+# they are. The login of other03 shows that the users were read again.
+check_ldap 'by hand' other01-03 'made other01 to other03' "
+  for N in 1 2 3; do
+    printf 'dn: uid=other0%s,ou=People,%s\nobjectClass: inetOrgPerson\nobjectClass: posixAccount\nuid: other0%s\nuidNumber: 2000%s\ngidNumber: 10000\nhomeDirectory: /home/other0%s\nloginShell: /bin/sh\ncn: other0%s\nsn: other0%s\n\n' \
+      \"\${N}\" \"\${SUFFIX}\" \"\${N}\" \"\${N}\" \"\${N}\" \"\${N}\" \"\${N}\"
+  done | ldapadd ${AS_MANAGER} > /dev/null \\
+  && for N in 1 2 3; do
+       ldappasswd ${AS_MANAGER} -s '${PASS_OTHER}' \"uid=other0\${N},ou=People,\${SUFFIX}\" || exit 1
+     done \\
+  && printf 'dn: cn=guest,ou=Roles,%s\nobjectClass: groupOfUniqueNames\ncn: guest\nuniqueMember: uid=other01,ou=People,%s\nuniqueMember: uid=other03,ou=People,%s\n\ndn: cn=staff,%s\nobjectClass: groupOfUniqueNames\ncn: staff\nuniqueMember: uid=other02,ou=People,%s\n\ndn: cn=operator,ou=Roles,%s\nchangetype: modify\nadd: uniqueMember\nuniqueMember: uid=other03,ou=People,%s\n' \
+       \"\${SUFFIX}\" \"\${SUFFIX}\" \"\${SUFFIX}\" \"\${SUFFIX}\" \"\${SUFFIX}\" \"\${SUFFIX}\" \"\${SUFFIX}\" \\
+     | ldapadd ${AS_MANAGER} > /dev/null \\
+  && echo 'made other01 to other03'"
+"${COMPOSE[@]}" exec -T openssh koitohan-update-users > /dev/null 2>&1
 
 if [[ ${FAILED} -ne 0 ]]; then
   echo 'could not make the test accounts'
@@ -771,8 +955,15 @@ none|127.0.0.9|operator01|Accept|-
 none|127.0.0.9|readonly01|Accept|-
 none|127.0.0.9|norole01|Reject|-
 unknown|127.0.0.10|admin01|Accept|Management-Privilege-Level = 15
+unknown|127.0.0.10|operator01|Accept|Management-Privilege-Level = 7
+unknown|127.0.0.10|readonly01|Accept|Management-Privilege-Level = 1
 unknown|127.0.0.10|readonly01|Accept|unknown nas_type: 'bogus'
 unknown|127.0.0.10|norole01|Reject|-
+cisco|127.0.0.1|other01|Reject|-
+aruba-ap|127.0.0.3|other01|Reject|-
+none|127.0.0.9|other01|Reject|-
+cisco|127.0.0.1|other02|Reject|-
+cisco|127.0.0.1|other03|Accept|AVPair = "shell:priv-lvl=7"
 CASES
 
 check 'bad password' 127.0.0.1 admin01 wrong Reject '-'
@@ -788,11 +979,12 @@ check_tls tls1_2 refused
 # containers made again for another network. In between, the file
 # that keeps the record of the transfer. The other requests of this
 # test come from the loopback, which FreeRADIUS always allows.
-"${COMPOSE[@]}" exec -T tftpd-hpa sh -c 'echo koitohan-smoke > /tftpboot/firmware/smoke.txt'
 check_radius_networks allowed 'Accept'
 check_syslog_networks allowed 'received'
+check_syslog_networks allowed-tcp 'received' tcp
 check_tftp_networks allowed 'koitohan-smoke'
 check_tftp_log
+check_tftp_uploads
 if ! { DEVICE_NETWORKS="${OTHER_NETWORKS}" scripts/generate_device_networks.sh \
        && DEVICE_NETWORKS="${OTHER_NETWORKS}" "${COMPOSE[@]}" up -d --force-recreate freeradius syslog-ng tftpd-hpa > /dev/null 2>&1; }; then
   echo 'could not make freeradius, syslog-ng and tftpd-hpa again'
@@ -805,7 +997,18 @@ if ! wait_ready; then
 fi
 check_radius_networks other 'timed out'
 check_syslog_networks other 'dropped'
+check_syslog_networks other-tcp 'dropped' tcp
 check_tftp_networks other 'timed out'
+
+# Values of the networks that nothing may start with
+for SERVICE in freeradius tftpd-hpa openssh; do
+  check_bad_networks "${SERVICE}" '' 'is empty'
+  check_bad_networks "${SERVICE}" example.com 'must be IPv4'
+  check_bad_networks "${SERVICE}" 10.0.0.0/33 'Error: Prefix length 33 is invalid'
+done
+for VALUE in example.com 10.0.0.0/33 999.0.0.0/8; do
+  check_bad_generated "${VALUE}"
+done
 
 if ! wait_ssh_ready; then
   echo 'the openssh container did not become ready'
@@ -814,9 +1017,8 @@ if ! wait_ssh_ready; then
 fi
 
 # a rotated log, as logrotate leaves it on the Docker host
-"${COMPOSE[@]}" exec -T openssh sh -c '
-  mkdir -p /logs/Hosts/smoke \
-  && echo "smoke LINK-3" | gzip > /logs/Hosts/smoke/smoke.log-2026-10-10.gz'
+mkdir -p "${KOITOHAN_GENERATED_ROOT}/syslog-ng/log/Hosts/smoke" \
+  && echo "smoke LINK-3" | gzip > "${KOITOHAN_GENERATED_ROOT}/syslog-ng/log/Hosts/smoke/smoke.log-2026-10-10.gz"
 
 NEW_PASS='x9#Kq!vT2m@Lz7Pw'
 NEW_PASS2='Gh4$wN8^rB1&yD6s'
@@ -833,6 +1035,9 @@ ssh login|norole01|${PASS_NOROLE}|denied|id -Gn
 ssh login|admin01|wrong|denied|id -Gn
 ssh login|nobody01|nopass|denied|id -Gn
 ssh login|root|nopass|denied|id -Gn
+ssh login|other01|${PASS_OTHER}|denied|id -Gn
+ssh login|other02|${PASS_OTHER}|denied|id -Gn
+ssh login|other03|${PASS_OTHER}|koitohan operator|id -Gn
 firmware|admin01|${PASS_ADMIN}|written|touch /tftpboot/firmware/smoke ${TOUCH}
 firmware|operator01|${PASS_OPERATOR}|refused|touch /tftpboot/firmware/smoke ${TOUCH}
 firmware|readonly01|${PASS_READONLY}|refused|touch /tftpboot/firmware/smoke ${TOUCH}
@@ -840,6 +1045,7 @@ configs|admin01|${PASS_ADMIN}|written|touch /tftpboot/configs/smoke ${TOUCH}
 configs|operator01|${PASS_OPERATOR}|refused|ls /tftpboot/configs ${TOUCH}
 configs|readonly01|${PASS_READONLY}|refused|ls /tftpboot/configs ${TOUCH}
 logs|readonly01|${PASS_READONLY}|smoke LINK-3|zgrep -h LINK-3 /logs/Hosts/*/*.log-2026-10-10.gz
+logs|readonly01|${PASS_READONLY}|koitohan-smoke|cat /logs/Hosts/smoke-allowed/smoke-allowed.log
 CASES
 
 check_read_only openssh
@@ -918,29 +1124,68 @@ check_users 'users passwd' 'set the password' "${NEW_PASS2}" passwd smoke01
 check_ssh 'users passwd' smoke01 "${NEW_PASS2}" 'koitohan admin' 'id -Gn' < /dev/null
 check_ssh 'users passwd' smoke01 "${NEW_PASS}" denied 'id -Gn' < /dev/null
 
+# an attribute of the default password policy
+function policy_value() {
+  "${COMPOSE[@]}" exec -T openldap sh -c "${LDAP_SUFFIX_SET};"'
+    ldapsearch -Q -Y EXTERNAL -H ldapi:/// -LLL -b "cn=default,ou=Policies,${SUFFIX}" -s base '"${1}" \
+    2> /dev/null | awk -v ATTR="${1}:" '$1 == ATTR { print $2 }'
+}
+
+# The checks below count on the values of the policy
+function check_policy_number() {
+  local ATTR=${1}
+  local VALUE=${2}
+
+  COUNT=$((COUNT + 1))
+  if [[ "${VALUE}" =~ ^[1-9][0-9]*$ ]]; then
+    printf 'ok    %-13s %-11s %s\n' 'ppolicy' 'default' "${ATTR} ${VALUE}"
+  else
+    FAILED=$((FAILED + 1))
+    printf 'FAIL  %-13s %-11s %s\n' 'ppolicy' 'default' "could not read ${ATTR}"
+  fi
+}
+
 # The password policy of OpenLDAP (ppolicy). A user who goes around
 # passwd still meets the least length, and cannot store a hash, which
-# would hide the length.
+# would hide the length. The passwords are one short of the least length
+# and just that long, whatever .env sets; the policy checks nothing else
+# of them (no pwdCheckModule).
+MIN_LENGTH=$(policy_value pwdMinLength)
+check_policy_number pwdMinLength "${MIN_LENGTH}"
+PASS_POOL=$(printf 'Ab3-%.0s' {1..16})
+SHORT_PASS=${PASS_POOL:0:${MIN_LENGTH:-1}-1}
+MIN_PASS=${PASS_POOL:0:${MIN_LENGTH:-1}}
 AS_OPERATOR01='-x -H ldapi:/// -D "uid=operator01,ou=People,${SUFFIX}" -w '"'${PASS_OPERATOR}'"
 check_ldap 'min length' operator01 'Password fails quality checking policy' \
-  "ldappasswd ${AS_OPERATOR01} -s 'x9#Kq!v'"
+  "ldappasswd ${AS_OPERATOR01} -s '${SHORT_PASS}'"
+# If the policy took the short password after all, the password of the
+# test comes back, so that the checks after this fail for their own reasons
+"${COMPOSE[@]}" exec -T openldap sh -c "${LDAP_SUFFIX_SET}; ldappasswd ${AS_MANAGER} -s '${PASS_OPERATOR}' \"uid=operator01,ou=People,\${SUFFIX}\"" > /dev/null 2>&1
+# The least length goes through. The password of the test comes back
+# right after (the policy keeps no history), which the check of RADIUS
+# below shows.
+check_ldap 'min length' operator01 'took the least length' "
+  ldappasswd ${AS_OPERATOR01} -s '${MIN_PASS}' \\
+  && ldappasswd -x -H ldapi:/// -D \"uid=operator01,ou=People,\${SUFFIX}\" -w '${MIN_PASS}' -s '${PASS_OPERATOR}' \\
+  && echo 'took the least length'"
 check_ldap 'hashed' operator01 'Password fails quality checking policy' \
   "printf 'dn: uid=operator01,ou=People,%s\nchangetype: modify\nreplace: userPassword\nuserPassword: {SSHA}c21va2Vfc21va2Vfc21va2Vfc21va2U=\n' \"\${SUFFIX}\" | ldapmodify ${AS_OPERATOR01}"
 check 'min length' 127.0.0.1 operator01 "${PASS_OPERATOR}" Accept 'AVPair = "shell:priv-lvl=7"'
 
 # The lock. The failures come in over RADIUS and lock ssh as well.
 check_users 'users unlock' 'smoke01 is not locked' '' unlock smoke01
-MAX_FAILURE=$("${COMPOSE[@]}" exec -T openldap sh -c "${LDAP_SUFFIX_SET};"'
-  ldapsearch -Q -Y EXTERNAL -H ldapi:/// -LLL -b "cn=default,ou=Policies,${SUFFIX}" -s base pwdMaxFailure' \
-  2> /dev/null | awk '$1 == "pwdMaxFailure:" { print $2 }')
 # the lock below and the check of the service accounts count on it
-COUNT=$((COUNT + 1))
-if [[ "${MAX_FAILURE}" =~ ^[1-9][0-9]*$ ]]; then
-  printf 'ok    %-13s %-11s %s\n' 'ppolicy' 'default' "pwdMaxFailure ${MAX_FAILURE}"
-else
-  FAILED=$((FAILED + 1))
-  printf 'FAIL  %-13s %-11s %s\n' 'ppolicy' 'default' 'could not read pwdMaxFailure'
-fi
+MAX_FAILURE=$(policy_value pwdMaxFailure)
+check_policy_number pwdMaxFailure "${MAX_FAILURE}"
+# One failure short of the lock, the password still goes through, and
+# the success counts the failures from 0 again. The old password of
+# "users passwd" above still counts as a failure (unlock leaves the
+# count alone while there is no lock), so a success comes first.
+send_request 127.0.0.1 smoke01 "${NEW_PASS2}" > /dev/null
+for (( TRY = 1; TRY < ${MAX_FAILURE:-0}; TRY++ )); do
+  send_request 127.0.0.1 smoke01 wrong > /dev/null
+done
+check 'lock' 127.0.0.1 smoke01 "${NEW_PASS2}" Accept 'AVPair = "shell:priv-lvl=15"'
 for (( TRY = 1; TRY <= ${MAX_FAILURE:-0}; TRY++ )); do
   send_request 127.0.0.1 smoke01 wrong > /dev/null
 done
@@ -1081,23 +1326,6 @@ fi
 
 # nslcd has to find the restarted OpenLDAP again
 check_ssh 'ldap restart' admin01 "${PASS_ADMIN}" 'koitohan admin' 'id -Gn' < /dev/null
-
-# OUT is the output of what was run. EXPECT is a fixed string to find in it.
-function check_found() {
-  local NAME=${1}
-  local WHO=${2}
-  local EXPECT=${3}
-  local OUT=${4}
-
-  COUNT=$((COUNT + 1))
-  if grep -q -F -- "${EXPECT}" <<< "${OUT}"; then
-    printf 'ok    %-13s %-11s %s\n' "${NAME}" "${WHO}" "${EXPECT}"
-  else
-    FAILED=$((FAILED + 1))
-    printf 'FAIL  %-13s %-11s %s\n' "${NAME}" "${WHO}" "expected ${EXPECT}"
-    sed 's/^/      | /' <<< "${OUT}"
-  fi
-}
 
 # Backup and restore. A backup of the test stack, a change after it,
 # then openldap made again with empty volumes and the backup loaded into

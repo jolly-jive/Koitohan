@@ -13,6 +13,45 @@ authz_vendor_role {
         reject
     }
 
+    # A user in more than one role gets the weakest of them: each group
+    # is a level, higher for a weaker role (admin 100, operator 700,
+    # readonly 1500), and the highest one counts, so the order of the
+    # values of memberOf does not matter. A group that is not one of
+    # the roles is -1, below them all, and gives nothing: a user in such
+    # groups only is rejected as one in no group. The numbers are written
+    # out, here and in the switch below: unlang has no constants, and a
+    # case takes no variable.
+    result_priv_level := -1
+    foreach role_ou (control.LDAP-Group[*]) {
+        current_priv_level := -1
+        if (role_ou =~ /^cn=(\w+),ou=Roles/) {
+            switch %regex.match(1) {
+                case 'admin' {
+                    current_priv_level := 100
+                }
+                case 'operator' {
+                    current_priv_level := 700
+                }
+                case 'readonly' {
+                    current_priv_level := 1500
+                }
+                default {
+                    role_error := "unknown role: %regex.match(1)"
+                }
+            }
+        }
+        else {
+            role_error := "invalid role: %{role_ou}"
+        }
+        if (current_priv_level > result_priv_level) {
+            result_priv_level := current_priv_level
+        }
+    }
+    if (result_priv_level == -1) {
+        %log.warn("no role for '%{User-Name}': %{role_error}")
+        reject
+    }
+
     nas_type = %str.lower(%client('nas_type'))
 
     if nas_type =~ /^(cisco)/ {
@@ -45,40 +84,6 @@ authz_vendor_role {
     else {
         control.Koitohan-Reply-Type = ::IETF-MPL
         reply.Reply-Message := "unknown nas_type: '%client('nas_type')'"
-    }
-
-    # A user in more than one role gets the weakest of them: each group
-    # is a level, higher for a weaker role (admin 100, operator 700,
-    # readonly 1500), and the highest one counts, so the order of the
-    # values of memberOf does not matter. A group that is not one of
-    # the roles is -1, below them all: it counts only for a user in no
-    # role. The numbers are written out, here and in the switch below:
-    # unlang has no constants, and a case takes no variable.
-    result_priv_level := -1
-    foreach role_ou (control.LDAP-Group[*]) {
-        current_priv_level := -1
-        if (role_ou =~ /^cn=(\w+),ou=Roles/) {
-            switch %regex.match(1) {
-                case 'admin' {
-                    current_priv_level := 100
-                }
-                case 'operator' {
-                    current_priv_level := 700
-                }
-                case 'readonly' {
-                    current_priv_level := 1500
-                }
-                default {
-                    role_error := "unkown role: %regex.match(1)"
-                }
-            }
-        }
-        else {
-            role_error := "invalid role: %{role_ou}"
-        }
-        if (current_priv_level > result_priv_level) {
-            result_priv_level := current_priv_level
-        }
     }
 
     switch result_priv_level {
@@ -179,12 +184,6 @@ authz_vendor_role {
                     reply.Management-Privilege-Level := 1
                 }
             }
-        }
-
-        # in no role, but in some other group
-        default {
-            reply.Management-Privilege-Level := 1
-            reply.Reply-Message := role_error
         }
     }
 }

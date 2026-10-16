@@ -23,13 +23,30 @@ GENERATED_ROOT="${KOITOHAN_GENERATED_ROOT:-${ROOT_DIR}}"
 
 SYSLOG_NETWORKS="${GENERATED_ROOT}/syslog-ng/config/device_networks.conf"
 
+# An IPv4 address or prefix, in numbers that nft takes as well in the
+# other containers. syslog-ng takes anything that looks like one, such
+# as 10.0.0.0/33, and would run with a filter that nobody meant.
+function valid_network() {
+  local OCTET
+  local -a OCTETS
+
+  [[ "${1}" =~ ^[0-9]{1,3}(\.[0-9]{1,3}){3}(/[0-9]{1,2})?$ ]] || return 1
+  if [[ "${1}" == */* ]] && (( 10#${1#*/} > 32 )); then
+    return 1
+  fi
+  IFS=. read -r -a OCTETS <<< "${1%/*}"
+  for OCTET in "${OCTETS[@]}"; do
+    (( 10#${OCTET} <= 255 )) || return 1
+  done
+}
+
 read -r -a NETWORKS <<< "${DEVICE_NETWORKS}"
 if [[ ${#NETWORKS[@]} -eq 0 ]]; then
   echo "DEVICE_NETWORKS is empty. Set it in .env (see .env.sample)." >&2
   exit 1
 fi
 for NETWORK in "${NETWORKS[@]}"; do
-  if [[ ! "${NETWORK}" =~ ^[0-9]{1,3}(\.[0-9]{1,3}){3}(/[0-9]{1,2})?$ ]]; then
+  if ! valid_network "${NETWORK}"; then
     echo "DEVICE_NETWORKS has to be IPv4 addresses or prefixes separated by spaces: ${NETWORK}" >&2
     exit 1
   fi

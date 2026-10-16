@@ -40,13 +40,10 @@ services:
     container_name: !reset null
     volumes:
       # these keep the test out of syslog-ng/config and syslog-ng/log.
-      # An anonymous volume on /var/log would belong to root, and
-      # syslog-ng (uid 1000) could not write to it.
+      # The test makes tests/generated/syslog-ng/log/Hosts before the
+      # start, as make up does syslog-ng/log/Hosts, and openssh reads it.
       - /config
-      - type: tmpfs
-        target: /var/log
-        tmpfs:
-          mode: 0o1777
+      - ./tests/generated/syslog-ng/log:/var/log
       - ./syslog-ng/config/syslog-ng.conf:/config/syslog-ng.conf:ro
       - ./tests/generated/syslog-ng/config/device_networks.conf:/config/device_networks.conf:ro
     ports: !reset []
@@ -55,8 +52,11 @@ services:
   tftpd-hpa:
     container_name: !reset null
     volumes:
-      # empty volumes. The test puts the file to fetch into firmware.
-      - /tftpboot/firmware
+      # The test puts the file to fetch into firmware before the start.
+      # Read-only as in compose.yaml, which the test checks on its own.
+      - ./tests/generated/tftpboot/firmware:/tftpboot/firmware:ro
+      # an empty volume, which the test gives the ownership and the mode
+      # of configs on the Docker host (docs/tftp.md)
       - /tftpboot/configs
       # keeps the test out of tftpd-hpa/log
       - /var/log/tftpd
@@ -66,8 +66,9 @@ services:
   openssh:
     container_name: !reset null
     volumes:
+      # the logs that syslog-ng of the test stack writes, as in compose.yaml
+      - ./tests/generated/syslog-ng/log/Hosts:/logs/Hosts:ro
       # empty volumes with the ownership the image gives these directories
-      - /logs/Hosts
       - /tftpboot/configs
       - /tftpboot/firmware
       - ./tests/sshd_test.conf:/etc/ssh/sshd_config.d/test.conf:ro
