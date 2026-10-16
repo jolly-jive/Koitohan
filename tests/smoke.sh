@@ -1015,29 +1015,68 @@ check_users 'users passwd' 'set the password' "${NEW_PASS2}" passwd smoke01
 check_ssh 'users passwd' smoke01 "${NEW_PASS2}" 'koitohan admin' 'id -Gn' < /dev/null
 check_ssh 'users passwd' smoke01 "${NEW_PASS}" denied 'id -Gn' < /dev/null
 
+# an attribute of the default password policy
+function policy_value() {
+  "${COMPOSE[@]}" exec -T openldap sh -c "${LDAP_SUFFIX_SET};"'
+    ldapsearch -Q -Y EXTERNAL -H ldapi:/// -LLL -b "cn=default,ou=Policies,${SUFFIX}" -s base '"${1}" \
+    2> /dev/null | awk -v ATTR="${1}:" '$1 == ATTR { print $2 }'
+}
+
+# The checks below count on the values of the policy
+function check_policy_number() {
+  local ATTR=${1}
+  local VALUE=${2}
+
+  COUNT=$((COUNT + 1))
+  if [[ "${VALUE}" =~ ^[1-9][0-9]*$ ]]; then
+    printf 'ok    %-13s %-11s %s\n' 'ppolicy' 'default' "${ATTR} ${VALUE}"
+  else
+    FAILED=$((FAILED + 1))
+    printf 'FAIL  %-13s %-11s %s\n' 'ppolicy' 'default' "could not read ${ATTR}"
+  fi
+}
+
 # The password policy of OpenLDAP (ppolicy). A user who goes around
 # passwd still meets the least length, and cannot store a hash, which
-# would hide the length.
+# would hide the length. The passwords are one short of the least length
+# and just that long, whatever .env sets; the policy checks nothing else
+# of them (no pwdCheckModule).
+MIN_LENGTH=$(policy_value pwdMinLength)
+check_policy_number pwdMinLength "${MIN_LENGTH}"
+PASS_POOL=$(printf 'Ab3-%.0s' {1..16})
+SHORT_PASS=${PASS_POOL:0:${MIN_LENGTH:-1}-1}
+MIN_PASS=${PASS_POOL:0:${MIN_LENGTH:-1}}
 AS_OPERATOR01='-x -H ldapi:/// -D "uid=operator01,ou=People,${SUFFIX}" -w '"'${PASS_OPERATOR}'"
 check_ldap 'min length' operator01 'Password fails quality checking policy' \
-  "ldappasswd ${AS_OPERATOR01} -s 'x9#Kq!v'"
+  "ldappasswd ${AS_OPERATOR01} -s '${SHORT_PASS}'"
+# If the policy took the short password after all, the password of the
+# test comes back, so that the checks after this fail for their own reasons
+"${COMPOSE[@]}" exec -T openldap sh -c "${LDAP_SUFFIX_SET}; ldappasswd ${AS_MANAGER} -s '${PASS_OPERATOR}' \"uid=operator01,ou=People,\${SUFFIX}\"" > /dev/null 2>&1
+# The least length goes through. The password of the test comes back
+# right after (the policy keeps no history), which the check of RADIUS
+# below shows.
+check_ldap 'min length' operator01 'took the least length' "
+  ldappasswd ${AS_OPERATOR01} -s '${MIN_PASS}' \\
+  && ldappasswd -x -H ldapi:/// -D \"uid=operator01,ou=People,\${SUFFIX}\" -w '${MIN_PASS}' -s '${PASS_OPERATOR}' \\
+  && echo 'took the least length'"
 check_ldap 'hashed' operator01 'Password fails quality checking policy' \
   "printf 'dn: uid=operator01,ou=People,%s\nchangetype: modify\nreplace: userPassword\nuserPassword: {SSHA}c21va2Vfc21va2Vfc21va2Vfc21va2U=\n' \"\${SUFFIX}\" | ldapmodify ${AS_OPERATOR01}"
 check 'min length' 127.0.0.1 operator01 "${PASS_OPERATOR}" Accept 'AVPair = "shell:priv-lvl=7"'
 
 # The lock. The failures come in over RADIUS and lock ssh as well.
 check_users 'users unlock' 'smoke01 is not locked' '' unlock smoke01
-MAX_FAILURE=$("${COMPOSE[@]}" exec -T openldap sh -c "${LDAP_SUFFIX_SET};"'
-  ldapsearch -Q -Y EXTERNAL -H ldapi:/// -LLL -b "cn=default,ou=Policies,${SUFFIX}" -s base pwdMaxFailure' \
-  2> /dev/null | awk '$1 == "pwdMaxFailure:" { print $2 }')
 # the lock below and the check of the service accounts count on it
-COUNT=$((COUNT + 1))
-if [[ "${MAX_FAILURE}" =~ ^[1-9][0-9]*$ ]]; then
-  printf 'ok    %-13s %-11s %s\n' 'ppolicy' 'default' "pwdMaxFailure ${MAX_FAILURE}"
-else
-  FAILED=$((FAILED + 1))
-  printf 'FAIL  %-13s %-11s %s\n' 'ppolicy' 'default' 'could not read pwdMaxFailure'
-fi
+MAX_FAILURE=$(policy_value pwdMaxFailure)
+check_policy_number pwdMaxFailure "${MAX_FAILURE}"
+# One failure short of the lock, the password still goes through, and
+# the success counts the failures from 0 again. The old password of
+# "users passwd" above still counts as a failure (unlock leaves the
+# count alone while there is no lock), so a success comes first.
+send_request 127.0.0.1 smoke01 "${NEW_PASS2}" > /dev/null
+for (( TRY = 1; TRY < ${MAX_FAILURE:-0}; TRY++ )); do
+  send_request 127.0.0.1 smoke01 wrong > /dev/null
+done
+check 'lock' 127.0.0.1 smoke01 "${NEW_PASS2}" Accept 'AVPair = "shell:priv-lvl=15"'
 for (( TRY = 1; TRY <= ${MAX_FAILURE:-0}; TRY++ )); do
   send_request 127.0.0.1 smoke01 wrong > /dev/null
 done
