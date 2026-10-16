@@ -966,6 +966,7 @@ configs|admin01|${PASS_ADMIN}|written|touch /tftpboot/configs/smoke ${TOUCH}
 configs|operator01|${PASS_OPERATOR}|refused|ls /tftpboot/configs ${TOUCH}
 configs|readonly01|${PASS_READONLY}|refused|ls /tftpboot/configs ${TOUCH}
 logs|readonly01|${PASS_READONLY}|smoke LINK-3|zgrep -h LINK-3 /logs/Hosts/*/*.log-2026-10-10.gz
+logs|readonly01|${PASS_READONLY}|koitohan-smoke|cat /logs/Hosts/smoke-allowed/smoke-allowed.log
 CASES
 
 check_read_only openssh
