@@ -473,6 +473,67 @@ function syslog_count() {
   | awk -F ';' '$1 == "source" && $2 == "s_network" { print $6 }'
 }
 
+# A container started with a wrong value of the networks it takes has
+# to stop before it listens, and say why: the message tells this from a
+# start that fails for some other reason. One that starts after all is
+# stopped after a while, and removed either way.
+function check_bad_networks() {
+  local SERVICE=${1}
+  local VALUE=${2}
+  local EXPECT=${3}
+  local VARIABLE=DEVICE_NETWORKS
+  local NAME="koitohan-test-networks-${SERVICE}"
+  local OUT RC WHY=''
+
+  [[ "${SERVICE}" == 'openssh' ]] && VARIABLE=OPENSSH_ALLOWED_NETWORKS
+  OUT=$(timeout 30 "${COMPOSE[@]}" run --rm --no-deps -T --name "${NAME}" \
+          -e "${VARIABLE}=${VALUE}" "${SERVICE}" 2>&1 < /dev/null)
+  RC=$?
+  docker rm -f "${NAME}" > /dev/null 2>&1
+  if [[ ${RC} -eq 0 || ${RC} -eq 124 ]]; then
+    WHY='expected the container to stop'
+  elif ! grep -q -F -- "${EXPECT}" <<< "${OUT}"; then
+    WHY="expected ${EXPECT}"
+  fi
+
+  COUNT=$((COUNT + 1))
+  if [[ -z "${WHY}" ]]; then
+    printf 'ok    %-13s %-11s %s\n' 'bad networks' "${SERVICE}" "'${VALUE}': ${EXPECT}"
+  else
+    FAILED=$((FAILED + 1))
+    printf 'FAIL  %-13s %-11s %s\n' 'bad networks' "${SERVICE}" "'${VALUE}': ${WHY}"
+    tail -n 5 <<< "${OUT}" | sed 's/^/      | /'
+  fi
+}
+
+# The same for the filter of syslog-ng, which the script writes on the
+# Docker host: syslog-ng itself takes what looks like a network. The
+# file has to stay as it was, and is put back if not.
+function check_bad_generated() {
+  local VALUE=${1}
+  local FILE="${KOITOHAN_GENERATED_ROOT}/syslog-ng/config/device_networks.conf"
+  local BEFORE OUT WHY=''
+
+  BEFORE=$(< "${FILE}")
+  if OUT=$(DEVICE_NETWORKS="${VALUE}" scripts/generate_device_networks.sh 2>&1); then
+    WHY='expected the script to fail'
+  elif ! grep -q -F 'has to be IPv4' <<< "${OUT}"; then
+    WHY='expected has to be IPv4'
+  elif [[ "$(< "${FILE}")" != "${BEFORE}" ]]; then
+    WHY='expected device_networks.conf to stay'
+  fi
+  [[ "$(< "${FILE}")" == "${BEFORE}" ]] || printf '%s\n' "${BEFORE}" > "${FILE}"
+
+  COUNT=$((COUNT + 1))
+  if [[ -z "${WHY}" ]]; then
+    printf 'ok    %-13s %-11s %s\n' 'bad networks' 'syslog-ng' "'${VALUE}': has to be IPv4"
+  else
+    FAILED=$((FAILED + 1))
+    printf 'FAIL  %-13s %-11s %s\n' 'bad networks' 'syslog-ng' "'${VALUE}': ${WHY}"
+    sed 's/^/      | /' <<< "${OUT}"
+  fi
+}
+
 # Sends a syslog message from the Docker host to the address of the
 # container. EXPECT is 'received' or 'dropped'. syslog-ng says nothing
 # about a message it drops, so a message counts as dropped only when
@@ -930,6 +991,16 @@ fi
 check_radius_networks other 'timed out'
 check_syslog_networks other 'dropped'
 check_tftp_networks other 'timed out'
+
+# Values of the networks that nothing may start with
+for SERVICE in freeradius tftpd-hpa openssh; do
+  check_bad_networks "${SERVICE}" '' 'is empty'
+  check_bad_networks "${SERVICE}" example.com 'must be IPv4'
+  check_bad_networks "${SERVICE}" 10.0.0.0/33 'Error: Prefix length 33 is invalid'
+done
+for VALUE in example.com 10.0.0.0/33 999.0.0.0/8; do
+  check_bad_generated "${VALUE}"
+done
 
 if ! wait_ssh_ready; then
   echo 'the openssh container did not become ready'
