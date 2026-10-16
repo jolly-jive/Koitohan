@@ -955,6 +955,8 @@ none|127.0.0.9|operator01|Accept|-
 none|127.0.0.9|readonly01|Accept|-
 none|127.0.0.9|norole01|Reject|-
 unknown|127.0.0.10|admin01|Accept|Management-Privilege-Level = 15
+unknown|127.0.0.10|operator01|Accept|Management-Privilege-Level = 7
+unknown|127.0.0.10|readonly01|Accept|Management-Privilege-Level = 1
 unknown|127.0.0.10|readonly01|Accept|unknown nas_type: 'bogus'
 unknown|127.0.0.10|norole01|Reject|-
 cisco|127.0.0.1|other01|Reject|-
