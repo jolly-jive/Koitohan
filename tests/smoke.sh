@@ -535,13 +535,16 @@ function check_bad_generated() {
 }
 
 # Sends a syslog message from the Docker host to the address of the
-# container. EXPECT is 'received' or 'dropped'. syslog-ng says nothing
-# about a message it drops, so a message counts as dropped only when
-# syslog-ng has taken it in and has not written it: one that never got
-# there says nothing about the filter.
+# container, over PROTO ('udp', the default, or 'tcp'). EXPECT is
+# 'received' or 'dropped'. syslog-ng says nothing about a message it
+# drops, so a message counts as dropped only when syslog-ng has taken it
+# in and has not written it: one that never got there says nothing about
+# the filter. The filter is in syslog-ng, so over TCP the connection is
+# made either way.
 function check_syslog_networks() {
   local NAME=${1}
   local EXPECT=${2}
+  local PROTO=${3:-udp}
   local LOG="/var/log/Hosts/smoke-${NAME}/smoke-${NAME}.log"
   local ADDR TRY BEFORE='' AFTER='' GOT='dropped' WHY=''
 
@@ -556,7 +559,8 @@ function check_syslog_networks() {
     WHY='syslog-ng did not start'
   elif [[ -z "${ADDR}" ]]; then
     WHY='could not find the address of syslog-ng'
-  elif ! echo "<134>Jan  1 00:00:00 smoke-${NAME} smoke: koitohan-smoke" > "/dev/udp/${ADDR}/1514"; then
+  elif ! echo "<134>Jan  1 00:00:00 smoke-${NAME} smoke: koitohan-smoke" 2> /dev/null \
+           > "/dev/${PROTO}/${ADDR}/1514"; then
     WHY='could not send the message'
   else
     for TRY in 1 2 3 4 5; do
@@ -580,7 +584,7 @@ function check_syslog_networks() {
 
   COUNT=$((COUNT + 1))
   if [[ -z "${WHY}" ]]; then
-    printf 'ok    %-13s %-11s %s\n' 'networks' "${NAME}" "syslog ${EXPECT}"
+    printf 'ok    %-13s %-11s %s\n' 'networks' "${NAME}" "syslog/${PROTO} ${EXPECT}"
   else
     FAILED=$((FAILED + 1))
     printf 'FAIL  %-13s %-11s %s\n' 'networks' "${NAME}" "${WHY}"
@@ -975,6 +979,7 @@ check_tls tls1_2 refused
 # test come from the loopback, which FreeRADIUS always allows.
 check_radius_networks allowed 'Accept'
 check_syslog_networks allowed 'received'
+check_syslog_networks allowed-tcp 'received' tcp
 check_tftp_networks allowed 'koitohan-smoke'
 check_tftp_log
 check_tftp_uploads
@@ -990,6 +995,7 @@ if ! wait_ready; then
 fi
 check_radius_networks other 'timed out'
 check_syslog_networks other 'dropped'
+check_syslog_networks other-tcp 'dropped' tcp
 check_tftp_networks other 'timed out'
 
 # Values of the networks that nothing may start with
