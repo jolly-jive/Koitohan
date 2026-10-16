@@ -260,6 +260,26 @@ function check_secrets() {
   fi
 }
 
+# The root file system of SERVICE is read-only (read_only: true). root
+# writes there, so nothing but the mount can stop it.
+function check_read_only() {
+  local SERVICE=${1}
+  local OUT WHY=''
+
+  OUT=$("${COMPOSE[@]}" exec -T "${SERVICE}" sh -c '
+    touch /koitohan-smoke; rm -f /koitohan-smoke' 2>&1)
+  grep -q -F 'Read-only file system' <<< "${OUT}" || WHY='expected a read-only file system'
+
+  COUNT=$((COUNT + 1))
+  if [[ -z "${WHY}" ]]; then
+    printf 'ok    %-13s %-11s %s\n' 'root fs' "${SERVICE}" 'read-only'
+  else
+    FAILED=$((FAILED + 1))
+    printf 'FAIL  %-13s %-11s %s\n' 'root fs' "${SERVICE}" "${WHY}"
+    sed 's/^/      | /' <<< "${OUT}"
+  fi
+}
+
 # Runs bin/manage_users.sh against the test stack. EXPECT is a fixed
 # string to find in the output. INPUT is the password it reads.
 function check_users() {
@@ -820,8 +840,10 @@ configs|admin01|${PASS_ADMIN}|written|touch /tftpboot/configs/smoke ${TOUCH}
 configs|operator01|${PASS_OPERATOR}|refused|ls /tftpboot/configs ${TOUCH}
 configs|readonly01|${PASS_READONLY}|refused|ls /tftpboot/configs ${TOUCH}
 logs|readonly01|${PASS_READONLY}|smoke LINK-3|zgrep -h LINK-3 /logs/Hosts/*/*.log-2026-10-10.gz
-root fs|admin01|${PASS_ADMIN}|refused|touch /smoke ${TOUCH}
 CASES
+
+check_read_only openssh
+check_read_only openldap
 
 check_secrets admin01 "${PASS_ADMIN}"
 check_secrets operator01 "${PASS_OPERATOR}"
