@@ -818,18 +818,29 @@ add_role_by_hand smoke01 readonly
 check 'three roles' 127.0.0.1 smoke01 "${NEW_PASS}" Accept 'AVPair = "shell:priv-lvl=1"'
 check_ssh 'three roles' smoke01 "${NEW_PASS}" 'koitohan readonly' 'id -Gn' < /dev/null
 
-# the session that is open has to end with the change of the role
-ssh_run smoke01 "${NEW_PASS}" 'sleep 30' < /dev/null > /dev/null &
-sleep 3
+# The session that is open has to end with the change of the role. A
+# session that never got in ends quickly as well, so the role changes
+# only once the session has said that it runs.
+SESSION_OUT="${KOITOHAN_GENERATED_ROOT}/session.out"
+ssh_run smoke01 "${NEW_PASS}" 'echo started; sleep 30' < /dev/null > "${SESSION_OUT}" &
+SESSION_PID=$!
+for (( TRY = 1; TRY <= WAIT_TRIES; TRY++ )); do
+  grep -q -x started "${SESSION_OUT}" && break
+  sleep 1
+done
+WHY=''
+grep -q -x started "${SESSION_OUT}" || WHY='the session did not start'
 check_users 'users role' 'smoke01 is admin now' '' role smoke01 admin
 SECONDS=0
-wait
+wait "${SESSION_PID}"
+[[ -z "${WHY}" && ${SECONDS} -ge 10 ]] && WHY='expected the session to be cut'
 COUNT=$((COUNT + 1))
-if [[ ${SECONDS} -lt 10 ]]; then
+if [[ -z "${WHY}" ]]; then
   printf 'ok    %-13s %-11s %s\n' 'users role' smoke01 'session cut'
 else
   FAILED=$((FAILED + 1))
-  printf 'FAIL  %-13s %-11s %s\n' 'users role' smoke01 'expected the session to be cut'
+  printf 'FAIL  %-13s %-11s %s\n' 'users role' smoke01 "${WHY}"
+  sed 's/^/      | /' "${SESSION_OUT}"
 fi
 check_ssh 'users role' smoke01 "${NEW_PASS}" 'koitohan admin' 'id -Gn' < /dev/null
 
