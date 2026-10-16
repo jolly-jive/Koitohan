@@ -624,6 +624,89 @@ function check_tftp_log() {
   fi
 }
 
+# OUT is the output of what was run. EXPECT is a fixed string to find in it.
+function check_found() {
+  local NAME=${1}
+  local WHO=${2}
+  local EXPECT=${3}
+  local OUT=${4}
+
+  COUNT=$((COUNT + 1))
+  if grep -q -F -- "${EXPECT}" <<< "${OUT}"; then
+    printf 'ok    %-13s %-11s %s\n' "${NAME}" "${WHO}" "${EXPECT}"
+  else
+    FAILED=$((FAILED + 1))
+    printf 'FAIL  %-13s %-11s %s\n' "${NAME}" "${WHO}" "expected ${EXPECT}"
+    sed 's/^/      | /' <<< "${OUT}"
+  fi
+}
+
+# what tftpd-hpa holds as PATH under /tftpboot: owner, mode, size and
+# checksum, or 'missing'
+function tftp_stored() {
+  "${COMPOSE[@]}" exec -T tftpd-hpa sh -c "
+    F=/tftpboot/${1}
+    if [ -e \"\${F}\" ]; then
+      echo \"\$(stat -c '%u:%g %a %s' \"\${F}\") \$(md5sum < \"\${F}\" | cut -d ' ' -f 1)\"
+    else
+      echo missing
+    fi" 2>&1
+}
+
+# what tftpd-hpa has to hold of the first SIZE bytes of FILE: written by
+# in.tftpd (1000) into configs (10001, setgid) with --umask 022
+function tftp_expected() {
+  echo "1000:10001 644 ${2} $(head -c "${2}" "${1}" | md5sum | cut -d ' ' -f 1)"
+}
+
+# Uploads from the Docker host, as the devices back up their
+# configurations: to configs, which keeps what comes, also over a file
+# of the same name, and only up to the limit on the size; and to
+# firmware, which takes nothing. The test stack mounts a firmware of its
+# own, so the mount of compose.yaml is looked at as well.
+function check_tftp_uploads() {
+  local DIR="${KOITOHAN_GENERATED_ROOT}/upload"
+  local ADDR OUT FILE
+
+  mkdir -p "${DIR}"
+  head -c 1000 /dev/urandom > "${DIR}/first"
+  head -c 300 /dev/urandom > "${DIR}/second"
+  head -c "${TFTP_MAX_BYTES}" /dev/urandom > "${DIR}/max"
+  head -c $((TFTP_MAX_BYTES + 1)) /dev/urandom > "${DIR}/over"
+  ADDR=$(address_of tftpd-hpa)
+
+  # a new file, then a shorter one over it, which has to cut it short
+  for FILE in first second; do
+    OUT=$(curl -s -S -m 5 -T "${DIR}/${FILE}" "tftp://${ADDR}/configs/smoke-upload.cfg" 2>&1)
+    check_found 'tftp upload' "${FILE}" \
+      "$(tftp_expected "${DIR}/${FILE}" "$(stat -c %s "${DIR}/${FILE}")")" \
+      "$(tftp_stored configs/smoke-upload.cfg) ${OUT}"
+  done
+
+  # The limit itself goes through. One byte over it times out and leaves
+  # what fits.
+  OUT=$(curl -s -S -m 5 -T "${DIR}/max" "tftp://${ADDR}/configs/smoke-max.cfg" 2>&1)
+  check_found 'tftp upload' 'limit' "$(tftp_expected "${DIR}/max" "${TFTP_MAX_BYTES}")" \
+    "$(tftp_stored configs/smoke-max.cfg) ${OUT}"
+  OUT=$(curl -s -S -m 5 -T "${DIR}/over" "tftp://${ADDR}/configs/smoke-over.cfg" 2>&1)
+  check_found 'tftp upload' 'over limit' "$(tftp_expected "${DIR}/over" "${TFTP_MAX_BYTES}")" \
+    "$(tftp_stored configs/smoke-over.cfg) ${OUT}"
+
+  # tftpd-hpa has to answer with an error: no file and no answer at all
+  # would look the same
+  OUT=$(curl -s -S -m 5 -T "${DIR}/first" "tftp://${ADDR}/firmware/smoke-upload.bin" 2>&1)
+  [[ "$(tftp_stored firmware/smoke-upload.bin)" == 'missing' ]] \
+    && grep -q -F 'TFTP: ' <<< "${OUT}" && OUT='refused'
+  check_found 'tftp upload' 'firmware' 'refused' "${OUT}"
+
+  OUT=$(docker compose -f compose.yaml config 2>&1 | awk '
+    /^  [^ ]/ { SERVICE = $1 }
+    $1 == "-" { TARGET = "" }
+    SERVICE == "tftpd-hpa:" && $1 == "target:" { TARGET = $2 }
+    TARGET == "/tftpboot/firmware" && $1 == "read_only:" { print "read_only " $2; exit }')
+  check_found 'tftp upload' 'compose' 'read_only true' "${OUT}"
+}
+
 # OpenLDAP takes TLS 1.3 and nothing older. The handshake comes from
 # the Docker host, with the client certificate of FreeRADIUS. A refusal
 # has to be the alert for the version: a handshake that fails for any
@@ -806,6 +889,7 @@ check_radius_networks allowed 'Accept'
 check_syslog_networks allowed 'received'
 check_tftp_networks allowed 'koitohan-smoke'
 check_tftp_log
+check_tftp_uploads
 if ! { DEVICE_NETWORKS="${OTHER_NETWORKS}" scripts/generate_device_networks.sh \
        && DEVICE_NETWORKS="${OTHER_NETWORKS}" "${COMPOSE[@]}" up -d --force-recreate freeradius syslog-ng tftpd-hpa > /dev/null 2>&1; }; then
   echo 'could not make freeradius, syslog-ng and tftpd-hpa again'
@@ -1094,23 +1178,6 @@ fi
 
 # nslcd has to find the restarted OpenLDAP again
 check_ssh 'ldap restart' admin01 "${PASS_ADMIN}" 'koitohan admin' 'id -Gn' < /dev/null
-
-# OUT is the output of what was run. EXPECT is a fixed string to find in it.
-function check_found() {
-  local NAME=${1}
-  local WHO=${2}
-  local EXPECT=${3}
-  local OUT=${4}
-
-  COUNT=$((COUNT + 1))
-  if grep -q -F -- "${EXPECT}" <<< "${OUT}"; then
-    printf 'ok    %-13s %-11s %s\n' "${NAME}" "${WHO}" "${EXPECT}"
-  else
-    FAILED=$((FAILED + 1))
-    printf 'FAIL  %-13s %-11s %s\n' "${NAME}" "${WHO}" "expected ${EXPECT}"
-    sed 's/^/      | /' <<< "${OUT}"
-  fi
-}
 
 # Backup and restore. A backup of the test stack, a change after it,
 # then openldap made again with empty volumes and the backup loaded into
