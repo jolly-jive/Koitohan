@@ -131,6 +131,7 @@ services:
       SERVICE_ACCOUNT_NAME: "${OPENSSH_SERVICE_ACCOUNT_NAME}"
       PASSWDQC_MIN: "${PASSWDQC_MIN}"
       OPENSSH_ALLOWED_NETWORKS: "${OPENSSH_ALLOWED_NETWORKS}"
+      OPENSSH_EGRESS: "${OPENSSH_EGRESS}"
     volumes:
       - ./CA/default-ca.pem:/etc/koitohan/certs/ca.crt:ro
       - ./CA/openssh_client.crt:/etc/koitohan/certs/client.crt:ro
@@ -157,8 +158,9 @@ services:
     mem_limit: 256m
     memswap_limit: 256m
     cpus: 1.0
-    # the entrypoint filters the packets by their source, then gives this
-    # up before it starts sshd
+    # the entrypoint filters the packets by their source and, with
+    # OPENSSH_EGRESS=ldaps, by where they go, then gives this up before it
+    # starts sshd
     cap_add:
       - NET_ADMIN
     security_opt:

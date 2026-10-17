@@ -50,6 +50,29 @@ The container sees a connection from the Docker host itself as coming from the g
 
 Apply a change with `make up` (the OpenSSH container is made again, and the sessions that are logged in are closed).
 
+## Connections out of the container
+
+`OPENSSH_EGRESS` decides where the logged-in users can connect to from the OpenSSH container.
+
+| Value                            | Where the users can connect to                        | Port forwarding                                        |
+| -------------------------------- | ----------------------------------------------------- | ------------------------------------------------------ |
+| `ldaps` (the value in `.env.sample`) | OpenLDAP (636/tcp) only                           | Not available                                          |
+| `any`                            | Anywhere (the devices, the Docker host, the internet) | Local forwarding only (`ssh -J`, `ssh -L`)             |
+
+The container does not start when the value is empty or anything else. The same goes when `.env` does not have the variable.
+
+Even with `ldaps`, names are looked up through the DNS of Docker, so outside names can be looked up as well.
+
+`any` is for using the OpenSSH container as a jump host to the devices. Keep the following in mind.
+
+- If you keep the networks of the terminals (`OPENSSH_ALLOWED_NETWORKS`) apart from the networks of the devices, every user who can log in reaches the networks of the devices through this container. The roles make no difference.
+- The users also reach the ports of the Docker host itself, such as the host's own sshd.
+- Remote forwarding (`ssh -R`), agent forwarding, X11 forwarding and tunnels are not available with either value.
+
+Port forwarding is not turned off with `any` because it would not help: `nc` and the like do the same.
+
+Apply a change with `make up` (the OpenSSH container is made again, and the sessions that are logged in are closed).
+
 ## Enabling the memory limit (optional)
 
 The OpenSSH container has limits on the number of processes, memory and CPU. The memory limit works only when the memory controller of cgroup is enabled on the Docker host. Raspberry Pi OS disables it by default, and `docker info` warns `No memory limit support`.

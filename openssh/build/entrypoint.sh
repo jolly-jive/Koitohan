@@ -16,6 +16,33 @@ if [ "${1:-}" != filtered ]; then
     exit 1
   fi
 
+  # ldaps lets the users reach nothing but LDAPS on the network of the
+  # container, which is where OpenLDAP is. any leaves the way out open.
+  case "${OPENSSH_EGRESS:-}" in
+    ldaps)
+      # the subnet that Docker gave the network, so that the address of
+      # OpenLDAP need not be fixed
+      subnets=$(ip -4 route show scope link | awk '{ print $1 }' | paste -s -d , -)
+      if [ -z "$subnets" ]; then
+        echo 'the container has no network to reach OpenLDAP on' >&2
+        exit 1
+      fi
+      output_chain="chain output {
+		type filter hook output priority filter; policy drop;
+		oif \"lo\" accept
+		ct state established,related accept
+		ip daddr { $subnets } tcp dport 636 accept
+	}"
+      ;;
+    any)
+      output_chain=''
+      ;;
+    *)
+      echo "OPENSSH_EGRESS must be ldaps or any: ${OPENSSH_EGRESS:-}" >&2
+      exit 1
+      ;;
+  esac
+
   # the replies from OpenLDAP pass as established, and the embedded DNS of
   # Docker as loopback. The table is inet, so this drops IPv6 as well.
   nft -f - <<EOF
@@ -26,6 +53,7 @@ table inet koitohan {
 		ct state established,related accept
 		ip saddr { $networks } tcp dport 22 accept
 	}
+	$output_chain
 }
 EOF
 
@@ -86,6 +114,15 @@ tls_key ${NSLCD_CERT_DIR}/client.key
 filter passwd (objectClass=posixAccount)
 nss_min_uid 10000
 EOF
+
+# Forwarding goes out from sshd, which the filter holds anyway. With any
+# it saves the users a nc on the way to a device (ssh -J); the forwarding
+# that listens or carries more than one port stays off.
+if [ "${OPENSSH_EGRESS}" = any ]; then
+  echo 'AllowTcpForwarding local' > "${RUN_DIR}/sshd_forwarding.conf"
+else
+  echo 'AllowTcpForwarding no' > "${RUN_DIR}/sshd_forwarding.conf"
+fi
 
 echo "min=${PASSWDQC_MIN}" > "${RUN_DIR}/passwdqc.conf"
 # an error in the config goes to stderr. The verdict (stdout) is ignored.
