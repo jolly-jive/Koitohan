@@ -37,7 +37,7 @@ ssh -p 2222 alice@<host>
 
 - There are no home directories. Give the paths in the working environment as absolute paths to `scp` and `sftp`.
 - You can write only where the table below says "read and write".
-- Port forwarding is not available.
+- Whether you can connect from the working environment to other hosts, such as the devices, depends on how the Koitohan administrators set it up. If you can, local port forwarding (`ssh -J`, `ssh -L`) is available as well. Other kinds of forwarding are not.
 
 | Path                  | Content                              | admin          | operator       | readonly       |
 | --------------------- | ------------------------------------ | -------------- | -------------- | -------------- |

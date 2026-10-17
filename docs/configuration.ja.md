@@ -21,6 +21,7 @@
 | `OPENSSH_PORT`                        | SSH を公開する Docker ホストのポート番号。ホスト自身の sshd とは別の番号にします。    |
 | `OPENSSH_SUBNET`                      | OpenSSH と OpenLDAP だけをつなぐ Docker ネットワークのサブネット(CIDR 表記)。         |
 | `OPENSSH_ALLOWED_NETWORKS`            | SSH の接続を受け付ける送信元のネットワーク。「[SSH の接続元](ssh.ja.md#ssh-の接続元)」を参照。 |
+| `OPENSSH_EGRESS`                      | OpenSSH のコンテナからユーザーが接続できる先。`ldaps` か `any`。「[コンテナから外への接続](ssh.ja.md#コンテナから外への接続)」を参照。 |
 | `OPENSSH_SERVICE_ACCOUNT_NAME`        | OpenSSH のコンテナがディレクトリの検索に使うアカウント。                              |
 | `PASSWDQC_MIN`                        | `passwd` が受け付けるパスワードの最小の長さ。「[パスワードの規則](ssh.ja.md#パスワードの規則)」を参照。 |
 | `PPOLICY_MIN_LENGTH`                  | OpenLDAP が受け付けるパスワードの最小の長さ。「[パスワードポリシー](#パスワードポリシー)」を参照。 |

@@ -9,7 +9,8 @@
 # type and role, then that the detail logs survive a rotation, then
 # that FreeRADIUS, syslog-ng and tftpd-hpa take nothing from outside the
 # networks of the devices, and that tftpd-hpa records a transfer in a file, then
-# logs in over ssh as each role, then manages a user
+# logs in over ssh as each role and checks where the users can connect
+# to from there, then manages a user
 # with bin/manage_users.sh, then runs into the password policy of
 # OpenLDAP, then changes the passwords of the service accounts and of
 # the administrators of OpenLDAP, then takes a backup and restores it
@@ -39,6 +40,9 @@ OTHER_NETWORKS='192.0.2.0/24'
 export DEVICE_NETWORKS="${ALLOWED_NETWORKS}"
 # the same for the networks of the terminals: ssh goes from the Docker host
 export OPENSSH_ALLOWED_NETWORKS="${ALLOWED_NETWORKS}"
+# the users of ssh reach only OpenLDAP, as .env.sample has it. One check
+# opens the way out.
+export OPENSSH_EGRESS='ldaps'
 # the limit on the size of an upload, small enough to reach over TFTP
 # in a moment
 TFTP_MAX_BYTES=65536
@@ -47,6 +51,7 @@ WAIT_TRIES=40
 
 function cleanup() {
   rm -f "${ASKPASS}"
+  docker rm -f "${EGRESS_NAME}" > /dev/null 2>&1
   if [[ -n "${KEEP}" ]]; then
     echo "test stack left up: ${COMPOSE[*]} down -v && rm -rf tests/generated"
   else
@@ -196,6 +201,48 @@ function ssh_run() {
 
   SSH_TEST_PASS="${PASS}" SSH_ASKPASS="${ASKPASS}" SSH_ASKPASS_REQUIRE=force \
   ssh "${SSH_OPTS[@]}" "${USER}@${SSH_ADDR}" "$@" 2>&1
+}
+
+# A container on the network of openssh, the only one there besides
+# OpenLDAP, that answers on a port of TCP. The users of ssh reach it or
+# not, as OPENSSH_EGRESS says.
+EGRESS_NAME='koitohan-test-egress'
+EGRESS_PORT=8080
+EGRESS_REPLY='koitohan-egress'
+
+function start_egress_target() {
+  # not compose run, whose container would count as one of openssh
+  docker run -d --rm --name "${EGRESS_NAME}" --network koitohan-test_openssh \
+    --entrypoint nc koitohan/openssh -lk -p ${EGRESS_PORT} -e echo "${EGRESS_REPLY}" > /dev/null 2>&1 || return 1
+  EGRESS_ADDR=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' \
+    "${EGRESS_NAME}" 2> /dev/null)
+  [[ -n "${EGRESS_ADDR}" ]]
+}
+
+# Reaches the target over TCP and ICMP from the shell, and over the
+# forwarding of sshd (ssh -W, as ssh -J does). EXPECT is 'reached' or
+# 'blocked'. The forwarding is turned away by sshd when blocked, before
+# the filter would drop it.
+function check_egress() {
+  local EXPECT=${1}
+  local OUT WHY=''
+  local SHOW="&& echo reached || echo blocked"
+
+  check_ssh 'egress tcp' admin01 "${PASS_ADMIN}" "${EXPECT}" \
+    "nc -w 3 ${EGRESS_ADDR} ${EGRESS_PORT} 2> /dev/null | grep -q ${EGRESS_REPLY} ${SHOW}" < /dev/null
+  check_ssh 'egress icmp' admin01 "${PASS_ADMIN}" "${EXPECT}" \
+    "ping -c 1 -W 3 ${EGRESS_ADDR} > /dev/null 2>&1 ${SHOW}" < /dev/null
+
+  # the reason of a refused forwarding shows from INFO on. The first
+  # value wins, so this comes before SSH_OPTS.
+  OUT=$(SSH_TEST_PASS="${PASS_ADMIN}" SSH_ASKPASS="${ASKPASS}" SSH_ASKPASS_REQUIRE=force \
+        timeout 20 ssh -o LogLevel=INFO "${SSH_OPTS[@]}" -W "${EGRESS_ADDR}:${EGRESS_PORT}" "admin01@${SSH_ADDR}" 2>&1 < /dev/null)
+  if [[ "${EXPECT}" == 'reached' ]]; then
+    grep -q -F "${EGRESS_REPLY}" <<< "${OUT}" || WHY="expected ${EGRESS_REPLY}"
+  elif ! grep -q -F 'administratively prohibited' <<< "${OUT}"; then
+    WHY='expected administratively prohibited'
+  fi
+  report 'egress forwarding' admin01 "${EXPECT}" "${WHY}" "${OUT}"
 }
 
 # sshd starts once the container has read the users from OpenLDAP
@@ -424,15 +471,15 @@ function syslog_count() {
 # to stop before it listens, and say why: the message tells this from a
 # start that fails for some other reason. One that starts after all is
 # stopped after a while, and removed either way.
-function check_bad_networks() {
-  local SERVICE=${1}
-  local VALUE=${2}
-  local EXPECT=${3}
-  local VARIABLE=DEVICE_NETWORKS
+function check_bad_value() {
+  local CHECK=${1}
+  local VARIABLE=${2}
+  local SERVICE=${3}
+  local VALUE=${4}
+  local EXPECT=${5}
   local NAME="koitohan-test-networks-${SERVICE}"
   local OUT RC WHY=''
 
-  [[ "${SERVICE}" == 'openssh' ]] && VARIABLE=OPENSSH_ALLOWED_NETWORKS
   OUT=$(timeout 30 "${COMPOSE[@]}" run --rm --no-deps -T --name "${NAME}" \
           -e "${VARIABLE}=${VALUE}" "${SERVICE}" 2>&1 < /dev/null)
   RC=$?
@@ -443,7 +490,14 @@ function check_bad_networks() {
     WHY="expected ${EXPECT}"
   fi
   [[ -n "${WHY}" ]] && WHY="'${VALUE}': ${WHY}"
-  report 'bad networks' "${SERVICE}" "'${VALUE}': ${EXPECT}" "${WHY}" "$(tail -n 5 <<< "${OUT}")"
+  report "${CHECK}" "${SERVICE}" "'${VALUE}': ${EXPECT}" "${WHY}" "$(tail -n 5 <<< "${OUT}")"
+}
+
+function check_bad_networks() {
+  local VARIABLE=DEVICE_NETWORKS
+
+  [[ "${1}" == 'openssh' ]] && VARIABLE=OPENSSH_ALLOWED_NETWORKS
+  check_bad_value 'bad networks' "${VARIABLE}" "$@"
 }
 
 # The same for the filter of syslog-ng, which the script writes on the
@@ -897,6 +951,9 @@ done
 for VALUE in example.com 10.0.0.0/33 999.0.0.0/8; do
   check_bad_generated "${VALUE}"
 done
+for VALUE in '' none; do
+  check_bad_value 'bad egress' OPENSSH_EGRESS openssh "${VALUE}" 'must be ldaps or any'
+done
 
 if ! wait_ssh_ready; then
   echo 'the openssh container did not become ready'
@@ -938,6 +995,12 @@ CASES
 
 check_read_only openssh
 check_read_only openldap
+
+if ! start_egress_target; then
+  echo 'could not start the target of the egress checks'
+  exit 1
+fi
+check_egress blocked
 
 check_secrets admin01 "${PASS_ADMIN}"
 check_secrets operator01 "${PASS_OPERATOR}"
@@ -1129,9 +1192,17 @@ fi
 check 'service pass' 127.0.0.1 operator01 "${PASS_OPERATOR}" Accept 'AVPair = "shell:priv-lvl=7"'
 check_ldap 'service pass' 'old' 'Invalid credentials' \
   "ldapwhoami -x -H ldapi:/// -D \"uid=${FREERADIUS_ACCOUNT},ou=ServiceAccounts,\${SUFFIX}\" -w '${OLD_FREERADIUS}'"
-# The limit on the source of ssh. The container is made again for
-# another network, and the change of the password that follows makes it
-# once more, for the networks of the test.
+# The way out of the openssh container, opened. The limit on the source
+# of ssh that follows makes the container again with OPENSSH_EGRESS of
+# the test, then the change of the password makes it once more, for the
+# networks of the test. Keep the three in this order.
+OPENSSH_EGRESS=any "${COMPOSE[@]}" up -d --force-recreate openssh > /dev/null 2>&1
+if ! wait_ssh_ready; then
+  echo 'the openssh container did not become ready with OPENSSH_EGRESS=any'
+  "${COMPOSE[@]}" logs --tail 30 openssh
+  exit 1
+fi
+check_egress reached
 check_ssh_other_network
 check_service_password openssh 'recreated openssh'
 # the new container has another address
