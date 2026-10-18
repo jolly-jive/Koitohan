@@ -204,58 +204,98 @@ function ssh_run() {
 }
 
 # A container on the network of openssh, the only one there besides
-# OpenLDAP, that answers on EGRESS_PORT and on 514 of TCP. The users of
-# ssh reach it or not, as OPENSSH_EGRESS says.
+# OpenLDAP, that answers on 22, EGRESS_PORT and 514 of TCP. The users of
+# ssh reach it or not, as OPENSSH_EGRESS says. No word of OPENSSH_EGRESS
+# lets out EGRESS_PORT. The checks show EGRESS_VALUE, the value that the
+# openssh container runs with.
 EGRESS_NAME='koitohan-test-egress'
 EGRESS_PORT=8080
 EGRESS_REPLY='koitohan-egress'
+EGRESS_VALUE="${OPENSSH_EGRESS}"
 
 function start_egress_target() {
   # not compose run, whose container would count as one of openssh
   docker run -d --rm --name "${EGRESS_NAME}" --network koitohan-test_openssh \
     --entrypoint sh koitohan/openssh -c \
-    "nc -lk -p ${EGRESS_PORT} -e echo ${EGRESS_REPLY} & nc -lk -p 514 -e echo ${EGRESS_REPLY} & wait" \
+    "nc -lk -p 22 -e echo ${EGRESS_REPLY} & nc -lk -p ${EGRESS_PORT} -e echo ${EGRESS_REPLY} & nc -lk -p 514 -e echo ${EGRESS_REPLY} & wait" \
     > /dev/null 2>&1 || return 1
   EGRESS_ADDR=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' \
     "${EGRESS_NAME}" 2> /dev/null)
   [[ -n "${EGRESS_ADDR}" ]]
 }
 
-# Reaches the target over TCP and ICMP from the shell, and over the
-# forwarding of sshd (ssh -W, as ssh -J does). EXPECT is 'reached' or
-# 'blocked'. Blocked TCP has to be refused at once: a filter that drops
-# would pass on a timeout as well. A packet of ICMP that the filter holds
-# fails with EPERM, whether refused or dropped, which tells only that the
-# filter held it. The forwarding is turned away by sshd when blocked,
-# before the filter would see it.
-function check_egress() {
-  local EXPECT=${1}
-  local OUT WHY=''
-  local SHOW="&& echo reached || echo blocked"
-
-  if [[ "${EXPECT}" == 'reached' ]]; then
-    check_ssh 'egress tcp' admin01 "${PASS_ADMIN}" reached \
-      "nc -w 3 ${EGRESS_ADDR} ${EGRESS_PORT} 2> /dev/null | grep -q ${EGRESS_REPLY} ${SHOW}" < /dev/null
-    check_ssh 'egress icmp' admin01 "${PASS_ADMIN}" reached \
-      "ping -c 1 -W 3 ${EGRESS_ADDR} > /dev/null 2>&1 ${SHOW}" < /dev/null
-  else
-    # the nc of busybox says nothing of why it fails, wget does
-    check_ssh 'egress tcp' admin01 "${PASS_ADMIN}" 'Connection refused' \
-      "wget -T 3 -O /dev/null http://${EGRESS_ADDR}:${EGRESS_PORT}/ 2>&1" < /dev/null
-    check_ssh 'egress icmp' admin01 "${PASS_ADMIN}" 'Operation not permitted' \
-      "ping -c 1 -W 3 ${EGRESS_ADDR} 2>&1" < /dev/null
+# Makes the openssh container again with OPENSSH_EGRESS=VALUE
+function recreate_egress() {
+  EGRESS_VALUE=${1}
+  OPENSSH_EGRESS="${EGRESS_VALUE}" "${COMPOSE[@]}" up -d --force-recreate openssh > /dev/null 2>&1
+  if ! wait_ssh_ready; then
+    echo "the openssh container did not become ready with OPENSSH_EGRESS=${EGRESS_VALUE}"
+    "${COMPOSE[@]}" logs --tail 30 openssh
+    exit 1
   fi
+}
 
+# Runs COMMAND in the shell of admin01. EXPECT is a fixed string to find
+# in the output.
+function check_egress_shell() {
+  local NAME=${1}
+  local EXPECT=${2}
+  local COMMAND=${3}
+  local OUT WHY=''
+
+  OUT=$(ssh_run admin01 "${PASS_ADMIN}" "${COMMAND}" < /dev/null)
+  grep -q -F -- "${EXPECT}" <<< "${OUT}" || WHY="expected ${EXPECT}"
+  report "${NAME}" "${EGRESS_VALUE}" "${EXPECT}" "${WHY}" "${OUT}"
+}
+
+# Reaches PORT of the target over TCP from the shell. EXPECT is 'reached'
+# or 'refused'. Refused has to come at once: a filter that drops would
+# pass on a timeout as well. The nc of busybox says nothing of why it
+# fails, wget does.
+function check_egress_tcp() {
+  local PORT=${1}
+
+  if [[ "${2}" == 'reached' ]]; then
+    check_egress_shell "egress ${PORT}/tcp" reached \
+      "nc -w 3 ${EGRESS_ADDR} ${PORT} 2> /dev/null | grep -q ${EGRESS_REPLY} && echo reached || echo blocked"
+  else
+    check_egress_shell "egress ${PORT}/tcp" 'Connection refused' \
+      "wget -T 3 -O /dev/null http://${EGRESS_ADDR}:${PORT}/ 2>&1"
+  fi
+}
+
+# Pings the target. EXPECT is 'reached' or 'refused'. A packet of ICMP
+# that the filter holds fails with EPERM, whether refused or dropped,
+# which tells only that the filter held it.
+function check_egress_icmp() {
+  if [[ "${1}" == 'reached' ]]; then
+    check_egress_shell 'egress icmp' reached \
+      "ping -c 1 -W 3 ${EGRESS_ADDR} > /dev/null 2>&1 && echo reached || echo blocked"
+  else
+    check_egress_shell 'egress icmp' 'Operation not permitted' "ping -c 1 -W 3 ${EGRESS_ADDR} 2>&1"
+  fi
+}
+
+# Reaches PORT of the target over the forwarding of sshd (ssh -W, as
+# ssh -J does). EXPECT is 'reached', 'refused' (sshd forwards, and the
+# filter refuses the connection that sshd opens) or 'prohibited' (sshd
+# does not forward, before the filter would see it).
+function check_egress_forwarding() {
+  local PORT=${1}
+  local EXPECT=${2}
+  local OUT FIND WHY=''
+
+  case "${EXPECT}" in
+    reached) FIND=${EGRESS_REPLY} ;;
+    refused) FIND='connect failed: Connection refused' ;;
+    prohibited) FIND='administratively prohibited' ;;
+  esac
   # the reason of a refused forwarding shows from INFO on. The first
   # value wins, so this comes before SSH_OPTS.
   OUT=$(SSH_TEST_PASS="${PASS_ADMIN}" SSH_ASKPASS="${ASKPASS}" SSH_ASKPASS_REQUIRE=force \
-        timeout 20 ssh -o LogLevel=INFO "${SSH_OPTS[@]}" -W "${EGRESS_ADDR}:${EGRESS_PORT}" "admin01@${SSH_ADDR}" 2>&1 < /dev/null)
-  if [[ "${EXPECT}" == 'reached' ]]; then
-    grep -q -F "${EGRESS_REPLY}" <<< "${OUT}" || WHY="expected ${EGRESS_REPLY}"
-  elif ! grep -q -F 'administratively prohibited' <<< "${OUT}"; then
-    WHY='expected administratively prohibited'
-  fi
-  report 'egress forwarding' admin01 "${EXPECT}" "${WHY}" "${OUT}"
+        timeout 20 ssh -o LogLevel=INFO "${SSH_OPTS[@]}" -W "${EGRESS_ADDR}:${PORT}" "admin01@${SSH_ADDR}" 2>&1 < /dev/null)
+  grep -q -F -- "${FIND}" <<< "${OUT}" || WHY="expected ${FIND}"
+  report "egress -W ${PORT}" "${EGRESS_VALUE}" "${EXPECT}" "${WHY}" "${OUT}"
 }
 
 # With OPENSSH_EGRESS=any, syslog and TFTP are refused, whatever the
@@ -264,22 +304,16 @@ function check_egress() {
 # from the filter. Over UDP the filter shows as EPERM, an exit status of
 # 1 from nc, where a port that nobody listens on gives 0.
 function check_egress_own() {
-  local PORT OUT WHY=''
+  local PORT
 
-  check_ssh 'egress 514/tcp' admin01 "${PASS_ADMIN}" 'Connection refused' \
-    "wget -T 3 -O /dev/null http://${EGRESS_ADDR}:514/ 2>&1" < /dev/null
+  check_egress_tcp 514 refused
   for PORT in 514 69; do
-    check_ssh "egress ${PORT}/udp" admin01 "${PASS_ADMIN}" 'status 1' \
-      "echo x | nc -u -w 1 ${EGRESS_ADDR} ${PORT}; echo status \$?" < /dev/null
+    check_egress_shell "egress ${PORT}/udp" 'status 1' \
+      "echo x | nc -u -w 1 ${EGRESS_ADDR} ${PORT}; echo status \$?"
   done
-  check_ssh "egress ${EGRESS_PORT}/udp" admin01 "${PASS_ADMIN}" 'status 0' \
-    "echo x | nc -u -w 1 ${EGRESS_ADDR} ${EGRESS_PORT}; echo status \$?" < /dev/null
-
-  OUT=$(SSH_TEST_PASS="${PASS_ADMIN}" SSH_ASKPASS="${ASKPASS}" SSH_ASKPASS_REQUIRE=force \
-        timeout 20 ssh -o LogLevel=INFO "${SSH_OPTS[@]}" -W "${EGRESS_ADDR}:514" "admin01@${SSH_ADDR}" 2>&1 < /dev/null)
-  grep -q -F 'connect failed: Connection refused' <<< "${OUT}" \
-    || WHY='expected connect failed: Connection refused'
-  report 'egress -W 514' admin01 'refused' "${WHY}" "${OUT}"
+  check_egress_shell "egress ${EGRESS_PORT}/udp" 'status 0' \
+    "echo x | nc -u -w 1 ${EGRESS_ADDR} ${EGRESS_PORT}; echo status \$?"
+  check_egress_forwarding 514 refused
 }
 
 # sshd starts once the container has read the users from OpenLDAP
@@ -1037,7 +1071,9 @@ if ! start_egress_target; then
   echo 'could not start the target of the egress checks'
   exit 1
 fi
-check_egress blocked
+check_egress_tcp ${EGRESS_PORT} refused
+check_egress_icmp refused
+check_egress_forwarding ${EGRESS_PORT} prohibited
 
 check_secrets admin01 "${PASS_ADMIN}"
 check_secrets operator01 "${PASS_OPERATOR}"
@@ -1229,17 +1265,21 @@ fi
 check 'service pass' 127.0.0.1 operator01 "${PASS_OPERATOR}" Accept 'AVPair = "shell:priv-lvl=7"'
 check_ldap 'service pass' 'old' 'Invalid credentials' \
   "ldapwhoami -x -H ldapi:/// -D \"uid=${FREERADIUS_ACCOUNT},ou=ServiceAccounts,\${SUFFIX}\" -w '${OLD_FREERADIUS}'"
-# The way out of the openssh container, opened. The limit on the source
-# of ssh that follows makes the container again with OPENSSH_EGRESS of
-# the test, then the change of the password makes it once more, for the
-# networks of the test. Keep the three in this order.
-OPENSSH_EGRESS=any "${COMPOSE[@]}" up -d --force-recreate openssh > /dev/null 2>&1
-if ! wait_ssh_ready; then
-  echo 'the openssh container did not become ready with OPENSSH_EGRESS=any'
-  "${COMPOSE[@]}" logs --tail 30 openssh
-  exit 1
-fi
-check_egress reached
+# The way out of the openssh container, opened by a word at a time.
+recreate_egress ssh
+check_egress_tcp 22 reached
+check_egress_tcp ${EGRESS_PORT} refused
+check_egress_icmp refused
+check_egress_forwarding 22 reached
+check_egress_forwarding ${EGRESS_PORT} refused
+# Opened wide. The limit on the source of ssh that follows makes the
+# container again with OPENSSH_EGRESS of the test, then the change of
+# the password makes it once more, for the networks of the test. Keep
+# the three in this order.
+recreate_egress any
+check_egress_tcp ${EGRESS_PORT} reached
+check_egress_icmp reached
+check_egress_forwarding ${EGRESS_PORT} reached
 check_egress_own
 check_ssh_other_network
 check_service_password openssh 'recreated openssh'
