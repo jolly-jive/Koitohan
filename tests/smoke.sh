@@ -221,17 +221,28 @@ function start_egress_target() {
 
 # Reaches the target over TCP and ICMP from the shell, and over the
 # forwarding of sshd (ssh -W, as ssh -J does). EXPECT is 'reached' or
-# 'blocked'. The forwarding is turned away by sshd when blocked, before
-# the filter would drop it.
+# 'blocked'. Blocked TCP has to be refused at once: a filter that drops
+# would pass on a timeout as well. A packet of ICMP that the filter holds
+# fails with EPERM, whether refused or dropped, which tells only that the
+# filter held it. The forwarding is turned away by sshd when blocked,
+# before the filter would see it.
 function check_egress() {
   local EXPECT=${1}
   local OUT WHY=''
   local SHOW="&& echo reached || echo blocked"
 
-  check_ssh 'egress tcp' admin01 "${PASS_ADMIN}" "${EXPECT}" \
-    "nc -w 3 ${EGRESS_ADDR} ${EGRESS_PORT} 2> /dev/null | grep -q ${EGRESS_REPLY} ${SHOW}" < /dev/null
-  check_ssh 'egress icmp' admin01 "${PASS_ADMIN}" "${EXPECT}" \
-    "ping -c 1 -W 3 ${EGRESS_ADDR} > /dev/null 2>&1 ${SHOW}" < /dev/null
+  if [[ "${EXPECT}" == 'reached' ]]; then
+    check_ssh 'egress tcp' admin01 "${PASS_ADMIN}" reached \
+      "nc -w 3 ${EGRESS_ADDR} ${EGRESS_PORT} 2> /dev/null | grep -q ${EGRESS_REPLY} ${SHOW}" < /dev/null
+    check_ssh 'egress icmp' admin01 "${PASS_ADMIN}" reached \
+      "ping -c 1 -W 3 ${EGRESS_ADDR} > /dev/null 2>&1 ${SHOW}" < /dev/null
+  else
+    # the nc of busybox says nothing of why it fails, wget does
+    check_ssh 'egress tcp' admin01 "${PASS_ADMIN}" 'Connection refused' \
+      "wget -T 3 -O /dev/null http://${EGRESS_ADDR}:${EGRESS_PORT}/ 2>&1" < /dev/null
+    check_ssh 'egress icmp' admin01 "${PASS_ADMIN}" 'Operation not permitted' \
+      "ping -c 1 -W 3 ${EGRESS_ADDR} 2>&1" < /dev/null
+  fi
 
   # the reason of a refused forwarding shows from INFO on. The first
   # value wins, so this comes before SSH_OPTS.
