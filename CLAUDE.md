@@ -20,7 +20,7 @@ make device_networks         # 機器のネットワーク(DEVICE_NETWORKS)を s
 make secrets                 # サービスアカウントと OpenLDAP の管理者のパスワード -> secrets/(すでにあれば作り直さない。clean でも消さない)
 make ssh_hostkeys            # sshd のホスト鍵 -> openssh/hostkeys/(すでにあれば作り直さない。clean でも消さない)
 make logrotate_conf          # Docker ホストの logrotate の設定 -> logrotate/koitohan(/etc/logrotate.d/ への配置は sudo の手作業)
-make host_check              # Docker ホストの状態のうち make が作らないもの(sudo の手作業、configs/ のマウント、logrotate の配置、cgroup)を確かめる(bin/check_host.sh。sudo を使わず、何も変えない)
+make host_check              # Docker ホストの状態のうち make が作らないもの(sudo の手作業、configs/ のマウント、logrotate の配置、cgroup、時刻の同期)を確かめる(bin/check_host.sh。sudo を使わず、何も変えない)
 make test                    # スモークテスト(別プロジェクト koitohan-test で起動。稼働中のスタックには触れない)
 make up / make down          # docker compose up -d / down(up は private_dirs、secrets、freeradius_conf、device_networks、ssh_hostkeys に依存)
 make clean                   # 生成した証明書・鍵、LDIF、ldap_openldap、logrotate の設定を削除

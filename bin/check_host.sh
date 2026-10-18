@@ -2,7 +2,8 @@
 #
 # Checks the state of the Docker host that make does not make: the
 # steps done by hand, mostly with sudo, in the quick start of the
-# README and in docs/tftp.md, docs/logs.md and docs/ssh.md.
+# README and in docs/tftp.md, docs/logs.md and docs/ssh.md, and the
+# sync of the host clock.
 #
 #   check_host.sh
 #
@@ -204,6 +205,24 @@ else
     ng 'bind mounts: sources that make did not make' "${BAD_SOURCES[@]}" \
       'Remove an empty directory owned by root with sudo rmdir, then run make.'
   fi
+fi
+
+### the clock of the Docker host
+# Every container shares this clock, and the NTP service serves it to
+# the devices. NTPSynchronized is the kernel's flag, which turns off
+# only hours after the last sync.
+if ! TIME_STATE=$(timedatectl show -p NTP -p NTPSynchronized 2> /dev/null); then
+  warn 'clock: timedatectl failed, so the sync with NTP is not checked' \
+    'Make sure that an NTP client keeps the clock of this host in sync.'
+elif [[ "${TIME_STATE}" == *NTPSynchronized=yes* ]]; then
+  ok 'clock: synchronized with NTP'
+elif [[ "${TIME_STATE}" == *NTP=yes* ]]; then
+  ng 'clock: not synchronized, though the NTP client is on' \
+    'timedatectl timesync-status' \
+    'Check that this host reaches its NTP servers, then wait for the sync.'
+else
+  ng 'clock: not synchronized, and no NTP client is on' \
+    'sudo timedatectl set-ntp true'
 fi
 
 ### the memory controller of cgroup

@@ -46,6 +46,7 @@ FreeRADIUS 4.x は開発バージョンです。Koitohan は正式リリース�
 - `slappasswd`(Debian と Raspberry Pi OS では `slapd` パッケージに含まれます)
 - `ssh-keygen`。`make test` は OpenSSH 8.4 以降の `ssh` と、TFTP に対応した `curl` も使います。
 - `logrotate`(ログのローテーションに使います)
+- NTP による Docker ホストの時刻の同期(Raspberry Pi OS では `systemd-timesyncd` が既定で行います)。コンテナはホストの時計を使い、ログの時刻もこれに従います。
 
 ## クイックスタート
 
@@ -74,7 +75,7 @@ FreeRADIUS は uid 101 で動作し、`freeradius/log/` にログを書き込み
 
 `firmware/` の `chown` と `chmod` は、SSH でログインしたユーザーのうち、ロール `admin` のユーザーにだけこのディレクトリを開きます(「[ユーザーズガイド](docs/user-guide.ja.md#ファームウェアを配るコンフィグを取り出すadmin-のみ)」を参照)。`configs/` の同じ設定は、「[TFTP](docs/tftp.ja.md)」の手順に含まれています。
 
-`make host_check` は、Docker ホストの状態のうち `make` が作らないものを確かめます。上の `sudo` の手作業、「[TFTP](docs/tftp.ja.md)」のイメージファイル、「[SSH](docs/ssh.ja.md)」が必要とするメモリのコントローラが対象です。`sudo` を使わずに実行でき、何も変更しません。項目ごとに `OK`、`NG`、`WARN`、`SKIP` を表示し、`NG` と `WARN` には対処を添えます。`NG` が1つでもあれば失敗します。`WARN` は、推奨の手順が抜けていることを表します。ホストの設定を変えたときや、logrotate の設定を生成し直したときにも実行してください。
+`make host_check` は、Docker ホストの状態のうち `make` が作らないものを確かめます。上の `sudo` の手作業、「[TFTP](docs/tftp.ja.md)」のイメージファイル、「[SSH](docs/ssh.ja.md)」が必要とするメモリのコントローラ、時刻の同期が対象です。`sudo` を使わずに実行でき、何も変更しません。項目ごとに `OK`、`NG`、`WARN`、`SKIP` を表示し、`NG` と `WARN` には対処を添えます。`NG` が1つでもあれば失敗します。`WARN` は、推奨の手順が抜けていることを表します。ホストの設定を変えたときや、logrotate の設定を生成し直したときにも実行してください。
 
 クローン直後は、`docker compose up` を直接実行せずに `make up` を使ってください。Docker がマウントする前に、生成ファイルが揃っていることを保証します。
 
