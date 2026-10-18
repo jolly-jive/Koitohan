@@ -116,6 +116,7 @@ client access-switches {
 | `fortinet`, `fortigate`   | `Fortinet-Group-Name`        | `super_admin`         | `readonly`         | `readonly`         |
 | `juniper`                 | `Juniper-Local-User-Name`    | `superuser`           | `operator`         | `read-only`        |
 | `palo-alto`               | `PaloAlto-Admin-Role`        | `superuser`           | `readonly`         | `readonly`         |
+| `vyos`                    | `Cisco-AVPair`               | `shell:priv-lvl=15`   | `shell:priv-lvl=7` | `shell:priv-lvl=1` |
 | `service-type`, `rfc2865` | `Service-Type`               | `Administrative-User` | `NAS-Prompt-User`  | `Login-User`       |
 | `ietf-mpl`, `allied`      | `Management-Privilege-Level` | 15                    | 7                  | 1                  |
 | `nothing`, `no`, `none`   | none                         | accept                | accept             | accept             |
@@ -123,6 +124,8 @@ client access-switches {
 Any other value falls back to `Management-Privilege-Level`.
 
 The values for Fortinet, Juniper and Palo Alto are names of profiles or users on the device. Define matching ones on the device.
+
+VyOS has two levels only. `shell:priv-lvl=15` and above can change the configuration, and anything lower gives the operational mode only, so `operator` and `readonly` are the same on VyOS. The reply is the same as for `cisco`, and `vyos` is there so that `clients.conf` names the device.
 
 [Device configuration examples](devices/README.md) collects what contributors set on their devices.
 

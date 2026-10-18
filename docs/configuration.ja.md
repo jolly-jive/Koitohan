@@ -116,6 +116,7 @@ client access-switches {
 | `fortinet`、`fortigate`   | `Fortinet-Group-Name`        | `super_admin`         | `readonly`         | `readonly`         |
 | `juniper`                 | `Juniper-Local-User-Name`    | `superuser`           | `operator`         | `read-only`        |
 | `palo-alto`               | `PaloAlto-Admin-Role`        | `superuser`           | `readonly`         | `readonly`         |
+| `vyos`                    | `Cisco-AVPair`               | `shell:priv-lvl=15`   | `shell:priv-lvl=7` | `shell:priv-lvl=1` |
 | `service-type`、`rfc2865` | `Service-Type`               | `Administrative-User` | `NAS-Prompt-User`  | `Login-User`       |
 | `ietf-mpl`、`allied`      | `Management-Privilege-Level` | 15                    | 7                  | 1                  |
 | `nothing`、`no`、`none`   | なし                         | 許可                  | 許可               | 許可               |
@@ -123,6 +124,8 @@ client access-switches {
 これ以外の値は `Management-Privilege-Level` として扱います。
 
 Fortinet、Juniper、Palo Alto の値は、機器側のプロファイル名やユーザー名です。機器側に同じ名前のものを定義してください。
+
+VyOS の権限は2段階だけです。`shell:priv-lvl=15` 以上なら設定を変えられ、それより低いと運用モードだけになるので、VyOS の上では `operator` と `readonly` が同じになります。応答は `cisco` と同じで、`vyos` は `clients.conf` で機器を見分けられるように用意しています。
 
 コントリビュータが自分の機器で使った設定を、「[機器の設定例](devices/README.md)」(英語)に集めています。
 

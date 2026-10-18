@@ -72,6 +72,9 @@ authz_vendor_role {
     elsif nas_type =~ /^(palo.?alto)/ {
         control.Koitohan-Reply-Type = ::PaloAlto
     }
+    elsif nas_type =~ /^(vyos)/ {
+        control.Koitohan-Reply-Type = ::VyOS
+    }
     elsif nas_type =~ /^(ietf-mpl|management-privilege-level|allied)/ {
         control.Koitohan-Reply-Type = ::IETF-MPL
     }
@@ -108,6 +111,11 @@ authz_vendor_role {
                 case ::PaloAlto {
                     reply.PaloAlto.Admin-Role := 'superuser'
                 }
+                # VyOS reads the Cisco attribute. 15 and above is admin,
+                # and anything lower is the operational mode only.
+                case ::VyOS {
+                    reply.Cisco.AVPair := 'shell:priv-lvl=15'
+                }
                 case ::Service-Type {
                     reply.Service-Type := ::Administrative-User
                 }
@@ -142,6 +150,9 @@ authz_vendor_role {
                 case ::PaloAlto {
                     reply.PaloAlto.Admin-Role := 'readonly'
                 }
+                case ::VyOS {
+                    reply.Cisco.AVPair := 'shell:priv-lvl=7'
+                }
                 case ::Service-Type {
                     reply.Service-Type := ::NAS-Prompt-User
                 }
@@ -174,6 +185,9 @@ authz_vendor_role {
                 }
                 case ::PaloAlto {
                     reply.PaloAlto.Admin-Role := 'readonly'
+                }
+                case ::VyOS {
+                    reply.Cisco.AVPair := 'shell:priv-lvl=1'
                 }
                 case ::Service-Type {
                     reply.Service-Type := ::Login-User

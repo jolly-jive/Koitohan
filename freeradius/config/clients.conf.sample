@@ -10,6 +10,8 @@
 #   fortinet, fortigate            Fortinet-Group-Name
 #   juniper                        Juniper-Local-User-Name
 #   palo-alto                      PaloAlto-Admin-Role
+#   vyos                           Cisco-AVPair "shell:priv-lvl=N", operator
+#                                  and readonly are the same on VyOS
 #   service-type, rfc2865          Service-Type
 #   ietf-mpl, allied               Management-Privilege-Level
 #   nothing, no, none              no authorization attribute
