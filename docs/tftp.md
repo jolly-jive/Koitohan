@@ -53,7 +53,11 @@ If you start the stack without these steps, Docker creates `configs/` owned by r
 
 ## Things to know
 
-- Transfer files in binary mode. Some clients, such as the `tftp` command on Linux, default to text (netascii) mode.
-- The server replies from a UDP port other than 69. If a transfer from a PC fails, check that the firewall on the PC is not blocking those replies.
+- Transfer files in binary mode. Some clients, such as the `tftp` command on Linux, default to text (netascii) mode (pass `-m binary` to the tftp-hpa client, and `-i` to `tftp` on Windows).
+- The server replies from a UDP port other than 69. The firewall on a PC may not take that reply as an answer to the request, and block it. The client then times out, and `tftpd-hpa/log/tftpd.log` shows the same request again every few seconds. An upload leaves an empty file in `configs/`; remove it by hand. When you try from a PC, check that its firewall lets in UDP from the Koitohan host. On WSL2 with mirrored networking, the Hyper-V firewall of Windows decides what reaches WSL. Allow it from PowerShell as an administrator, for example:
+
+  ```powershell
+  New-NetFirewallHyperVRule -Name KoitohanTftp -DisplayName 'Koitohan TFTP' -Direction Inbound -VMCreatorId '{40E0AC32-46A5-438A-A0B2-2B479E8F2E90}' -Protocol UDP -RemoteAddresses <host address>
+  ```
 - `firmware/` sits directly on the disk of the Docker host. Check the free space before you put large firmware images there.
 - The transfers are recorded in `tftpd-hpa/log/tftpd.log`, with the kind of the request (`RRQ` for a download, `WRQ` for an upload), the address of the requester and the file name. `docker compose logs tftpd-hpa` shows the same.
