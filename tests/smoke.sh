@@ -7,8 +7,9 @@
 # on an empty directory, and makes the test accounts with
 # bin/manage_users.sh. Checks the reply for every combination of reply
 # type and role, then that the detail logs survive a rotation, then
-# that FreeRADIUS, syslog-ng and tftpd-hpa take nothing from outside the
-# networks of the devices, and that tftpd-hpa records a transfer in a file, then
+# that FreeRADIUS, syslog-ng, tftpd-hpa and chrony take nothing from
+# outside the networks of the devices, that tftpd-hpa records a transfer
+# in a file, and that chrony stops serving over its limit, then
 # logs in over ssh as each role and checks where the users can connect
 # to from there, then manages a user
 # with bin/manage_users.sh, then runs into the password policy of
@@ -43,6 +44,9 @@ export OPENSSH_ALLOWED_NETWORKS="${ALLOWED_NETWORKS}"
 # the users of ssh reach only OpenLDAP, as .env.sample has it. One check
 # opens the way out.
 export OPENSSH_EGRESS='none'
+# the optional NTP service as well, whatever .env has. The scripts under
+# bin/ see it too.
+export COMPOSE_PROFILES='ntp'
 # the limit on the size of an upload, small enough to reach over TFTP
 # in a moment
 TFTP_MAX_BYTES=65536
@@ -672,6 +676,53 @@ function check_tftp_networks() {
   report 'networks' "${NAME}" "tftp ${EXPECT}" "${WHY}" "${OUT}" || show_logs tftpd-hpa
 }
 
+# Asks the chrony container for the time from another container of the
+# same image, on the same network: the Docker host has no NTP client.
+# The client is chronyd, which only reads the clock (-x). EXPECT is
+# 'served' (stratum 10), 'unsynchronised' (stratum 0, which a client
+# does not take) or 'no reply'. First waits for the line of the
+# entrypoint that says chrony serves, or that it stopped: before it,
+# chrony answers that it is not synchronised, and does not answer at all
+# before it starts.
+function check_ntp() {
+  local CHECK=${1}
+  local NAME=${2}
+  local EXPECT=${3}
+  local WAIT_FOR='serving the host clock'
+  local ADDR TRY OUT='' GOT WHY=''
+
+  [[ "${EXPECT}" == 'unsynchronised' ]] && WAIT_FOR='stopped serving'
+  for (( TRY = 1; TRY <= WAIT_TRIES; TRY++ )); do
+    "${COMPOSE[@]}" logs chrony 2>&1 | grep -q -F "${WAIT_FOR}" && break
+    sleep 1
+  done
+  ADDR=$(address_of chrony)
+  if [[ ${TRY} -gt ${WAIT_TRIES} ]]; then
+    WHY="chrony did not say '${WAIT_FOR}'"
+  elif [[ -z "${ADDR}" ]]; then
+    WHY='could not find the address of chrony'
+  else
+    OUT=$("${COMPOSE[@]}" run --rm --no-deps -T --entrypoint sh chrony -c '
+            printf "server %s iburst minpoll 0 maxpoll 0\ncmdport 0\n" "$1" > /run/client.conf
+            chronyd -x -f /run/client.conf
+            sleep 6
+            chronyc -n ntpdata' sh "${ADDR}" 2>&1 < /dev/null)
+    GOT=$(awk -F ' *: *' '
+            $1 == "Leap status" { leap = $2 }
+            $1 == "Stratum"     { stratum = $2 }
+            $1 == "Total RX"    { rx = $2 }
+            END {
+              if (rx == "") print "no answer from the client"
+              else if (rx == 0) print "no reply"
+              else if (leap == "Normal" && stratum == 10) print "served"
+              else if (leap == "Not synchronised" && stratum == 0) print "unsynchronised"
+              else print "leap " leap ", stratum " stratum
+            }' <<< "${OUT}")
+    [[ "${GOT}" == "${EXPECT}" ]] || WHY="expected ${EXPECT}, got ${GOT}"
+  fi
+  report "${CHECK}" "${NAME}" "ntp ${EXPECT}" "${WHY}" "${OUT}" || show_logs chrony
+}
+
 # logrotate on the Docker host moves the detail logs away and makes no
 # new ones (scripts/generate_logrotate.sh), so FreeRADIUS has to.
 function check_detail() {
@@ -987,7 +1038,7 @@ check_detail
 check_tls tls1_3 accepted
 check_tls tls1_2 refused
 
-# The limit on the source of RADIUS, syslog and TFTP. The same request,
+# The limit on the source of RADIUS, syslog, TFTP and NTP. The same request,
 # message and file, first from a network that is allowed, then with the
 # containers made again for another network. In between, the file
 # that keeps the record of the transfer. The other requests of this
@@ -996,11 +1047,12 @@ check_radius_networks allowed 'Accept'
 check_syslog_networks allowed 'received'
 check_syslog_networks allowed-tcp 'received' tcp
 check_tftp_networks allowed 'koitohan-smoke'
+check_ntp networks allowed 'served'
 check_tftp_log
 check_tftp_uploads
 if ! { DEVICE_NETWORKS="${OTHER_NETWORKS}" scripts/generate_device_networks.sh \
-       && DEVICE_NETWORKS="${OTHER_NETWORKS}" "${COMPOSE[@]}" up -d --force-recreate freeradius syslog-ng tftpd-hpa > /dev/null 2>&1; }; then
-  echo 'could not make freeradius, syslog-ng and tftpd-hpa again'
+       && DEVICE_NETWORKS="${OTHER_NETWORKS}" "${COMPOSE[@]}" up -d --force-recreate freeradius syslog-ng tftpd-hpa chrony > /dev/null 2>&1; }; then
+  echo 'could not make freeradius, syslog-ng, tftpd-hpa and chrony again'
   exit 1
 fi
 if ! wait_ready; then
@@ -1012,6 +1064,7 @@ check_radius_networks other 'timed out'
 check_syslog_networks other 'dropped'
 check_syslog_networks other-tcp 'dropped' tcp
 check_tftp_networks other 'timed out'
+check_ntp networks other 'no reply'
 
 # Values of the networks that nothing may start with
 for SERVICE in freeradius tftpd-hpa openssh; do
@@ -1019,12 +1072,28 @@ for SERVICE in freeradius tftpd-hpa openssh; do
   check_bad_networks "${SERVICE}" example.com 'must be IPv4'
   check_bad_networks "${SERVICE}" 10.0.0.0/33 'Error: Prefix length 33 is invalid'
 done
+# chronyd itself stops on a malformed network, with its own words, but
+# takes a host name
+check_bad_networks chrony '' 'is empty'
+check_bad_networks chrony example.com 'must be IPv4'
+check_bad_networks chrony 10.0.0.0/33 'Bad subnet in 10.0.0.0/33'
+check_bad_networks chrony 999.0.0.0/8 'Could not parse allow directive'
+check_bad_value 'bad max error' NTP_MAX_ERROR_US chrony abc 'must be a number of microseconds'
 for VALUE in example.com 10.0.0.0/33 999.0.0.0/8; do
   check_bad_generated "${VALUE}"
 done
 for VALUE in '' ldaps; do
   check_bad_value 'bad egress' OPENSSH_EGRESS openssh "${VALUE}" 'must be none, any, or ssh and icmp'
 done
+
+# chrony stops serving once the maxerror of the kernel is over the
+# limit. The host clock stays in sync here, so the limit goes down to 0
+# instead. The networks are the allowed ones again.
+if ! NTP_MAX_ERROR_US=0 "${COMPOSE[@]}" up -d --force-recreate chrony > /dev/null 2>&1; then
+  echo 'could not make chrony again'
+  exit 1
+fi
+check_ntp 'max error' zero 'unsynchronised'
 
 if ! wait_ssh_ready; then
   echo 'the openssh container did not become ready'

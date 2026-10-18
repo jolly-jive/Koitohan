@@ -11,6 +11,7 @@ Koitohan is a Docker Compose stack that gives network devices a login backend, a
 - **syslog-ng** collects syslog from the devices, one directory per host.
 - **tftpd-hpa** distributes firmware to the devices and receives backups of their configurations.
 - **OpenSSH** gives the users a shell to work in. They use it to read and fetch logs, to put and get the TFTP files, and to change their passwords.
+- **chrony** serves the clock of the Docker host to the devices over NTP. It is optional.
 
 You manage users and roles (`admin`, `operator`, `readonly`) in one place. Koitohan translates a role into what each device understands, such as `shell:priv-lvl=15` for Cisco or `Aruba-Priv-Admin-User = 15` for ArubaOS-CX.
 
@@ -33,6 +34,7 @@ Koitohan is at the verification stage. It is not hardened for production use.
 | Log collection                   | syslog-ng (`linuxserver/syslog-ng`)             | Working   |
 | File distribution                | tftpd-hpa (built here from Alpine)              | Working   |
 | Workspace for the users          | OpenSSH (built here from Alpine)                | Working   |
+| Time (NTP), optional             | chrony (built here from Alpine)                 | Working   |
 | Log rotation                     | logrotate on the Docker host                    | Working   |
 | DHCP and DNS                     | Kea, BIND9                                      | Undecided |
 
@@ -88,6 +90,7 @@ Use `make up` instead of calling `docker compose up` directly on a fresh checkou
 | 514/udp, 514/tcp | syslog                |
 | 69/udp           | TFTP                  |
 | 636/tcp          | LDAPS                 |
+| 123/udp          | NTP (only with `COMPOSE_PROFILES='ntp'`) |
 
 Every port is published on IPv4 only. IPv6 is not supported.
 
@@ -129,12 +132,12 @@ Check authentication and authorization end to end:
 make test
 ```
 
-`make test` starts every container as a separate project (`koitohan-test`), adds test users with `bin/manage_users.sh`, authenticates as them, and compares the reply attributes for every combination of device type and role. It also checks that FreeRADIUS makes a detail log again after the rotation has moved it away. For RADIUS, syslog and TFTP, it checks that traffic from the networks in `DEVICE_NETWORKS` arrives and that traffic from elsewhere does not. It also checks that a TFTP transfer is recorded in the file. It then logs in over SSH as a user of each role and checks the permissions on the directories, the reading of a compressed log and a password change. After that it runs each operation of `bin/manage_users.sh` and checks the password policy (the minimum length, the lock and the unlock) and the change of the passwords of the service accounts and of the OpenLDAP administrators. Then it restarts the OpenLDAP container and checks that it comes up again. At the end it takes a backup with `bin/backup.sh`, makes OpenLDAP again with empty data, restores the backup with `bin/restore_ldap.sh` and checks that the users and the files in `configs/` are back. It publishes no ports, keeps no data and generates passwords of its own (`tests/generated/`), so it does not affect a running stack. Run `make` beforehand. To look into a failed check, keep the test stack up with `KEEP=1 tests/smoke.sh`.
+`make test` starts every container as a separate project (`koitohan-test`), adds test users with `bin/manage_users.sh`, authenticates as them, and compares the reply attributes for every combination of device type and role. It also checks that FreeRADIUS makes a detail log again after the rotation has moved it away. For RADIUS, syslog, TFTP and NTP, it checks that traffic from the networks in `DEVICE_NETWORKS` arrives and that traffic from elsewhere does not. It also checks that a TFTP transfer is recorded in the file, and that the NTP server answers that it is not synchronized once the host clock goes out of sync. It then logs in over SSH as a user of each role and checks the permissions on the directories, the reading of a compressed log and a password change. After that it runs each operation of `bin/manage_users.sh` and checks the password policy (the minimum length, the lock and the unlock) and the change of the passwords of the service accounts and of the OpenLDAP administrators. Then it restarts the OpenLDAP container and checks that it comes up again. At the end it takes a backup with `bin/backup.sh`, makes OpenLDAP again with empty data, restores the backup with `bin/restore_ldap.sh` and checks that the users and the files in `configs/` are back. It publishes no ports, keeps no data and generates passwords of its own (`tests/generated/`), so it does not affect a running stack. Run `make` beforehand. To look into a failed check, keep the test stack up with `KEEP=1 tests/smoke.sh`.
 
-The OpenLDAP, FreeRADIUS, tftpd-hpa and OpenSSH images are built automatically by the first `make up`. After you change `openldap/build/`, `freeradius/build/`, `tftpd-hpa/build/` or `openssh/build/`, rebuild them before you start the stack.
+The OpenLDAP, FreeRADIUS, tftpd-hpa, OpenSSH and chrony images are built automatically by the first `make up`. After you change `openldap/build/`, `freeradius/build/`, `tftpd-hpa/build/`, `openssh/build/` or `chrony/build/`, rebuild them before you start the stack.
 
 ```sh
-docker compose build openldap freeradius tftpd-hpa openssh
+docker compose build openldap freeradius tftpd-hpa openssh chrony
 make up
 ```
 
@@ -184,7 +187,7 @@ For the users, who log in to the devices:
 
 For the Koitohan administrators:
 
-- [Configuration](docs/configuration.md): `.env`, device networks, RADIUS clients, users and roles, passwords
+- [Configuration](docs/configuration.md): `.env`, device networks, serving the time, RADIUS clients, users and roles, passwords
 - [TFTP](docs/tftp.md): handing out firmware and backing up configs, limits on uploads
 - [The OpenSSH container](docs/ssh.md): what the container for the users is for, password rules, sources
 - [Logs](docs/logs.md): where the logs are and how they rotate

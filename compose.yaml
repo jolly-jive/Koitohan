@@ -167,6 +167,27 @@ services:
       - no-new-privileges:true
     restart: unless-stopped
 
+  # optional: starts only with COMPOSE_PROFILES=ntp in .env
+  chrony:
+    build: ./chrony/build
+    image: koitohan/chrony
+    # a default, so that a .env without the variable still works for the
+    # stack without this service
+    container_name: ${NTP_CONTAINER_NAME:-chrony}
+    profiles:
+      - ntp
+    read_only: true
+    environment:
+      TZ: "${TZ}"
+      DEVICE_NETWORKS: "${DEVICE_NETWORKS}"
+    tmpfs:
+      - /run:mode=755,size=1m
+    ports:
+      - "0.0.0.0:123:123/udp"
+    security_opt:
+      - no-new-privileges:true
+    restart: unless-stopped
+
 networks:
   default:
     ipam:

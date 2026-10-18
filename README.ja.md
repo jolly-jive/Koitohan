@@ -11,6 +11,7 @@ Koitohan は、ネットワーク機器にログイン認証の基盤、ログ�
 - **syslog-ng** が機器の syslog を収集し、ホストごとのディレクトリに保存します。
 - **tftpd-hpa** がファームウェアを機器へ配布し、機器のコンフィグのバックアップを受け取ります。
 - **OpenSSH** がユーザーに作業用のシェルを提供します。ログの閲覧と取得、TFTP のファイルの出し入れ、パスワードの変更に使います。
+- **chrony** が Docker ホストの時計を NTP で機器に配ります。使うかどうかは選べます。
 
 ユーザーとロール(`admin`、`operator`、`readonly`)は1か所で管理します。Koitohan がロールを各機器の流儀に読み替えます。たとえば Cisco には `shell:priv-lvl=15`、ArubaOS-CX には `Aruba-Priv-Admin-User = 15` を返します。
 
@@ -33,6 +34,7 @@ Koitohan は検証段階です。本番利用に耐える堅牢化はしてい�
 | ログ収集           | syslog-ng(`linuxserver/syslog-ng`)             | 動作中   |
 | ファイル配布       | tftpd-hpa(Alpine から自前でビルド)             | 動作中   |
 | ユーザーの作業環境 | OpenSSH(Alpine から自前でビルド)               | 動作中   |
+| 時刻の配布(NTP、任意) | chrony(Alpine から自前でビルド)             | 動作中   |
 | ログローテーション | Docker ホスト側の logrotate                    | 動作中   |
 | DHCP と DNS        | Kea、BIND9                                     | 未決定   |
 
@@ -88,6 +90,7 @@ FreeRADIUS は uid 101 で動作し、`freeradius/log/` にログを書き込み
 | 514/udp、514/tcp | syslog      |
 | 69/udp           | TFTP        |
 | 636/tcp          | LDAPS       |
+| 123/udp          | NTP(`COMPOSE_PROFILES='ntp'` のときだけ) |
 
 どのポートも IPv4 でのみ公開しています。IPv6 には対応していません。
 
@@ -129,12 +132,12 @@ docker compose run --rm --no-deps freeradius radiusd -XC
 make test
 ```
 
-`make test` は、すべてのコンテナを別のプロジェクト(`koitohan-test`)として起動し、`bin/manage_users.sh` でテストユーザーを登録して認証し、機器種別とロールの組み合わせごとに応答属性を照合します。FreeRADIUS が、ローテーションで移動された detail ログを作り直すことも確かめます。RADIUS、syslog、TFTP については、`DEVICE_NETWORKS` の範囲からは届き、範囲の外からは届かないことを確かめます。TFTP の転送がファイルに記録されることも確かめます。続いて、各ロールのユーザーで SSH でログインし、ディレクトリの権限、圧縮されたログの読み取り、パスワードの変更を確かめます。そのあと、`bin/manage_users.sh` の各操作と、パスワードポリシー(最小の長さ、ロックとその解除)、サービスアカウントと OpenLDAP の管理者のパスワードの変更を確かめます。続いて OpenLDAP のコンテナを再起動し、起動し直せることを確かめます。最後に `bin/backup.sh` でバックアップを取り、OpenLDAP を空のデータで作り直して `bin/restore_ldap.sh` で復元し、ユーザーと `configs/` のファイルが戻ることを確かめます。ポートを公開せず、データも残さず、パスワードもテスト用に生成する(`tests/generated/`)ので、稼働中のスタックには影響しません。事前に `make` を済ませておいてください。失敗した項目は `KEEP=1 tests/smoke.sh` でテスト用のスタックを残して調べられます。
+`make test` は、すべてのコンテナを別のプロジェクト(`koitohan-test`)として起動し、`bin/manage_users.sh` でテストユーザーを登録して認証し、機器種別とロールの組み合わせごとに応答属性を照合します。FreeRADIUS が、ローテーションで移動された detail ログを作り直すことも確かめます。RADIUS、syslog、TFTP、NTP については、`DEVICE_NETWORKS` の範囲からは届き、範囲の外からは届かないことを確かめます。TFTP の転送がファイルに記録されることと、ホストの時刻の同期が外れると NTP サーバーが「同期していない」と答えることも確かめます。続いて、各ロールのユーザーで SSH でログインし、ディレクトリの権限、圧縮されたログの読み取り、パスワードの変更を確かめます。そのあと、`bin/manage_users.sh` の各操作と、パスワードポリシー(最小の長さ、ロックとその解除)、サービスアカウントと OpenLDAP の管理者のパスワードの変更を確かめます。続いて OpenLDAP のコンテナを再起動し、起動し直せることを確かめます。最後に `bin/backup.sh` でバックアップを取り、OpenLDAP を空のデータで作り直して `bin/restore_ldap.sh` で復元し、ユーザーと `configs/` のファイルが戻ることを確かめます。ポートを公開せず、データも残さず、パスワードもテスト用に生成する(`tests/generated/`)ので、稼働中のスタックには影響しません。事前に `make` を済ませておいてください。失敗した項目は `KEEP=1 tests/smoke.sh` でテスト用のスタックを残して調べられます。
 
-OpenLDAP、FreeRADIUS、tftpd-hpa、OpenSSH のイメージは、最初の `make up` で自動的にビルドされます。`openldap/build/`、`freeradius/build/`、`tftpd-hpa/build/`、`openssh/build/` を変更したときは、ビルドし直してから起動します。
+OpenLDAP、FreeRADIUS、tftpd-hpa、OpenSSH、chrony のイメージは、最初の `make up` で自動的にビルドされます。`openldap/build/`、`freeradius/build/`、`tftpd-hpa/build/`、`openssh/build/`、`chrony/build/` を変更したときは、ビルドし直してから起動します。
 
 ```sh
-docker compose build openldap freeradius tftpd-hpa openssh
+docker compose build openldap freeradius tftpd-hpa openssh chrony
 make up
 ```
 
@@ -184,7 +187,7 @@ TFTP には認証も暗号化もありません。69/udp に到達できる相�
 
 こいとはん管理者向け:
 
-- [設定](docs/configuration.ja.md): `.env`、機器のネットワーク、RADIUS クライアント、ユーザーとロール、パスワード
+- [設定](docs/configuration.ja.md): `.env`、機器のネットワーク、時刻の配布、RADIUS クライアント、ユーザーとロール、パスワード
 - [TFTP](docs/tftp.ja.md): ファームウェアの配布とコンフィグのバックアップ、アップロードの上限
 - [OpenSSH のコンテナ](docs/ssh.ja.md): 利用者作業用コンテナの目的、パスワードの規則、接続元
 - [ログ](docs/logs.ja.md): ログの置き場所とローテーション
