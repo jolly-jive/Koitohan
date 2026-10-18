@@ -23,14 +23,16 @@
 | `OPENSSH_ALLOWED_NETWORKS`            | SSH の接続を受け付ける送信元のネットワーク。「[SSH の接続元](ssh.ja.md#ssh-の接続元)」を参照。 |
 | `OPENSSH_EGRESS`                      | OpenSSH のコンテナからユーザーが接続できる先。`none`、`any`、または `ssh` と `icmp`(空白で区切る)。「[コンテナから外への接続](ssh.ja.md#コンテナから外への接続)」を参照。 |
 | `OPENSSH_SERVICE_ACCOUNT_NAME`        | OpenSSH のコンテナがディレクトリの検索に使うアカウント。                              |
+| `NTP_CONTAINER_NAME`                  | NTP サーバー(chrony)のコンテナ名。書かなければ `chrony`。                             |
 | `PASSWDQC_MIN`                        | `passwd` が受け付けるパスワードの最小の長さ。「[パスワードの規則](ssh.ja.md#パスワードの規則)」を参照。 |
 | `PPOLICY_MIN_LENGTH`                  | OpenLDAP が受け付けるパスワードの最小の長さ。「[パスワードポリシー](#パスワードポリシー)」を参照。 |
 | `PPOLICY_MAX_FAILURE`                 | ユーザーをロックするまでの、認証の失敗の回数。                                        |
 | `PPOLICY_FAILURE_WINDOW`              | 失敗を数える期間(秒)。                                                                |
 | `PPOLICY_LOCKOUT_DURATION`            | ロックする時間(秒)。                                                                  |
 | `DOCKER_SUBNET`                       | コンテナ同士をつなぐ Docker ネットワークのサブネット(CIDR 表記)。                     |
-| `DEVICE_NETWORKS`                     | RADIUS、syslog、TFTP を受け付ける送信元のネットワーク。「[機器のネットワーク](#機器のネットワーク)」を参照。 |
+| `DEVICE_NETWORKS`                     | RADIUS、syslog、TFTP、NTP を受け付ける送信元のネットワーク。「[機器のネットワーク](#機器のネットワーク)」を参照。 |
 | `TZ`                                  | 全コンテナのタイムゾーン。`Asia/Tokyo` のような tz database の名前で指定します。      |
+| `COMPOSE_PROFILES`                    | 起動する任意のサービス。`ntp` で NTP サーバーを起動します。「[時刻の配布](#時刻の配布)」を参照。 |
 
 OpenLDAP、FreeRADIUS、OpenSSH のコンテナ名は、証明書のホスト名を兼ねています。変更したら `make clean && make` で証明書を作り直してください。
 
@@ -38,7 +40,7 @@ OpenLDAP、FreeRADIUS、OpenSSH のコンテナ名は、証明書のホスト名
 
 ## 機器のネットワーク
 
-FreeRADIUS、syslog-ng、TFTP サーバーは、`DEVICE_NETWORKS` に書いたネットワークからの通信だけを受け付けます。IPv4 のアドレスかプレフィックスを、空白で区切って並べます。
+FreeRADIUS、syslog-ng、TFTP サーバー、NTP サーバーは、`DEVICE_NETWORKS` に書いたネットワークからの通信だけを受け付けます。IPv4 のアドレスかプレフィックスを、空白で区切って並べます。
 
 ```sh
 DEVICE_NETWORKS='10.0.0.0/8 172.16.0.0/12 192.168.0.0/16'
@@ -56,6 +58,35 @@ DEVICE_NETWORKS='10.0.0.0/8 172.16.0.0/12 192.168.0.0/16'
 `OPENSSH_HOSTNAME` は、ユーザーがどのサーバーにログインしているかを見分けるための名前です。プロンプトは `alice@koitohan:/logs/Hosts$` の形になります。Koitohan を複数台で動かすときは、台ごとに別の名前にしてください。変更は `make up` で反映されます。
 
 `TZ` は、各コンテナが書き出すログの時刻のタイムゾーンを決めます。変更は `make up` で反映されます。
+
+## 時刻の配布
+
+Koitohan は、Docker ホストの時計を NTP(123/udp)で機器に配れます。コンテナはホストの時計を共有しているので、機器のログと Koitohan のログの時刻が揃います。ホストの時計は、ホスト自身の NTP クライアント(Raspberry Pi OS では既定で `systemd-timesyncd`)が合わせます。Koitohan の NTP サーバーは、自分では上流のサーバーを持ちません。
+
+使うかどうかは選べ、既定では使いません。使うときは `.env` に書きます。
+
+```sh
+COMPOSE_PROFILES='ntp'
+```
+
+`make up` で反映されます。やめるときは、この行をコメントアウトして `make down && make up` を実行します。`make up` だけでは、動いているコンテナが残ります。
+
+ホストがすでに時刻を配っている(chrony などの NTP サーバー)なら、これは使わずに、ホストに配らせてください。123/udp は両方では使えません。そのときの接続元の制限は、ホストの設定で行います。`DEVICE_NETWORKS` は届きません。
+
+サーバーは `DEVICE_NETWORKS` のネットワークにだけ答えます(「[機器のネットワーク](#機器のネットワーク)」を参照)。stratum は 10 です。
+
+ホストの時計の同期が外れると、サーバーは配るのを止めます。見ているのは、カーネルが時計について持っている誤差の上限です。この値は、ホストが同期するたびにほぼ 0 に戻り、そのあいだは毎秒 0.5 ミリ秒ずつ増えます。3.6 秒(`systemd-timesyncd` で、同期しないまま 2 時間)を超えると、サーバーは「同期していない」と答え、機器はその時刻を採らなくなります。2つ目の NTP サーバー(冗長構成のもう片方の Koitohan など)を設定してある機器は、そちらに移ります。ホストが同期し直すと、また配ります。確かめるのは1分ごとで、したことをログに出します。
+
+```sh
+docker compose logs chrony
+```
+
+```text
+koitohan: serving the host clock, maxerror 128500us
+koitohan: stopped serving, maxerror 3600500us is over 3600000us
+```
+
+`make host_check` は、NTP サーバーを使うかどうかにかかわらず、ホストの時計が同期していることを確かめます。
 
 ## RADIUS クライアント
 

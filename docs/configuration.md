@@ -23,14 +23,16 @@
 | `OPENSSH_ALLOWED_NETWORKS`            | Networks that SSH connections are accepted from. See [Sources of SSH](ssh.md#sources-of-ssh). |
 | `OPENSSH_EGRESS`                      | Where the users can connect to from the OpenSSH container: `none`, `any`, or `ssh` and `icmp` separated by a space. See [Connections out of the container](ssh.md#connections-out-of-the-container). |
 | `OPENSSH_SERVICE_ACCOUNT_NAME`        | Account the OpenSSH container uses to search the directory.                    |
+| `NTP_CONTAINER_NAME`                  | Container name of chrony, the NTP server. `chrony` when not set.               |
 | `PASSWDQC_MIN`                        | Minimum lengths of the passwords `passwd` accepts. See [Password rules](ssh.md#password-rules). |
 | `PPOLICY_MIN_LENGTH`                  | Minimum length of the passwords OpenLDAP accepts. See [Password policy](#password-policy). |
 | `PPOLICY_MAX_FAILURE`                 | Number of failed logins that locks a user.                                     |
 | `PPOLICY_FAILURE_WINDOW`              | Time in which the failures are counted, in seconds.                            |
 | `PPOLICY_LOCKOUT_DURATION`            | Time a lock lasts, in seconds.                                                 |
 | `DOCKER_SUBNET`                       | Subnet of the Docker network that connects the containers, in CIDR notation.   |
-| `DEVICE_NETWORKS`                     | Networks that RADIUS, syslog and TFTP are accepted from. See [Device networks](#device-networks). |
+| `DEVICE_NETWORKS`                     | Networks that RADIUS, syslog, TFTP and NTP are accepted from. See [Device networks](#device-networks). |
 | `TZ`                                  | Time zone of every container, as a tz database name such as `Asia/Tokyo`.      |
+| `COMPOSE_PROFILES`                    | Optional services to start. `ntp` starts the NTP server. See [Serving the time](#serving-the-time). |
 
 The container names of OpenLDAP, FreeRADIUS and OpenSSH are also the host names in their certificates. If you change them, regenerate the certificates with `make clean && make`.
 
@@ -38,7 +40,7 @@ Set `DOCKER_SUBNET` and `OPENSSH_SUBNET` to ranges that do not overlap the netwo
 
 ## Device networks
 
-FreeRADIUS, syslog-ng and the TFTP server accept traffic only from the networks listed in `DEVICE_NETWORKS`. List IPv4 addresses or prefixes, separated by spaces.
+FreeRADIUS, syslog-ng, the TFTP server and the NTP server accept traffic only from the networks listed in `DEVICE_NETWORKS`. List IPv4 addresses or prefixes, separated by spaces.
 
 ```sh
 DEVICE_NETWORKS='10.0.0.0/8 172.16.0.0/12 192.168.0.0/16'
@@ -56,6 +58,35 @@ Apply a change with `make down && make up`.
 `OPENSSH_HOSTNAME` is the name that tells the users which server they are logged in to. The prompt looks like `alice@koitohan:/logs/Hosts$`. When you run more than one Koitohan, give each a different name. Apply a change with `make up`.
 
 `TZ` sets the time zone of the timestamps in the logs each container writes. Apply a change with `make up`.
+
+## Serving the time
+
+Koitohan can serve the clock of the Docker host to the devices over NTP (123/udp). The containers share the clock of the host, so the times in the device logs and in the logs of Koitohan line up. The host keeps its clock in sync with its own NTP client (`systemd-timesyncd` by default on Raspberry Pi OS). The NTP server of Koitohan has no upstream servers of its own.
+
+It is optional and off by default. Turn it on in `.env`:
+
+```sh
+COMPOSE_PROFILES='ntp'
+```
+
+Apply it with `make up`. To turn it off again, comment the line out and run `make down && make up`: `make up` alone leaves the running container as it is.
+
+If the host already serves the time (with chrony or another NTP server), leave this off and let the host serve. The two cannot share 123/udp. Then limit the sources in the configuration of the host yourself: `DEVICE_NETWORKS` does not reach it.
+
+The server answers only the networks in `DEVICE_NETWORKS` (see [Device networks](#device-networks)). The server reports stratum 10.
+
+The server stops serving when the host clock goes out of sync. It watches the maximum error that the kernel keeps for the clock. The error goes back to near zero each time the host syncs, and grows by 0.5 ms a second in between. Once it is over 3.6 seconds, which is two hours without a sync under `systemd-timesyncd`, the server answers that it is not synchronized, and the devices stop taking its time. A device with a second NTP server, such as the other Koitohan of a redundant pair, moves to that one. The server serves again after the host syncs. It looks once a minute and says what it does in its log:
+
+```sh
+docker compose logs chrony
+```
+
+```text
+koitohan: serving the host clock, maxerror 128500us
+koitohan: stopped serving, maxerror 3600500us is over 3600000us
+```
+
+`make host_check` checks that the host clock is in sync, whether or not the NTP server is on.
 
 ## RADIUS clients
 

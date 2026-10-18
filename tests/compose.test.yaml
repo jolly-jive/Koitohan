@@ -76,6 +76,14 @@ services:
     ports: !reset []
     restart: "no"
 
+  chrony:
+    container_name: !reset null
+    environment:
+      # the limit on maxerror; the test sets 0 to see chrony stop serving
+      NTP_MAX_ERROR_US: "${NTP_MAX_ERROR_US:-}"
+    ports: !reset []
+    restart: "no"
+
 networks:
   default:
     ipam: !reset null
