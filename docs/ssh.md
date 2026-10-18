@@ -57,9 +57,11 @@ Apply a change with `make up` (the OpenSSH container is made again, and the sess
 | Value                            | Where the users can connect to                        | Port forwarding                                        |
 | -------------------------------- | ----------------------------------------------------- | ------------------------------------------------------ |
 | `ldaps` (the value in `.env.sample`) | OpenLDAP (636/tcp) only                           | Not available                                          |
-| `any`                            | Anywhere (the devices, the Docker host, the internet) | Local forwarding only (`ssh -J`, `ssh -L`)             |
+| `any`                            | Anywhere (the devices, the Docker host, the internet) but syslog and TFTP (514/tcp, 514/udp, 69/udp) | Local forwarding only (`ssh -J`, `ssh -L`)             |
 
 The container does not start when the value is empty or anything else. The same goes when `.env` does not have the variable.
+
+A connection that the value does not let out is refused at once: over TCP the users see `Connection refused`, and otherwise (`ping`, UDP) `Operation not permitted`.
 
 Even with `ldaps`, names are looked up through the DNS of Docker, so outside names can be looked up as well.
 
@@ -67,6 +69,7 @@ Even with `ldaps`, names are looked up through the DNS of Docker, so outside nam
 
 - If you keep the networks of the terminals (`OPENSSH_ALLOWED_NETWORKS`) apart from the networks of the devices, every user who can log in reaches the networks of the devices through this container. The roles make no difference.
 - The users also reach the ports of the Docker host itself, such as the host's own sshd.
+- Syslog and TFTP are refused, whatever the address, so the users cannot reach them on the devices either. The ports that the Docker host publishes for syslog-ng and tftpd-hpa take no login, and they take what comes from the containers as coming from the Docker host. Through them, every user who can log in could write fake logs of a device, or write into `configs/`, which the roles keep to `admin`. Nothing would record who did it.
 - Remote forwarding (`ssh -R`), agent forwarding, X11 forwarding and tunnels are not available with either value.
 
 Port forwarding is not turned off with `any` because it would not help: `nc` and the like do the same.

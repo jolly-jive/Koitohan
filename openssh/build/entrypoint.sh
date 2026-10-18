@@ -17,7 +17,12 @@ if [ "${1:-}" != filtered ]; then
   fi
 
   # ldaps lets the users reach nothing but LDAPS on the network of the
-  # container, which is where OpenLDAP is. any leaves the way out open.
+  # container, which is where OpenLDAP is. any leaves the way out open,
+  # but for syslog and TFTP: the published ports of syslog-ng and
+  # tftpd-hpa take no login, and the users would reach them through the
+  # Docker host, past the roles and from where the devices are. The ports
+  # are the ones that compose.yaml publishes. What is not let out is
+  # refused, not dropped, so that the users see it fail at once.
   case "${OPENSSH_EGRESS:-}" in
     ldaps)
       # the subnet that Docker gave the network, so that the address of
@@ -32,10 +37,17 @@ if [ "${1:-}" != filtered ]; then
 		oif \"lo\" accept
 		ct state established,related accept
 		ip daddr { $subnets } tcp dport 636 accept
+		meta l4proto tcp reject with tcp reset
+		reject with icmpx admin-prohibited
 	}"
       ;;
     any)
-      output_chain=''
+      output_chain="chain output {
+		type filter hook output priority filter; policy accept;
+		ct state established,related accept
+		tcp dport 514 reject with tcp reset
+		udp dport { 69, 514 } reject with icmpx admin-prohibited
+	}"
       ;;
     *)
       echo "OPENSSH_EGRESS must be ldaps or any: ${OPENSSH_EGRESS:-}" >&2
@@ -44,7 +56,7 @@ if [ "${1:-}" != filtered ]; then
   esac
 
   # the replies from OpenLDAP pass as established, and the embedded DNS of
-  # Docker as loopback. The table is inet, so this drops IPv6 as well.
+  # Docker as loopback. The table is inet, so this holds IPv6 as well.
   nft -f - <<EOF
 table inet koitohan {
 	chain input {
