@@ -59,5 +59,11 @@ sudo chmod 2770 tftpd-hpa/tftpboot/configs
   ```powershell
   New-NetFirewallHyperVRule -Name KoitohanTftp -DisplayName 'Koitohan TFTP' -Direction Inbound -VMCreatorId '{40E0AC32-46A5-438A-A0B2-2B479E8F2E90}' -Protocol UDP -RemoteAddresses <ホストのアドレス>
   ```
+
+  Windows の `tftp` では、Windows Defender ファイアウォールが応答を遮断することがあります(ネットワークのプロファイルが「パブリック」のときなど)。このとき `tftp` は「接続要求に失敗しました」で終わります。管理者の PowerShell で、たとえば次のように許可します。
+
+  ```powershell
+  New-NetFirewallRule -Name KoitohanTftpClient -DisplayName 'Koitohan TFTP client' -Direction Inbound -Program "$env:SystemRoot\System32\tftp.exe" -Protocol UDP -RemoteAddress <ホストのアドレス> -Action Allow
+  ```
 - `firmware/` は Docker ホストのディスクにそのまま置かれます。大きなファームウェアを置く前に、空き容量を確認してください。
 - 転送の記録は `tftpd-hpa/log/tftpd.log` に保存されます。要求の種類(取得は `RRQ`、アップロードは `WRQ`)、要求元のアドレス、ファイル名が残ります。同じものを `docker compose logs tftpd-hpa` でも確認できます。
