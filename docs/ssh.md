@@ -52,27 +52,32 @@ Apply a change with `make up` (the OpenSSH container is made again, and the sess
 
 ## Connections out of the container
 
-`OPENSSH_EGRESS` decides where the logged-in users can connect to from the OpenSSH container.
+`OPENSSH_EGRESS` decides where the logged-in users can connect to from the OpenSSH container. Write `none`, `any`, or one or both of `ssh` and `icmp` separated by a space.
 
-| Value                            | Where the users can connect to                        | Port forwarding                                        |
-| -------------------------------- | ----------------------------------------------------- | ------------------------------------------------------ |
-| `ldaps` (the value in `.env.sample`) | OpenLDAP (636/tcp) only                           | Not available                                          |
-| `any`                            | Anywhere (the devices, the Docker host, the internet) but syslog and TFTP (514/tcp, 514/udp, 69/udp) | Local forwarding only (`ssh -J`, `ssh -L`)             |
+| Value                                 | Where the users can connect to                                   | Port forwarding                            |
+| ------------------------------------- | ---------------------------------------------------------------- | ------------------------------------------ |
+| `none` (the value in `.env.sample`)   | Nowhere                                                          | Not available                              |
+| `ssh`                                 | SSH (22/tcp) of any host                                         | Local forwarding only (`ssh -J`, `ssh -L`) |
+| `icmp`                                | `ping` to any host                                               | Not available                              |
+| `ssh icmp`                            | Both of the above                                                | Local forwarding only (`ssh -J`, `ssh -L`) |
+| `any`                                 | Anywhere (the devices, the Docker host, the internet) but syslog and TFTP (514/tcp, 514/udp, 69/udp) | Local forwarding only (`ssh -J`, `ssh -L`) |
 
-The container does not start when the value is empty or anything else. The same goes when `.env` does not have the variable.
+With every value, the container connects to OpenLDAP (636/tcp) for itself, and the users can reach it as well. OpenLDAP asks for a client certificate, so they get nowhere with it.
 
-A connection that the value does not let out is refused at once: over TCP the users see `Connection refused`, and otherwise (`ping`, UDP) `Operation not permitted`.
+The container does not start when the value is empty, has any other word, or puts `none` or `any` together with another word. The same goes when `.env` does not have the variable.
 
-Even with `ldaps`, names are looked up through the DNS of Docker, so outside names can be looked up as well.
+A connection that the value does not let out is refused at once: over TCP the users see `Connection refused`, and otherwise (`ping`, UDP) `Operation not permitted`. `traceroute` is not available with any value: the users cannot open the raw sockets it needs.
 
-`any` is for using the OpenSSH container as a jump host to the devices. Keep the following in mind.
+With every value, names are looked up through the DNS of Docker, so outside names can be looked up as well.
 
-- If you keep the networks of the terminals (`OPENSSH_ALLOWED_NETWORKS`) apart from the networks of the devices, every user who can log in reaches the networks of the devices through this container. The roles make no difference.
-- The users also reach the ports of the Docker host itself, such as the host's own sshd.
-- Syslog and TFTP are refused, whatever the address, so the users cannot reach them on the devices either. The ports that the Docker host publishes for syslog-ng and tftpd-hpa take no login, and they take what comes from the containers as coming from the Docker host. Through them, every user who can log in could write fake logs of a device, or write into `configs/`, which the roles keep to `admin`. Nothing would record who did it.
-- Remote forwarding (`ssh -R`), agent forwarding, X11 forwarding and tunnels are not available with either value.
+`ssh` and `any` are for using the OpenSSH container as a jump host to the devices. `ssh` is enough to log in to the devices over SSH. Use `any` when the users need more, such as the web pages of the devices through `ssh -L`, or Telnet. Keep the following in mind.
 
-Port forwarding is not turned off with `any` because it would not help: `nc` and the like do the same.
+- If you keep the networks of the terminals (`OPENSSH_ALLOWED_NETWORKS`) apart from the networks of the devices, every user who can log in reaches the networks of the devices through this container. The roles make no difference. With `ssh`, the devices still ask for a login.
+- The users also reach the ports of the Docker host itself: its own sshd with `ssh`, and any port with `any`.
+- Syslog and TFTP cannot be reached with any value, whatever the address, so the users cannot reach them on the devices either. The ports that the Docker host publishes for syslog-ng and tftpd-hpa take no login, and they take what comes from the containers as coming from the Docker host. Through them, every user who can log in could write fake logs of a device, or write into `configs/`, which the roles keep to `admin`. Nothing would record who did it.
+- Remote forwarding (`ssh -R`), agent forwarding, X11 forwarding and tunnels are not available with any value.
+
+Port forwarding is not turned off with `ssh` and `any` because it would not help: `nc` and the like do the same. With `ssh`, the forwarding reaches only 22/tcp, as the users do.
 
 Apply a change with `make up` (the OpenSSH container is made again, and the sessions that are logged in are closed).
 
