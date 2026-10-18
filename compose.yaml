@@ -158,8 +158,8 @@ services:
     mem_limit: 256m
     memswap_limit: 256m
     cpus: 1.0
-    # the entrypoint filters the packets by their source and, with
-    # OPENSSH_EGRESS=ldaps, by where they go, then gives this up before it
+    # the entrypoint filters the packets by their source and by where they
+    # go (OPENSSH_EGRESS), then gives this up before it
     # starts sshd
     cap_add:
       - NET_ADMIN

@@ -16,44 +16,81 @@ if [ "${1:-}" != filtered ]; then
     exit 1
   fi
 
-  # ldaps lets the users reach nothing but LDAPS on the network of the
-  # container, which is where OpenLDAP is. any leaves the way out open,
-  # but for syslog and TFTP: the published ports of syslog-ng and
-  # tftpd-hpa take no login, and the users would reach them through the
-  # Docker host, past the roles and from where the devices are. The ports
-  # are the ones that compose.yaml publishes. What is not let out is
-  # refused, not dropped, so that the users see it fail at once.
-  case "${OPENSSH_EGRESS:-}" in
-    ldaps)
-      # the subnet that Docker gave the network, so that the address of
-      # OpenLDAP need not be fixed
-      subnets=$(ip -4 route show scope link | awk '{ print $1 }' | paste -s -d , -)
-      if [ -z "$subnets" ]; then
-        echo 'the container has no network to reach OpenLDAP on' >&2
-        exit 1
-      fi
-      output_chain="chain output {
-		type filter hook output priority filter; policy drop;
-		oif \"lo\" accept
-		ct state established,related accept
-		ip daddr { $subnets } tcp dport 636 accept
-		meta l4proto tcp reject with tcp reset
-		reject with icmpx admin-prohibited
-	}"
-      ;;
-    any)
-      output_chain="chain output {
+  # Where the users can go out to. none lets them reach nothing; ssh and
+  # icmp, alone or together, let out SSH and ping to any address. LDAPS on
+  # the network of the container, which is where OpenLDAP is, goes out
+  # with every value, for nslcd. any leaves the way out open, but for
+  # syslog and TFTP: the published ports of syslog-ng and tftpd-hpa take
+  # no login, and the users would reach them through the Docker host,
+  # past the roles and from where the devices are. The ports are the ones
+  # that compose.yaml publishes. What is not let out is refused, not
+  # dropped, so that the users see it fail at once.
+  egress_mode=''
+  egress_rules=''
+  egress_words=0
+  egress_bad=''
+  # sshd opens the forwarding, and the filter holds it as well. Where SSH
+  # goes out, it saves the users a nc on the way to a device (ssh -J).
+  # This script starts again below, so the choice goes in the environment.
+  KOITOHAN_TCP_FORWARDING=no
+  # a word must not expand as a pattern of file names
+  set -f
+  for word in ${OPENSSH_EGRESS:-}; do
+    egress_words=$((egress_words + 1))
+    case "$word" in
+      none)
+        egress_mode=$word
+        ;;
+      any)
+        egress_mode=$word
+        KOITOHAN_TCP_FORWARDING=local
+        ;;
+      ssh)
+        egress_rules="$egress_rules
+		tcp dport 22 accept"
+        KOITOHAN_TCP_FORWARDING=local
+        ;;
+      icmp)
+        egress_rules="$egress_rules
+		icmp type echo-request accept"
+        ;;
+      *)
+        egress_bad=yes
+        ;;
+    esac
+  done
+  set +f
+  if [ "$egress_words" -eq 0 ] || [ -n "$egress_bad" ] \
+     || { [ -n "$egress_mode" ] && [ "$egress_words" -gt 1 ]; }; then
+    echo "OPENSSH_EGRESS must be none, any, or ssh and icmp separated by spaces: ${OPENSSH_EGRESS:-}" >&2
+    exit 1
+  fi
+
+  if [ "$egress_mode" = any ]; then
+    output_chain="chain output {
 		type filter hook output priority filter; policy accept;
 		ct state established,related accept
 		tcp dport 514 reject with tcp reset
 		udp dport { 69, 514 } reject with icmpx admin-prohibited
 	}"
-      ;;
-    *)
-      echo "OPENSSH_EGRESS must be ldaps or any: ${OPENSSH_EGRESS:-}" >&2
+  else
+    # the subnet that Docker gave the network, so that the address of
+    # OpenLDAP need not be fixed
+    subnets=$(ip -4 route show scope link | awk '{ print $1 }' | paste -s -d , -)
+    if [ -z "$subnets" ]; then
+      echo 'the container has no network to reach OpenLDAP on' >&2
       exit 1
-      ;;
-  esac
+    fi
+    output_chain="chain output {
+		type filter hook output priority filter; policy drop;
+		oif \"lo\" accept
+		ct state established,related accept
+		ip daddr { $subnets } tcp dport 636 accept$egress_rules
+		meta l4proto tcp reject with tcp reset
+		reject with icmpx admin-prohibited
+	}"
+  fi
+  export KOITOHAN_TCP_FORWARDING
 
   # the replies from OpenLDAP pass as established, and the embedded DNS of
   # Docker as loopback. The table is inet, so this holds IPv6 as well.
@@ -127,14 +164,9 @@ filter passwd (objectClass=posixAccount)
 nss_min_uid 10000
 EOF
 
-# Forwarding goes out from sshd, which the filter holds anyway. With any
-# it saves the users a nc on the way to a device (ssh -J); the forwarding
-# that listens or carries more than one port stays off.
-if [ "${OPENSSH_EGRESS}" = any ]; then
-  echo 'AllowTcpForwarding local' > "${RUN_DIR}/sshd_forwarding.conf"
-else
-  echo 'AllowTcpForwarding no' > "${RUN_DIR}/sshd_forwarding.conf"
-fi
+# local or no, chosen with the filter above. The forwarding that listens
+# or carries more than one port stays off.
+echo "AllowTcpForwarding ${KOITOHAN_TCP_FORWARDING}" > "${RUN_DIR}/sshd_forwarding.conf"
 
 echo "min=${PASSWDQC_MIN}" > "${RUN_DIR}/passwdqc.conf"
 # an error in the config goes to stderr. The verdict (stdout) is ignored.

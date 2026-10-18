@@ -42,7 +42,7 @@ export DEVICE_NETWORKS="${ALLOWED_NETWORKS}"
 export OPENSSH_ALLOWED_NETWORKS="${ALLOWED_NETWORKS}"
 # the users of ssh reach only OpenLDAP, as .env.sample has it. One check
 # opens the way out.
-export OPENSSH_EGRESS='ldaps'
+export OPENSSH_EGRESS='none'
 # the limit on the size of an upload, small enough to reach over TFTP
 # in a moment
 TFTP_MAX_BYTES=65536
@@ -988,8 +988,8 @@ done
 for VALUE in example.com 10.0.0.0/33 999.0.0.0/8; do
   check_bad_generated "${VALUE}"
 done
-for VALUE in '' none; do
-  check_bad_value 'bad egress' OPENSSH_EGRESS openssh "${VALUE}" 'must be ldaps or any'
+for VALUE in '' ldaps; do
+  check_bad_value 'bad egress' OPENSSH_EGRESS openssh "${VALUE}" 'must be none, any, or ssh and icmp'
 done
 
 if ! wait_ssh_ready; then
