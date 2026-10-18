@@ -1272,6 +1272,11 @@ check_egress_tcp ${EGRESS_PORT} refused
 check_egress_icmp refused
 check_egress_forwarding 22 reached
 check_egress_forwarding ${EGRESS_PORT} refused
+recreate_egress icmp
+check_egress_icmp reached
+check_egress_tcp 22 refused
+check_egress_tcp ${EGRESS_PORT} refused
+check_egress_forwarding 22 prohibited
 # Opened wide. The limit on the source of ssh that follows makes the
 # container again with OPENSSH_EGRESS of the test, then the change of
 # the password makes it once more, for the networks of the test. Keep
