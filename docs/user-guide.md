@@ -37,7 +37,7 @@ ssh -p 2222 alice@<host>
 
 - There are no home directories. Give the paths in the working environment as absolute paths to `scp` and `sftp`.
 - You can write only where the table below says "read and write".
-- Whether you can connect from the working environment to other hosts, such as the devices, depends on how the Koitohan administrators set it up. If you can, local port forwarding (`ssh -J`, `ssh -L`) is available as well. Other kinds of forwarding are not. Even then, syslog (514/tcp, 514/udp) and TFTP (69/udp) cannot be used toward any host. A connection that is not allowed fails at once with `Connection refused` or `Operation not permitted`.
+- Whether you can connect from the working environment to other hosts, such as the devices, depends on how the Koitohan administrators set it up: not at all, only over SSH and/or with `ping`, or more widely. Where SSH goes out, local port forwarding (`ssh -J`, `ssh -L`) is available as well, to the same places. Other kinds of forwarding are not. Syslog (514/tcp, 514/udp) and TFTP (69/udp) cannot be used toward any host, and `traceroute` is not available. A connection that is not allowed fails at once with `Connection refused` or `Operation not permitted`.
 
 | Path                  | Content                              | admin          | operator       | readonly       |
 | --------------------- | ------------------------------------ | -------------- | -------------- | -------------- |

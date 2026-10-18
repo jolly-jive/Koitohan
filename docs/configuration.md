@@ -21,7 +21,7 @@
 | `OPENSSH_PORT`                        | Port of the Docker host that publishes SSH. Keep it apart from the host's own sshd. |
 | `OPENSSH_SUBNET`                      | Subnet of the Docker network that connects only OpenSSH and OpenLDAP, in CIDR notation. |
 | `OPENSSH_ALLOWED_NETWORKS`            | Networks that SSH connections are accepted from. See [Sources of SSH](ssh.md#sources-of-ssh). |
-| `OPENSSH_EGRESS`                      | Where the users can connect to from the OpenSSH container: `ldaps` or `any`. See [Connections out of the container](ssh.md#connections-out-of-the-container). |
+| `OPENSSH_EGRESS`                      | Where the users can connect to from the OpenSSH container: `none`, `any`, or `ssh` and `icmp` separated by a space. See [Connections out of the container](ssh.md#connections-out-of-the-container). |
 | `OPENSSH_SERVICE_ACCOUNT_NAME`        | Account the OpenSSH container uses to search the directory.                    |
 | `PASSWDQC_MIN`                        | Minimum lengths of the passwords `passwd` accepts. See [Password rules](ssh.md#password-rules). |
 | `PPOLICY_MIN_LENGTH`                  | Minimum length of the passwords OpenLDAP accepts. See [Password policy](#password-policy). |
