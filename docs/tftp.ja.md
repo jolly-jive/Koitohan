@@ -53,7 +53,11 @@ sudo chmod 2770 tftpd-hpa/tftpboot/configs
 
 ## 使うときの注意
 
-- バイナリモードで転送してください。Linux の `tftp` コマンドのように、既定がテキスト(netascii)モードのクライアントがあります。
-- サーバーは、69 番とは別の UDP ポートから応答します。PC から試して失敗するときは、PC 側のファイアウォールがその応答を遮断していないか確認してください。
+- バイナリモードで転送してください。Linux の `tftp` コマンドのように、既定がテキスト(netascii)モードのクライアントがあります(tftp-hpa のクライアントでは `-m binary`、Windows の `tftp` では `-i` を付けます)。
+- サーバーは、69 番とは別の UDP ポートから応答します。PC のファイアウォールは、この応答を要求への返事とみなさずに遮断することがあります。そのときクライアントはタイムアウトになり、`tftpd-hpa/log/tftpd.log` には同じ要求が数秒おきに並びます。アップロードでは、`configs/` に 0 バイトのファイルが残るので、手で削除してください。PC から試すときは、そのファイアウォールが Koitohan のホストからの UDP の受信を許しているか確かめてください。WSL2 をミラーモードのネットワークで使っている場合は、Windows の Hyper-V ファイアウォールが WSL への受信を判定します。管理者の PowerShell で、たとえば次のように許可します。
+
+  ```powershell
+  New-NetFirewallHyperVRule -Name KoitohanTftp -DisplayName 'Koitohan TFTP' -Direction Inbound -VMCreatorId '{40E0AC32-46A5-438A-A0B2-2B479E8F2E90}' -Protocol UDP -RemoteAddresses <ホストのアドレス>
+  ```
 - `firmware/` は Docker ホストのディスクにそのまま置かれます。大きなファームウェアを置く前に、空き容量を確認してください。
 - 転送の記録は `tftpd-hpa/log/tftpd.log` に保存されます。要求の種類(取得は `RRQ`、アップロードは `WRQ`)、要求元のアドレス、ファイル名が残ります。同じものを `docker compose logs tftpd-hpa` でも確認できます。
