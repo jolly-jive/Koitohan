@@ -188,7 +188,12 @@ TFTP には認証も暗号化もありません。69/udp に到達できる相�
 - [OpenSSH のコンテナ](docs/ssh.ja.md): 利用者作業用コンテナの目的、パスワードの規則、接続元
 - [ログ](docs/logs.ja.md): ログの置き場所とローテーション
 - [バックアップと復元](docs/backup.ja.md): バックアップに入るもの、毎日の実行、新しいホストへの復元
+- [機器の設定例](docs/devices/README.md)(英語): ネットワーク機器側の設定。コントリビュータの提供
 - [基本設計書](docs/basic-design.md)
+
+## コントリビューション
+
+ネットワーク機器の設定例を特に歓迎します。[CONTRIBUTING.ja.md](CONTRIBUTING.ja.md) を参照してください。
 
 ## ライセンス
 

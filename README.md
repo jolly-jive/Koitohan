@@ -188,7 +188,12 @@ For the Koitohan administrators:
 - [The OpenSSH container](docs/ssh.md): what the container for the users is for, password rules, sources
 - [Logs](docs/logs.md): where the logs are and how they rotate
 - [Backup and restore](docs/backup.md): what a backup holds, running it every day, restoring onto a new host
+- [Device configuration examples](docs/devices/README.md): settings on the network devices, sent by contributors
 - [Basic design](docs/basic-design.md) (Japanese)
+
+## Contributing
+
+Configuration examples for network devices are especially welcome. See [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## License
 

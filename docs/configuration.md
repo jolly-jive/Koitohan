@@ -93,6 +93,8 @@ Any other value falls back to `Management-Privilege-Level`.
 
 The values for Fortinet, Juniper and Palo Alto are names of profiles or users on the device. Define matching ones on the device.
 
+[Device configuration examples](devices/README.md) collects what contributors set on their devices.
+
 FreeRADIUS accepts requests only from the networks in `DEVICE_NETWORKS` (see [Device networks](#device-networks)) and loopback.
 
 ### Local authentication on the devices
