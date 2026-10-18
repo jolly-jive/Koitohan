@@ -59,5 +59,11 @@ If you start the stack without these steps, Docker creates `configs/` owned by r
   ```powershell
   New-NetFirewallHyperVRule -Name KoitohanTftp -DisplayName 'Koitohan TFTP' -Direction Inbound -VMCreatorId '{40E0AC32-46A5-438A-A0B2-2B479E8F2E90}' -Protocol UDP -RemoteAddresses <host address>
   ```
+
+  With `tftp` on Windows, Windows Defender Firewall may block the reply (for example, when the network profile is Public). `tftp` then ends with "Connect request failed". Allow it from PowerShell as an administrator, for example:
+
+  ```powershell
+  New-NetFirewallRule -Name KoitohanTftpClient -DisplayName 'Koitohan TFTP client' -Direction Inbound -Program "$env:SystemRoot\System32\tftp.exe" -Protocol UDP -RemoteAddress <host address> -Action Allow
+  ```
 - `firmware/` sits directly on the disk of the Docker host. Check the free space before you put large firmware images there.
 - The transfers are recorded in `tftpd-hpa/log/tftpd.log`, with the kind of the request (`RRQ` for a download, `WRQ` for an upload), the address of the requester and the file name. `docker compose logs tftpd-hpa` shows the same.
