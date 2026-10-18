@@ -582,6 +582,7 @@ FreeRADIUS 4.x は構成ファイルの構造が 3.x と異なるため、設定
 | Fortinet     | `fortinet`、`fortigate`   | `Fortinet-Group-Name`        |
 | Juniper      | `juniper`                 | `Juniper-Local-User-Name`    |
 | PaloAlto     | `palo-alto`               | `PaloAlto-Admin-Role`        |
+| VyOS         | `vyos`                    | `Cisco-AVPair`               |
 | Service-Type | `service-type`、`rfc2865` | `Service-Type`               |
 | IETF-MPL     | `ietf-mpl`、`allied`      | `Management-Privilege-Level` |
 | Nothing      | `nothing`、`no`、`none`   | なし                         |
@@ -598,11 +599,14 @@ FreeRADIUS 4.x は構成ファイルの構造が 3.x と異なるため、設定
 | Fortinet     | `super_admin`         | `readonly`         | `readonly`         |
 | Juniper      | `superuser`           | `operator`         | `read-only`        |
 | PaloAlto     | `superuser`           | `readonly`         | `readonly`         |
+| VyOS         | `shell:priv-lvl=15`   | `shell:priv-lvl=7` | `shell:priv-lvl=1` |
 | Service-Type | `Administrative-User` | `NAS-Prompt-User`  | `Login-User`       |
 | IETF-MPL     | 15                    | 7                  | 1                  |
 | Nothing      | 許可（属性なし）      | 許可（属性なし）   | 許可（属性なし）   |
 
 Fortinet、Juniper、Palo Alto の値は機器側に定義されたプロファイル名・ユーザ名であり、機器側の設定と一致させる必要がある。
+
+VyOS は Cisco と同じ属性を読むが、権限は2段階しかない。`shell:priv-lvl` が 15 以上なら設定を変えられる共有アカウント（`radius_priv_user`）、それ以外（属性がない場合を含む）は運用モードだけの共有アカウント（`radius_user`）に割り当てられる。したがって VyOS の上では `operator` と `readonly` が区別されない。応答は Cisco と同じだが、`clients.conf` で機器を見分けられるよう、種別を分けている（判定は vyos-1x と、VyOS が fork した libpam-radius-auth のソースで確かめた。実機では未確認）。
 
 複数のロールに所属しているユーザは、そのうちいちばん弱いロールとして扱う。優先順位は `readonly`、`operator`、`admin` の順で、たとえば `readonly` と `admin` の両方に所属していれば `readonly` になる。
 

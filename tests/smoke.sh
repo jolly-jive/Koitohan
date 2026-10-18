@@ -1023,6 +1023,10 @@ unknown|127.0.0.10|operator01|Accept|Management-Privilege-Level = 7
 unknown|127.0.0.10|readonly01|Accept|Management-Privilege-Level = 1
 unknown|127.0.0.10|readonly01|Accept|unknown nas_type: 'bogus'
 unknown|127.0.0.10|norole01|Reject|-
+vyos|127.0.0.11|admin01|Accept|AVPair = "shell:priv-lvl=15"
+vyos|127.0.0.11|operator01|Accept|AVPair = "shell:priv-lvl=7"
+vyos|127.0.0.11|readonly01|Accept|AVPair = "shell:priv-lvl=1"
+vyos|127.0.0.11|norole01|Reject|-
 cisco|127.0.0.1|other01|Reject|-
 aruba-ap|127.0.0.3|other01|Reject|-
 none|127.0.0.9|other01|Reject|-
