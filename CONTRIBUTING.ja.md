@@ -20,7 +20,10 @@ Koitohan は一人で保守しており、試せるネットワーク機器を�
 
 機器で確かめられるものを確かめ、結果を設定例の冒頭の表に書いてください。
 
-- ロール `admin`、`operator`、`readonly` のそれぞれでログインし、期待した権限になる。
+- ロール `admin` でログインすると、設定を変えて保存できる。
+- ロール `operator` でログインすると、`readonly` 以上、`admin` 未満の権限になる。そのあいだで何ができるかは機器によって違います。できたことを書いてください。
+- ロール `readonly` でログインすると、設定を変えられない。
+- ロールごとに、機器に表示されたもの(権限のレベル、プロファイルの名前など)を書いてください。権限の強さの順が逆になったときは、その機器が権限のレベルを逆の向きに数えている(0 がいちばん強い、など)のかもしれません。そう書いてください。
 - Koitohan がユーザーを拒否したとき(パスワードの誤り、ロックされたユーザー、ロールのないユーザー)、機器がローカル認証に回るか。回るように設定できるか、ローカル認証を先に試すように設定できるか。
 - Koitohan が応答しないとき、機器がローカル認証に回るか。
 - 機器の syslog が `syslog-ng/log/Hosts/` の下に届く。ディレクトリの名前は何になるか(機器のホスト名か、アドレスか)。
@@ -31,7 +34,7 @@ Koitohan は一人で保守しており、試せるネットワーク機器を�
 
 ### 送り方
 
-1. [docs/devices/TEMPLATE.md](docs/devices/TEMPLATE.md) を `docs/devices/<ベンダー>-<OS>.md` に写します。名前は小文字で、ハイフンでつなぎます(例: `cisco-ios-xe.md`)。
+1. [docs/devices/TEMPLATE.ja.md](docs/devices/TEMPLATE.ja.md)(日本語のひな形)か [docs/devices/TEMPLATE.md](docs/devices/TEMPLATE.md)(英語のひな形)を、`docs/devices/<ベンダー>-<OS>.md` に写します。名前は小文字で、ハイフンでつなぎます(例: `cisco-ios-xe.md`)。
 2. 中身を書き、[docs/devices/README.md](docs/devices/README.md) の表に1行足します。
 3. プルリクエストを作ります。
 

@@ -20,7 +20,10 @@ Examples checked on a virtual image of the device, such as a simulator or a virt
 
 Check what you can on your device, and record the results in the table at the top of the example.
 
-- Logins with the roles `admin`, `operator` and `readonly` each get the privileges you expect.
+- A login with the role `admin` can change and save the configuration.
+- A login with the role `operator` gets at least the privileges of `readonly`, and fewer than `admin`. What it can do between the two depends on the device. Write what it could do.
+- A login with the role `readonly` cannot change the configuration.
+- For each role, note what the device showed, such as the privilege level or the profile name. If the privileges come out in the wrong order, the device may count privilege levels the other way round (for example, 0 as the highest). Say so.
 - When Koitohan rejects a user (a wrong password, a locked user, or a user without a role), does the device fall back to its local authentication? Can it be set to do so, or to try local authentication first?
 - When Koitohan does not reply, does the device fall back to its local authentication?
 - Syslog from the device appears under `syslog-ng/log/Hosts/`. Which name does the directory get (the host name or the address of the device)?
@@ -37,7 +40,7 @@ The behavior around local authentication differs between devices, and [Local aut
 
 If you would rather not open a pull request, open an issue and paste the filled-in template there.
 
-Write in English. If you prefer Japanese, send it in Japanese, and the maintainer will translate it.
+Write in English. If you prefer Japanese, start from [docs/devices/TEMPLATE.ja.md](docs/devices/TEMPLATE.ja.md) and send it in Japanese, and the maintainer will translate it.
 
 The maintainer cannot check the examples on real devices. They are published as you report them, with your name, the date and the firmware version you used.
 
