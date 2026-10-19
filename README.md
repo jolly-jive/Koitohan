@@ -81,6 +81,8 @@ The `chown` and `chmod` on `firmware/` open the directory to the users with the 
 
 Use `make up` instead of calling `docker compose up` directly on a fresh checkout. It makes sure the generated files exist before Docker mounts them.
 
+Once it is up, check with `bin/check_services.sh` that each service works. A service of Koitohan that stops is easy to miss, so we strongly recommend running it from cron (see [Checking the services](docs/monitoring.md)).
+
 ## Ports
 
 | Port             | Service               |
@@ -118,6 +120,7 @@ bin/change_service_account_password.sh   # change the password of a service acco
 bin/change_ldap_admin_password.sh        # change the passwords of the OpenLDAP administrators
 bin/backup.sh           # take a backup of the running stack
 bin/restore_ldap.sh     # load the directory of a backup into an empty OpenLDAP
+bin/check_services.sh   # check that each service of the running stack works
 ```
 
 Check the FreeRADIUS configuration without starting the stack:
@@ -132,7 +135,7 @@ Check authentication and authorization end to end:
 make test
 ```
 
-`make test` starts every container as a separate project (`koitohan-test`), adds test users with `bin/manage_users.sh`, authenticates as them, and compares the reply attributes for every combination of device type and role. It also checks that FreeRADIUS makes a detail log again after the rotation has moved it away. For RADIUS, syslog, TFTP and NTP, it checks that traffic from the networks in `DEVICE_NETWORKS` arrives and that traffic from elsewhere does not. It also checks that a TFTP transfer is recorded in the file, and that the NTP server answers that it is not synchronized once the host clock goes out of sync. It then logs in over SSH as a user of each role and checks the permissions on the directories, the reading of a compressed log and a password change. After that it runs each operation of `bin/manage_users.sh` and checks the password policy (the minimum length, the lock and the unlock) and the change of the passwords of the service accounts and of the OpenLDAP administrators. Then it restarts the OpenLDAP container and checks that it comes up again. At the end it takes a backup with `bin/backup.sh`, makes OpenLDAP again with empty data, restores the backup with `bin/restore_ldap.sh` and checks that the users and the files in `configs/` are back. It publishes no ports, keeps no data and generates passwords of its own (`tests/generated/`), so it does not affect a running stack. Run `make` beforehand. To look into a failed check, keep the test stack up with `KEEP=1 tests/smoke.sh`.
+`make test` starts every container as a separate project (`koitohan-test`), adds test users with `bin/manage_users.sh`, authenticates as them, and compares the reply attributes for every combination of device type and role. It also checks that FreeRADIUS makes a detail log again after the rotation has moved it away. For RADIUS, syslog, TFTP and NTP, it checks that traffic from the networks in `DEVICE_NETWORKS` arrives and that traffic from elsewhere does not. It also checks that a TFTP transfer is recorded in the file, and that the NTP server answers that it is not synchronized once the host clock goes out of sync. It then logs in over SSH as a user of each role and checks the permissions on the directories, the reading of a compressed log and a password change. After that it runs each operation of `bin/manage_users.sh` and checks the password policy (the minimum length, the lock and the unlock) and the change of the passwords of the service accounts and of the OpenLDAP administrators. Then it restarts the OpenLDAP container and checks that it comes up again. It checks that `bin/check_services.sh` reports nothing wrong while all is well, and reports a wrong owner of `configs/`, a stopped syslog-ng and an NTP server that stopped serving. At the end it takes a backup with `bin/backup.sh`, makes OpenLDAP again with empty data, restores the backup with `bin/restore_ldap.sh` and checks that the users and the files in `configs/` are back. It publishes no ports, keeps no data and generates passwords of its own (`tests/generated/`), so it does not affect a running stack. Run `make` beforehand. To look into a failed check, keep the test stack up with `KEEP=1 tests/smoke.sh`.
 
 The OpenLDAP, FreeRADIUS, tftpd-hpa, OpenSSH and chrony images are built automatically by the first `make up`. After you change `openldap/build/`, `freeradius/build/`, `tftpd-hpa/build/`, `openssh/build/` or `chrony/build/`, rebuild them before you start the stack.
 
@@ -192,6 +195,7 @@ For the Koitohan administrators:
 - [The OpenSSH container](docs/ssh.md): what the container for the users is for, password rules, sources
 - [Logs](docs/logs.md): where the logs are and how they rotate
 - [Backup and restore](docs/backup.md): what a backup holds, running it every day, restoring onto a new host
+- [Checking the services](docs/monitoring.md): checking that the services work, and doing it on a schedule (recommended)
 - [Device configuration examples](docs/devices/README.md): settings on the network devices, sent by contributors
 - [Basic design](docs/basic-design.md) (Japanese)
 

@@ -778,6 +778,35 @@ function check_found() {
   report "${NAME}" "${WHO}" "${EXPECT}" "${WHY}" "${OUT}"
 }
 
+# bin/check_services.sh -q on the test stack. EXPECT is 'healthy': exit
+# 0 and no NG. Otherwise it is an NG line without the NG, which has to
+# be the only one, with exit 1. A WARN counts for neither, as the space
+# on the Docker host decides it.
+function check_services() {
+  local WHO=${1}
+  local EXPECT=${2}
+  local OUT RC NG_LINES WHY=''
+
+  OUT=$(COMPOSE_PROJECT_NAME=koitohan-test COMPOSE_FILE=compose.yaml:tests/compose.test.yaml \
+    bin/check_services.sh -q 2>&1)
+  RC=$?
+  NG_LINES=$(grep '^NG ' <<< "${OUT}")
+  if [[ "${EXPECT}" == healthy ]]; then
+    if [[ ${RC} -ne 0 ]]; then
+      WHY="exit ${RC}"
+    elif [[ -n "${NG_LINES}" ]]; then
+      WHY='an NG with exit 0'
+    fi
+  elif [[ ${RC} -ne 1 ]]; then
+    WHY="exit ${RC}, not 1"
+  elif [[ "${NG_LINES}" != "NG    ${EXPECT}"* ]]; then
+    WHY="expected NG ${EXPECT}"
+  elif [[ "${NG_LINES}" == *$'\n'* ]]; then
+    WHY='more than one NG'
+  fi
+  report 'services' "${WHO}" "${EXPECT}" "${WHY}" "${OUT}"
+}
+
 # what tftpd-hpa holds as PATH under /tftpboot: owner, mode, size and
 # checksum, or 'missing'
 function tftp_stored() {
@@ -1054,6 +1083,23 @@ check_tftp_networks allowed 'koitohan-smoke'
 check_ntp networks allowed 'served'
 check_tftp_log
 check_tftp_uploads
+# bin/check_services.sh, while every service works, then with one
+# broken at a time. configs/ owned by root stands for the image file of
+# docs/tftp.md that is not mounted.
+check_services all healthy
+"${COMPOSE[@]}" exec -T tftpd-hpa chown 0 /tftpboot/configs
+check_services configs 'configs/: owned by 0, not 1000'
+if ! "${COMPOSE[@]}" exec -T tftpd-hpa sh -c \
+     'chown 1000:10001 /tftpboot/configs && chmod 2770 /tftpboot/configs'; then
+  echo 'could not set up configs of tftpd-hpa again'
+  exit 1
+fi
+"${COMPOSE[@]}" stop syslog-ng > /dev/null 2>&1
+check_services syslog-ng 'syslog-ng: exited'
+if ! "${COMPOSE[@]}" start syslog-ng > /dev/null 2>&1; then
+  echo 'could not start syslog-ng again'
+  exit 1
+fi
 if ! { DEVICE_NETWORKS="${OTHER_NETWORKS}" scripts/generate_device_networks.sh \
        && DEVICE_NETWORKS="${OTHER_NETWORKS}" "${COMPOSE[@]}" up -d --force-recreate freeradius syslog-ng tftpd-hpa chrony > /dev/null 2>&1; }; then
   echo 'could not make freeradius, syslog-ng, tftpd-hpa and chrony again'
@@ -1098,6 +1144,7 @@ if ! NTP_MAX_ERROR_US=0 "${COMPOSE[@]}" up -d --force-recreate chrony > /dev/nul
   exit 1
 fi
 check_ntp 'max error' zero 'unsynchronised'
+check_services chrony 'chrony: not serving'
 
 if ! wait_ssh_ready; then
   echo 'the openssh container did not become ready'
