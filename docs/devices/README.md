@@ -9,4 +9,4 @@ For the `nas_type` values and the reply attributes they select, see [RADIUS clie
 | Vendor and OS | Models | Firmware | Checked with | `nas_type` | RADIUS | Syslog | TFTP | Checked on |
 | ------------- | ------ | -------- | ------------ | ---------- | ------ | ------ | ---- | ---------- |
 
-No examples yet. To add one, start from [TEMPLATE.md](TEMPLATE.md).
+No examples yet. To add one, start from [TEMPLATE.md](TEMPLATE.md), or from [TEMPLATE.ja.md](TEMPLATE.ja.md) to write in Japanese.
