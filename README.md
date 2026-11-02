@@ -1,4 +1,4 @@
-# Koitohan
+# <img src="docs/images/koitohan.svg" alt="Koitohan icon" width="48" align="absmiddle"> Koitohan
 
 A little and kawaii network backend server.
 
