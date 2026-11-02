@@ -77,7 +77,7 @@ sudo install -d -m 700 -o "$USER" -g "$USER" /var/backups/koitohan
 1. リポジトリを clone し、アーカイブに書いてあるコミットに切り替えます。新しいコミットでは、ディレクトリの組み立て方がバックアップのものと違う場合があります。
 
    ```sh
-   git clone <repository-url> koitohan
+   git clone https://github.com/jolly-jive/Koitohan.git koitohan
    cd koitohan
    tar -x -O -z -f <アーカイブ> koitohan-backup.txt
    git checkout <コミット>

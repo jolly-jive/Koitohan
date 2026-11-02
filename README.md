@@ -53,7 +53,7 @@ FreeRADIUS 4.x is a development version. Koitohan uses it ahead of its official 
 ## Quick start
 
 ```sh
-git clone <repository-url> koitohan
+git clone https://github.com/jolly-jive/Koitohan.git koitohan
 cd koitohan
 
 cp .env.sample .env    # then edit .env
