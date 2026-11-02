@@ -77,7 +77,7 @@ Run these in the directory of the repository, as the user who will run the stack
 1. Clone the repository and check out the commit written in the archive. A newer commit may set up the directory differently from the one in the backup.
 
    ```sh
-   git clone <repository-url> koitohan
+   git clone https://github.com/jolly-jive/Koitohan.git koitohan
    cd koitohan
    tar -x -O -z -f <archive> koitohan-backup.txt
    git checkout <commit>

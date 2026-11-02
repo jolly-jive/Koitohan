@@ -53,7 +53,7 @@ FreeRADIUS 4.x は開発バージョンです。Koitohan は正式リリース�
 ## クイックスタート
 
 ```sh
-git clone <repository-url> koitohan
+git clone https://github.com/jolly-jive/Koitohan.git koitohan
 cd koitohan
 
 cp .env.sample .env    # その後 .env を編集
