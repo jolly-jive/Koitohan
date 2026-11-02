@@ -205,4 +205,12 @@ TFTP には認証も暗号化もありません。69/udp に到達できる相�
 
 ## ライセンス
 
-Apache License 2.0 です。[LICENSE](LICENSE) と [NOTICE](NOTICE) を参照してください。
+Copyright 2026 Cayenne Ryo
+
+[Apache License 2.0](LICENSE) で公開しています。[NOTICE](NOTICE) も参照してください。
+
+## アイスクリーム
+
+Koitohan が役に立ったら、アイスクリームを奢ってください。🍦
+
+*これはお願いであって、ライセンスの条件ではありません。Koitohan は Apache-2.0 で、追加の条件はありません。*

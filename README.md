@@ -205,4 +205,12 @@ Configuration examples for network devices are especially welcome. See [CONTRIBU
 
 ## License
 
-Apache License 2.0. See [LICENSE](LICENSE) and [NOTICE](NOTICE).
+Copyright 2026 Cayenne Ryo
+
+Licensed under the [Apache License 2.0](LICENSE). See also [NOTICE](NOTICE).
+
+## Ice cream
+
+If Koitohan saves you some trouble, buy me an ice cream. 🍦
+
+*This is a request, not a license term. Koitohan is under Apache-2.0, with no extra conditions.*
