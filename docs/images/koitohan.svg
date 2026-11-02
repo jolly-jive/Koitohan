@@ -1,0 +1,34 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+  <title>Koitohan</title>
+  <rect width="512" height="512" rx="112" fill="#F9E1E3"/>
+  <g transform="translate(0,18)">
+  <ellipse cx="256" cy="440" rx="96" ry="12" fill="#000" opacity="0.07"/>
+<path d="M160,186 C152,104 204,74 256,74 C308,74 360,104 352,186 L360,300 C348,312 328,310 320,298 L192,298 C184,310 164,312 152,300 Z" fill="#33262B"/>
+<path d="M198,272 C176,278 168,302 170,342 C186,352 204,346 210,336 L210,282 Z" fill="#D77F96"/>
+<path d="M314,272 C336,278 344,302 342,342 C326,352 308,346 302,336 L302,282 Z" fill="#D77F96"/>
+<path d="M214,256 L298,256 C318,266 330,284 332,312 L180,312 C182,284 194,266 214,256 Z" fill="#EE9CB0"/>
+<path d="M194,300 L318,300 L338,426 L174,426 Z" fill="#2E3A6B"/>
+<path d="M236,262 L256,292 L276,262 Z" fill="#FAF3E8"/>
+<rect x="208" y="422" width="40" height="18" rx="8" fill="#5A3A2A"/>
+<rect x="264" y="422" width="40" height="18" rx="8" fill="#5A3A2A"/>
+<ellipse cx="256" cy="182" rx="98" ry="90" fill="#FFE2CC"/>
+<path d="M160,196 C150,112 200,84 256,84 C312,84 362,112 352,196 C330,170 296,162 256,162 C216,162 182,170 160,196 Z" fill="#33262B"/>
+<path d="M162,170 C152,214 154,250 164,276 C174,280 184,274 186,266 C178,236 178,206 184,178 Z" fill="#33262B"/>
+<path d="M350,170 C360,214 358,250 348,276 C338,280 328,274 326,266 C334,236 334,206 328,178 Z" fill="#33262B"/>
+<path d="M250,82 Q200,48 146,34 Q132,76 150,124 Q200,108 250,98 Z" fill="#D2405A"/>
+<path d="M262,82 Q312,48 366,34 Q380,76 362,124 Q312,108 262,98 Z" fill="#D2405A"/>
+<path d="M244,90 L164,72 M268,90 L348,72" fill="none" stroke="#A82E46" stroke-width="6" stroke-linecap="round"/>
+<rect x="238" y="74" width="36" height="32" rx="6" fill="#D2405A"/>
+<rect x="238" y="74" width="36" height="32" rx="6" fill="#000" opacity="0.08"/>
+<g fill="#33262B"><ellipse cx="218" cy="204" rx="16" ry="20"/><ellipse cx="294" cy="204" rx="16" ry="20"/></g>
+<g fill="#fff"><circle cx="222.8" cy="196.0" r="5.5"/><circle cx="298.8" cy="196.0" r="5.5"/></g>
+<g fill="#F39A9A" opacity="0.65"><ellipse cx="198" cy="232.0" rx="16" ry="9"/><ellipse cx="314" cy="232.0" rx="16" ry="9"/></g>
+<g transform="translate(256,359.9) scale(1.33) translate(-256,-350)"><path d="M232,334 L232,314 C232,282 280,282 280,314 L280,334" fill="none" stroke="#C99A2E" stroke-width="12"/>
+    <path d="M284,318 C304,322 312,340 308,362" fill="none" stroke="#C23A4E" stroke-width="5"/>
+    <circle cx="284" cy="318" r="5" fill="#C23A4E"/>
+    <path d="M302,358 L314,358 L318,386 L298,386 Z" fill="#C23A4E"/>
+    <rect x="216" y="324" width="80" height="62" rx="12" fill="#E8B33A"/>
+    <circle cx="256" cy="349" r="8" fill="#5A3A2A"/>
+    <path d="M252,352 L260,352 L263,370 L249,370 Z" fill="#5A3A2A"/></g><circle cx="200.14" cy="354.58" r="12" fill="#FFE2CC"/><circle cx="311.86" cy="354.58" r="12" fill="#FFE2CC"/>
+  </g>
+</svg>
