@@ -1,6 +1,6 @@
 # The image of FreeRADIUS, with a packet filter put in front of it. See
 # entrypoint.sh for why.
-FROM cayenneryo/freeradius-server:4.0.41192-devel-ubuntu26-e0510b4-r1
+FROM cayenneryo/freeradius-server:4.0.41375-devel-ubuntu26-89717f3-r1
 
 RUN apt-get update \
  && apt-get install -y --no-install-recommends nftables \
