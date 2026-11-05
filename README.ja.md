@@ -158,7 +158,7 @@ docker compose logs -f freeradius
 - `passwd` によるパスワードの判定は、ログインしたユーザーが迂回できます。この判定は、不注意で弱いパスワードを設定することを防ぐためのものです。迂回しても、OpenLDAP 自身が確かめる最小の長さ(`PPOLICY_MIN_LENGTH`)は守られます。
 - ネットワーク機器のログイン画面や SSH のポートに到達できる相手は、誤ったパスワードを送り続けることで、名前を知っているユーザーをロックできます。ロックは時間が過ぎると解除されます(「[パスワードポリシー](docs/configuration.ja.md#パスワードポリシー)」を参照)。
 - 既定では、SSH でログインしたユーザーが OpenSSH のコンテナから届くのは OpenLDAP だけです。ただし名前解決は Docker の DNS を通り、外部の名前も引けます。`OPENSSH_EGRESS='any'` にすると、Docker ホストや外部のネットワークへ接続できます(「[コンテナから外への接続](docs/ssh.ja.md#コンテナから外への接続)」を参照)。
-- FreeRADIUS を動かしたまま OpenLDAP が再起動すると(`docker compose restart openldap` など)、FreeRADIUS はその後のログインを拒否し、やがてセグメンテーション違反で異常終了します。Docker が起動し直すので、それ以降のログインは通ります。開発バージョンである FreeRADIUS 4.x の不具合です([FreeRADIUS #5983](https://github.com/FreeRADIUS/freeradius-server/issues/5983))。ログインが拒否される時間をなくすには、OpenLDAP の再起動に続けて `docker compose restart freeradius` で FreeRADIUS も再起動してください。FreeRADIUS 側で修正されたら、この項目は削除します。
+- FreeRADIUS を動かしたまま OpenLDAP が再起動すると(`docker compose restart openldap` など)、FreeRADIUS はその後の最初の数回のログイン(試したときは2回)を拒否し、それ以降は通ります。FreeRADIUS は OpenLDAP への接続が切れていることに使うときまで気づかず、気づいたときのログインを失敗にするためです。ログインが拒否されないようにするには、OpenLDAP の再起動に続けて `docker compose restart freeradius` で FreeRADIUS も再起動してください。
 
 ## セキュリティ上の注意
 
