@@ -139,6 +139,7 @@ On devices that behave as described above, keep the following in mind.
 
 - Keep a local emergency account on each device. Use it to log in while Koitohan is down.
 - Locked users and users without a role are rejected, so they do not fall back to the local authentication of the device.
+- While OpenLDAP is down and FreeRADIUS is up, FreeRADIUS does not reply to logins (it waits for OpenLDAP for up to 30 seconds, then drops the request). The device falls back to local authentication, as it does when all of Koitohan is down. A login that arrives while OpenLDAP is restarting gets its reply once OpenLDAP is back.
 - FreeRADIUS does not reply to requests from devices that are not in `clients.conf`, or from outside `DEVICE_NETWORKS`. The device then falls back to local authentication, so local passwords still work, and it is easy to miss that RADIUS is not in use. After you register a device, make sure that you can log in to it with a Koitohan account and that a record appears under `freeradius/log/radacct/<device address>/`.
 
 On devices set to try local authentication first, users who have a local account on the device can log in regardless of their lock or role in Koitohan.
@@ -225,10 +226,9 @@ Koitohan used to store them as salted SHA-1 (`{SSHA}`). Switch a directory that 
 ```sh
 docker compose build openldap
 make up
-docker compose restart freeradius
 ```
 
-The OpenLDAP container is recreated, and every login fails until it is up again. FreeRADIUS is restarted for the same reason as in [OpenLDAP administrator passwords](#openldap-administrator-passwords).
+The OpenLDAP container is recreated, and no login gets through until it is up again.
 
 - The hashes that are already there stay as they are, and keep working for logins. A hash becomes Argon2id the next time its password is changed (with `passwd` or `bin/manage_users.sh passwd`).
 - To list the entries that still have an old hash:
@@ -287,10 +287,9 @@ To change the passwords, use `bin/change_ldap_admin_password.sh` on the Docker h
 
 ```sh
 bin/change_ldap_admin_password.sh
-docker compose restart freeradius
 ```
 
-The script generates the two passwords, replaces the files in `secrets/`, recreates the OpenLDAP container and checks that the new passwords work. Every login fails until OpenLDAP is up again. FreeRADIUS is restarted afterwards because it refuses logins for a while after OpenLDAP has restarted (see [Known limitations](../README.md#known-limitations)).
+The script generates the two passwords, replaces the files in `secrets/`, recreates the OpenLDAP container and checks that the new passwords work. No login gets through until OpenLDAP is up again.
 
 If the script stops halfway, run it again. It does not need the current passwords.
 

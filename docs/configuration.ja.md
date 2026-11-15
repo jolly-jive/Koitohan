@@ -139,6 +139,7 @@ RADIUS で認証するように設定したネットワーク機器が、RADIUS 
 
 - 機器には、ローカルの非常用アカウントを残してください。Koitohan が止まっているときは、これでログインします。
 - ロックされたユーザーや、ロールのないユーザーは拒否されるので、機器のローカル認証には回りません。
+- OpenLDAP が止まっていて FreeRADIUS が動いているあいだ、FreeRADIUS はログインに応答しません(OpenLDAP を最長で 30 秒待ち、要求を捨てます)。機器は、Koitohan の全体が止まっているときと同じく、ローカル認証に回ります。OpenLDAP の再起動の最中に届いたログインには、OpenLDAP が戻ってから応答します。
 - FreeRADIUS は、`clients.conf` にない機器や、`DEVICE_NETWORKS` の外からの要求に応答しません。このとき機器はローカル認証に回るので、ローカルのパスワードではログインできてしまい、RADIUS が使われていないことに気づきにくくなります。機器を登録したら、Koitohan のアカウントでログインできることと、`freeradius/log/radacct/<機器のアドレス>/` に記録が残ることを確かめてください。
 
 ローカル認証を先に試す設定にした機器では、機器にローカルのアカウントがあるユーザーは、Koitohan のロックやロールに関係なくログインできます。
@@ -225,10 +226,9 @@ OpenLDAP は、パスワードを Argon2id のハッシュ(`{ARGON2}`)にして�
 ```sh
 docker compose build openldap
 make up
-docker compose restart freeradius
 ```
 
-OpenLDAP のコンテナが作り直され、起動し直すまでのあいだ、ログインはすべて失敗します。FreeRADIUS を再起動する理由は、「[OpenLDAP の管理者のパスワード](#openldap-の管理者のパスワード)」と同じです。
+OpenLDAP のコンテナが作り直され、起動し直すまでのあいだ、ログインは通りません。
 
 - すでにあるハッシュは、そのまま残ります。認証には引き続き使えます。Argon2id に替わるのは、次にパスワードを変えたときです(`passwd` か `bin/manage_users.sh passwd`)。
 - 古いハッシュが残っているエントリは、次のコマンドで一覧にできます。
@@ -287,10 +287,9 @@ OpenLDAP のコンテナは、起動するたびに、ファイルのパスワ�
 
 ```sh
 bin/change_ldap_admin_password.sh
-docker compose restart freeradius
 ```
 
-スクリプトは、2つのパスワードを生成して `secrets/` のファイルを差し替え、OpenLDAP のコンテナを作り直し、新しいパスワードで入れることを確かめます。OpenLDAP が起動し直すまでのあいだ、ログインはすべて失敗します。続けて FreeRADIUS を再起動するのは、OpenLDAP の再起動のあと、FreeRADIUS がしばらくログインを拒否するためです(「[既知の制限](../README.ja.md#既知の制限)」を参照)。
+スクリプトは、2つのパスワードを生成して `secrets/` のファイルを差し替え、OpenLDAP のコンテナを作り直し、新しいパスワードで入れることを確かめます。OpenLDAP が起動し直すまでのあいだ、ログインは通りません。
 
 途中で止まったときは、もう一度実行してください。いまのパスワードを必要としません。
 
