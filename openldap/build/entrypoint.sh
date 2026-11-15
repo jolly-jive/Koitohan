@@ -78,6 +78,7 @@ olcModulePath: /usr/lib/openldap
 olcModuleLoad: back_mdb
 olcModuleLoad: memberof
 olcModuleLoad: refint
+olcModuleLoad: argon2
 
 dn: cn=schema,cn=config
 objectClass: olcSchemaConfig
@@ -96,6 +97,7 @@ olcAccess: {0}to * by dn.exact=gidNumber=0+uidNumber=0,cn=peercred,cn=external,c
 olcAccess: {1}to dn.exact="" by * read
 olcAccess: {2}to dn.base="cn=Subschema" by * read
 olcSizeLimit: 500
+olcPasswordHash: {ARGON2}
 
 dn: olcDatabase={0}config,cn=config
 objectClass: olcDatabaseConfig
@@ -186,9 +188,27 @@ EOF
   echo 'seeded'
 fi
 
-# The passwords of the administrators, the log level and the minimum of
-# TLS are written on every start. The files and the environment are where
-# they are kept, and a change made over ldapi:/// does not outlive a start.
+# A directory that was seeded before the passwords were hashed with
+# Argon2 does not load the module. It has to be there before the scheme
+# below is written: slapmodify writes the scheme unchecked, and slapd
+# cannot read a config that names a scheme it has no module for.
+MODULES=$(slapcat -n 0 -F "${CONF_DIR}" -a '(objectClass=olcModuleList)')
+if ! echo "${MODULES}" | grep -q '^olcModuleLoad: {[0-9]*}argon2$'; then
+  echo 'loading the module of Argon2'
+  slapmodify -n 0 -F "${CONF_DIR}" <<EOF
+dn: cn=module{0},cn=config
+changetype: modify
+add: olcModuleLoad
+olcModuleLoad: argon2
+EOF
+fi
+
+# The passwords of the administrators, the log level, the minimum of TLS
+# and the scheme of the password hashes are written on every start. The
+# files and the environment are where they are kept, and a change made
+# over ldapi:/// does not outlive a start. The scheme is for the
+# passwords that are set from now on: a hash that is there stays as it
+# is, and still verifies, until its password is changed.
 slapmodify -n 0 -F "${CONF_DIR}" <<EOF
 dn: cn=config
 changetype: modify
@@ -197,6 +217,11 @@ olcLogLevel: ${LDAP_LOG_LEVEL:-stats}
 -
 replace: olcTLSProtocolMin
 olcTLSProtocolMin: 3.4
+
+dn: olcDatabase={-1}frontend,cn=config
+changetype: modify
+replace: olcPasswordHash
+olcPasswordHash: {ARGON2}
 
 dn: olcDatabase={0}config,cn=config
 changetype: modify

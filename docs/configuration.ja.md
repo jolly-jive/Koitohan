@@ -216,6 +216,30 @@ docker compose exec -T openldap ldapmodify -c -Q -Y EXTERNAL -H ldapi:/// < open
 
 すでにあるモジュール、オーバーレイ、エントリには `Type or value exists`、`overlay "ppolicy" already in list`、`Already exists` と表示されますが、問題ありません。値だけが置き換わります。
 
+### パスワードのハッシュ
+
+OpenLDAP は、パスワードを Argon2id のハッシュ(`{ARGON2}`)にして保存します。バックアップのアーカイブなどからハッシュが漏れたときに、パスワードを割り出されにくくするためです。設定する値はありません。OpenLDAP のコンテナが、起動するたびにこの方式を設定し直します。
+
+以前の Koitohan は、ソルト付きの SHA-1(`{SSHA}`)で保存していました。その頃に作ったディレクトリは、次の手順で切り替えます。ディレクトリのデータを消す必要はありません。
+
+```sh
+docker compose build openldap
+make up
+docker compose restart freeradius
+```
+
+OpenLDAP のコンテナが作り直され、起動し直すまでのあいだ、ログインはすべて失敗します。FreeRADIUS を再起動する理由は、「[OpenLDAP の管理者のパスワード](#openldap-の管理者のパスワード)」と同じです。
+
+- すでにあるハッシュは、そのまま残ります。認証には引き続き使えます。Argon2id に替わるのは、次にパスワードを変えたときです(`passwd` か `bin/manage_users.sh passwd`)。
+- 古いハッシュが残っているエントリは、次のコマンドで一覧にできます。
+
+  ```sh
+  docker compose exec -T openldap slapcat -n 1 -o ldif-wrap=no | awk '/^dn: /{dn=$0} /^userPassword:: e1NTSEF9/{print dn}'
+  ```
+
+  サービスアカウント(`ou=ServiceAccounts`)も表示されますが、パスワードが長いランダムな値なので、そのままで構いません。`bin/change_service_account_password.sh` で変えると替わります。
+- 切り替えたあとのディレクトリは、以前のイメージでは起動しません(Argon2 のモジュールがないためです)。切り替えたあとに取ったバックアップも同じです。
+
 ## サービスアカウントのパスワード
 
 FreeRADIUS と OpenSSH のコンテナは、それぞれのサービスアカウントでディレクトリを検索します。そのパスワードは `make`(`make secrets`)が生成し、`secrets/` に置きます。

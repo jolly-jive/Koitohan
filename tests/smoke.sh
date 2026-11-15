@@ -1254,6 +1254,14 @@ check_ssh 'passwd' readonly01 "${PASS_READONLY}" 'password updated successfully'
 check_ssh 'new password' readonly01 "${NEW_PASS}" 'koitohan readonly' 'id -Gn' < /dev/null
 check_ssh 'old password' readonly01 "${PASS_READONLY}" denied 'id -Gn' < /dev/null
 
+# OpenLDAP stores the passwords as Argon2 hashes. By now they came in
+# three ways: bin/manage_users.sh, ldappasswd over ldapi:/// and passwd.
+# The value is in base64, and e0FSR09OMn0k is {ARGON2}$. The count keeps
+# an empty answer from passing.
+check_ldap 'hash scheme' 'ou=People' 'all {ARGON2}' "
+  ldapsearch -LLL ${AS_MANAGER} -o ldif-wrap=no -b \"ou=People,\${SUFFIX}\" '(userPassword=*)' userPassword \\
+  | awk '/^dn: /{dn=\$2} /^userPassword:/{n++; if (\$2 !~ /^e0FSR09OMn0k/) {print \"not Argon2: \" dn; bad++}} END{if (n >= 4 && !bad) print \"all {ARGON2}\"; else print n+0 \" hashes, \" bad+0 \" not Argon2\"}'"
+
 # bin/manage_users.sh. The test accounts hold 10000 to 10003, so the
 # numbers start at 10004 and a deleted one does not come back.
 check_users 'users add' 'not usable as a login name' "${NEW_PASS}" add Smoke.01 operator
@@ -1498,11 +1506,17 @@ report 'service pass' 'secrets/' 'untouched' "${WHY}"
 check_ldap 'tls minimum' 'config' 'modifying entry "cn=config"' \
   'ldapmodify -Q -Y EXTERNAL -H ldapi:///' \
   'dn: cn=config\nchangetype: modify\nreplace: olcTLSProtocolMin\nolcTLSProtocolMin: 3.3\n'
+# the same for the scheme of the password hashes
+check_ldap 'hash scheme' 'config' 'modifying entry "olcDatabase={-1}frontend,cn=config"' \
+  'ldapmodify -Q -Y EXTERNAL -H ldapi:///' \
+  'dn: olcDatabase={-1}frontend,cn=config\nchangetype: modify\nreplace: olcPasswordHash\nolcPasswordHash: {SSHA}\n'
 
 check_restart
 
 check_ldap 'tls minimum' 'config' 'olcTLSProtocolMin: 3.4' \
   'ldapsearch -LLL -Q -Y EXTERNAL -H ldapi:/// -b cn=config -s base olcTLSProtocolMin'
+check_ldap 'hash scheme' 'config' 'olcPasswordHash: {ARGON2}' \
+  "ldapsearch -LLL -Q -Y EXTERNAL -H ldapi:/// -b 'olcDatabase={-1}frontend,cn=config' -s base olcPasswordHash"
 
 # the image sets the passwords on every start, from the files it has now
 check_admin_bind 'ldap restart' admin "${NEW_ADMIN}" 'dn:cn=admin,dc='
