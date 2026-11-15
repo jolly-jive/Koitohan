@@ -50,7 +50,7 @@ What is in `/tmp/` is lost when the working environment is made again. Copy out 
 
 ## Reading the logs
 
-The logs of a device are in `/logs/Hosts/<device>/<device>.log`. `<device>` is the host name that the device puts in its syslog (or its address, if the device does not put one).
+The logs of a device are in `/logs/Hosts/<device>/<device>.log`. `<device>` is the address of the device that sent the logs. Each line starts with the time when Koitohan received it, followed by the host name that the device gave (or its address, if the device gives none).
 
 - The file is switched every day, and the earlier days have the date in their names (`<device>.log-2026-10-10`).
 - Files two or more days old are compressed (`<device>.log-2026-10-10.gz`). Read them with `zgrep` and `zcat`.
@@ -63,7 +63,7 @@ ssh -p 2222 alice@<host> 'grep -h LINK-3 /logs/Hosts/*/*.log' > link.txt
 ssh -p 2222 alice@<host> 'zgrep -h LINK-3 /logs/Hosts/*/*.log-2026-10-10.gz' > link.txt
 
 # copy the log of one device for one day to your computer
-scp -P 2222 'alice@<host>:/logs/Hosts/core-switch/core-switch.log-2026-10-10.gz' .
+scp -P 2222 'alice@<host>:/logs/Hosts/192.0.2.1/192.0.2.1.log-2026-10-10.gz' .
 ```
 
 ## Handing out firmware and taking out configurations (admin only)

@@ -596,9 +596,26 @@ function check_bad_generated() {
   report 'bad networks' 'syslog-ng' "'${VALUE}': has to be IPv4" "${WHY}" "${OUT}"
 }
 
+# The gateway of the network of a container: the source that the
+# container sees for what the Docker host sends to its address.
+function gateway_of() {
+  docker inspect -f '{{range .NetworkSettings.Networks}}{{.Gateway}}{{end}}' \
+    "$("${COMPOSE[@]}" ps -q ${1})" 2> /dev/null
+}
+
+# The log that syslog-ng keeps for the messages from the Docker host,
+# as a path below Hosts/. It is named after the source address.
+function syslog_log_of_host() {
+  local GATEWAY
+  GATEWAY=$(gateway_of syslog-ng)
+  [[ -n "${GATEWAY}" ]] && echo "${GATEWAY}/${GATEWAY}.log"
+}
+
 # Sends a syslog message from the Docker host to the address of the
 # container, over PROTO ('udp', the default, or 'tcp'). EXPECT is
-# 'received' or 'dropped'. syslog-ng says nothing about a message it
+# 'received' or 'dropped'. The messages all land in the one log of the
+# Docker host, so each carries its NAME to tell them apart. syslog-ng
+# says nothing about a message it
 # drops, so a message counts as dropped only when syslog-ng has taken it
 # in and has not written it: one that never got there says nothing about
 # the filter. The filter is in syslog-ng, so over TCP the connection is
@@ -607,8 +624,7 @@ function check_syslog_networks() {
   local NAME=${1}
   local EXPECT=${2}
   local PROTO=${3:-udp}
-  local LOG="/var/log/Hosts/smoke-${NAME}/smoke-${NAME}.log"
-  local ADDR TRY BEFORE='' AFTER='' GOT='dropped' WHY=''
+  local ADDR LOG TRY BEFORE='' AFTER='' GOT='dropped' WHY=''
 
   # syslog-ng takes a while to start
   for (( TRY = 1; TRY <= WAIT_TRIES; TRY++ )); do
@@ -617,11 +633,12 @@ function check_syslog_networks() {
     sleep 1
   done
   ADDR=$(address_of syslog-ng)
+  LOG=$(syslog_log_of_host)
   if [[ -z "${BEFORE}" ]]; then
     WHY='syslog-ng did not start'
-  elif [[ -z "${ADDR}" ]]; then
-    WHY='could not find the address of syslog-ng'
-  elif ! echo "<134>Jan  1 00:00:00 smoke-${NAME} smoke: koitohan-smoke" 2> /dev/null \
+  elif [[ -z "${ADDR}" || -z "${LOG}" ]]; then
+    WHY='could not find the address or the gateway of syslog-ng'
+  elif ! echo "<134>Jan  1 00:00:00 smoke-${NAME} smoke: koitohan-smoke [${NAME}]" 2> /dev/null \
            > "/dev/${PROTO}/${ADDR}/1514"; then
     WHY='could not send the message'
   else
@@ -634,7 +651,7 @@ function check_syslog_networks() {
       WHY='the message did not reach syslog-ng'
     else
       for TRY in 1 2 3 4 5; do
-        if "${COMPOSE[@]}" exec -T syslog-ng grep -q -F koitohan-smoke "${LOG}" 2> /dev/null; then
+        if "${COMPOSE[@]}" exec -T syslog-ng grep -q -F "koitohan-smoke [${NAME}]" "/var/log/Hosts/${LOG}" 2> /dev/null; then
           GOT='received'
           break
         fi
@@ -644,6 +661,32 @@ function check_syslog_networks() {
     fi
   fi
   report 'networks' "${NAME}" "syslog/${PROTO} ${EXPECT}" "${WHY}" || show_logs syslog-ng
+}
+
+# What a sender writes in a message must not decide where and under
+# which time it is kept. The message of check_syslog_networks NAME gave
+# the host name smoke-NAME and the time Jan 1 00:00:00: no directory of
+# that name, the time of receipt at the head of the line, and the name
+# it gave still in the line.
+function check_syslog_sender() {
+  local NAME=${1}
+  local LOG LINE='' WHY=''
+
+  LOG=$(syslog_log_of_host)
+  [[ -n "${LOG}" ]] && LINE=$("${COMPOSE[@]}" exec -T syslog-ng \
+    grep -F "koitohan-smoke [${NAME}]" "/var/log/Hosts/${LOG}" 2> /dev/null)
+  if [[ -z "${LINE}" ]]; then
+    WHY='the message is not in the log of its source address'
+  elif "${COMPOSE[@]}" exec -T syslog-ng test -e "/var/log/Hosts/smoke-${NAME}"; then
+    WHY="expected no Hosts/smoke-${NAME}"
+  elif [[ ! "${LINE}" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:]{8}[+-][0-9]{2}:[0-9]{2}\  ]]; then
+    WHY='expected the time of receipt at the head of the line'
+  elif [[ "${LINE}" == *'Jan  1 00:00:00'* ]]; then
+    WHY='expected the time in the message to be left out'
+  elif [[ "${LINE}" != *" smoke-${NAME} smoke: "* ]]; then
+    WHY='expected the host name of the message in the line'
+  fi
+  report 'syslog sender' "${NAME}" 'kept by source address and time of receipt' "${WHY}" "${LINE}"
 }
 
 # Fetches a file over TFTP from the Docker host to the address of the
@@ -1079,6 +1122,7 @@ check_tls tls1_2 refused
 check_radius_networks allowed 'Accept'
 check_syslog_networks allowed 'received'
 check_syslog_networks allowed-tcp 'received' tcp
+check_syslog_sender allowed
 check_tftp_networks allowed 'koitohan-smoke'
 check_ntp networks allowed 'served'
 check_tftp_log
@@ -1160,6 +1204,9 @@ NEW_PASS='x9#Kq!vT2m@Lz7Pw'
 NEW_PASS2='Gh4$wN8^rB1&yD6s'
 TOUCH='2> /dev/null && echo written || echo refused'
 
+# the log of what the Docker host sent, as the users see it
+HOST_LOG=$(syslog_log_of_host)
+
 # name | user | password | expected output | command
 while IFS='|' read -r NAME USER PASS EXPECT COMMAND; do
   check_ssh "${NAME}" "${USER}" "${PASS}" "${EXPECT}" "${COMMAND}" < /dev/null
@@ -1181,7 +1228,7 @@ configs|admin01|${PASS_ADMIN}|written|touch /tftpboot/configs/smoke ${TOUCH}
 configs|operator01|${PASS_OPERATOR}|refused|ls /tftpboot/configs ${TOUCH}
 configs|readonly01|${PASS_READONLY}|refused|ls /tftpboot/configs ${TOUCH}
 logs|readonly01|${PASS_READONLY}|smoke LINK-3|zgrep -h LINK-3 /logs/Hosts/*/*.log-2026-10-10.gz
-logs|readonly01|${PASS_READONLY}|koitohan-smoke|cat /logs/Hosts/smoke-allowed/smoke-allowed.log
+logs|readonly01|${PASS_READONLY}|koitohan-smoke [allowed]|grep -h -o -F 'koitohan-smoke [allowed]' /logs/Hosts/${HOST_LOG:-missing}
 CASES
 
 check_read_only openssh
