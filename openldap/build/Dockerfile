@@ -9,6 +9,7 @@ RUN apk add --no-cache \
       openldap-overlay-memberof \
       openldap-overlay-ppolicy \
       openldap-overlay-refint \
+      openldap-passwd-argon2 \
       tzdata \
  && rm -f /etc/openldap/slapd.conf /etc/openldap/slapd.ldif
 

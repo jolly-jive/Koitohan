@@ -216,6 +216,30 @@ docker compose exec -T openldap ldapmodify -c -Q -Y EXTERNAL -H ldapi:/// < open
 
 It reports `Type or value exists`, `overlay "ppolicy" already in list` and `Already exists` for the module, the overlay and the entries that are already there, which is fine. Only the values are replaced.
 
+### Password hashes
+
+OpenLDAP stores the passwords as Argon2id hashes (`{ARGON2}`), so that a hash that leaks, from a backup archive for example, is hard to turn back into the password. There is nothing to set. The OpenLDAP container sets this scheme again on every start.
+
+Koitohan used to store them as salted SHA-1 (`{SSHA}`). Switch a directory that was made back then as follows. The data in the directory stays.
+
+```sh
+docker compose build openldap
+make up
+docker compose restart freeradius
+```
+
+The OpenLDAP container is recreated, and every login fails until it is up again. FreeRADIUS is restarted for the same reason as in [OpenLDAP administrator passwords](#openldap-administrator-passwords).
+
+- The hashes that are already there stay as they are, and keep working for logins. A hash becomes Argon2id the next time its password is changed (with `passwd` or `bin/manage_users.sh passwd`).
+- To list the entries that still have an old hash:
+
+  ```sh
+  docker compose exec -T openldap slapcat -n 1 -o ldif-wrap=no | awk '/^dn: /{dn=$0} /^userPassword:: e1NTSEF9/{print dn}'
+  ```
+
+  The service accounts (`ou=ServiceAccounts`) are listed too. Their passwords are long random values, so they can stay. `bin/change_service_account_password.sh` replaces them.
+- After the switch, the directory does not start with an earlier image, which lacks the Argon2 module. The same goes for a backup that was taken after the switch.
+
 ## Service account passwords
 
 The FreeRADIUS and OpenSSH containers search the directory with a service account each. `make` (`make secrets`) generates the passwords of these accounts and puts them in `secrets/`.
