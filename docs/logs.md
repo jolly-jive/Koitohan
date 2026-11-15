@@ -4,12 +4,24 @@
 
 | Path                                    | Content                                | For the users (SSH)             |
 | --------------------------------------- | -------------------------------------- | ------------------------------- |
-| `syslog-ng/log/Hosts/<host>/<host>.log` | Syslog from each device                | `/logs/Hosts/<host>/<host>.log` |
+| `syslog-ng/log/Hosts/<address>/<address>.log` | Syslog from each device          | `/logs/Hosts/<address>/<address>.log` |
 | `syslog-ng/log/debug.log`               | Every raw message, for troubleshooting | not visible                     |
 | `freeradius/log/`                       | FreeRADIUS authentication logs         | not visible                     |
 | `tftpd-hpa/log/tftpd.log`               | TFTP transfers                         | not visible                     |
 
 The users cannot log in to the Docker host, so they read the syslog of the devices by logging in to the OpenSSH container over SSH. How is in the [user guide](user-guide.md#reading-the-logs). The Koitohan administrators read the other logs on the Docker host.
+
+The syslog of the devices goes to one file for each source address. A line looks like this.
+
+```
+2026-11-15T09:24:30+09:00 core-switch %SYS-5-CONFIG_I: Configured from console by admin
+```
+
+- The time at the head of the line is the time when Koitohan received the message. The time that the device put in the message is not used.
+- The host name that follows is the one that the device gave (or its address, if the device gives none).
+- The name of the file and the time do not come from what the device says, because syslog has no authentication: anyone in the device networks can send a log under the name of another device and under any time. The host name in the line is what the sender wrote, so the name of the file is the one to trust.
+- If a device has more than one source address, fix the interface that it sends its logs from in the configuration of the device. Otherwise its logs are split over several files.
+- The logs of the devices that arrive through address translation (NAT) go to the one file of the translated address.
 
 The files under `freeradius/log/` belong to uid 101. Read them with `sudo`.
 
@@ -28,14 +40,14 @@ sudo install -m 644 -o root -g root logrotate/koitohan /etc/logrotate.d/koitohan
 
 | File                                               | Name after the rotation               | Days kept |
 | -------------------------------------------------- | ------------------------------------- | --------- |
-| `syslog-ng/log/Hosts/<host>/<host>.log`            | `<host>.log-2026-10-10.gz`            | 1096 (three years) |
+| `syslog-ng/log/Hosts/<address>/<address>.log`      | `<address>.log-2026-10-10.gz`         | 1096 (three years) |
 | `syslog-ng/log/debug.log`                          | `debug.log-2026-10-10.gz`             | 7         |
 | `freeradius/log/radius.log`                        | `radius.log-2026-10-10.gz`            | 1096      |
 | `freeradius/log/radacct/<client>/auth-detail`, `reply-detail` | `auth-detail-2026-10-10.gz`, `reply-detail-2026-10-10.gz` | 1096 |
 | `tftpd-hpa/log/tftpd.log`                          | `tftpd.log-2026-10-10.gz`             | 1096      |
 
 - The date in the name is the date of the content. The rotation happens when logrotate runs after the date has changed.
-- The file of the day before stays uncompressed for one more day (`<host>.log-2026-10-10`).
+- The file of the day before stays uncompressed for one more day (`<address>.log-2026-10-10`).
 - A day without a single line leaves no file.
 - logrotate only takes note of a file it sees for the first time, and starts rotating it the day after.
 - The generated configuration contains the absolute path of the repository and the name of the syslog-ng container (`SYSLOG_CONTAINER_NAME` in `.env`). Run the two lines above again after you move the repository or change the container name.

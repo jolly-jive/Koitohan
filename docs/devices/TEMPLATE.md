@@ -28,7 +28,7 @@ Result: Yes, No, or Not checked. For the roles, write in Notes what the device s
 | Login with the role `readonly` cannot change the configuration           |        | <privilege level or profile> |
 | When Koitohan rejects a user, the device falls back to local authentication |        | <can it be set to? can local authentication come first?> |
 | When Koitohan does not reply, the device falls back to local authentication |        |       |
-| Syslog appears under `syslog-ng/log/Hosts/`                              |        | <name of the directory> |
+| Syslog appears under `syslog-ng/log/Hosts/`                              |        | <what the host name field of the lines holds> |
 | TFTP download from `firmware/`                                           |        |       |
 | TFTP upload of the configuration to `configs/`                           |        |       |
 

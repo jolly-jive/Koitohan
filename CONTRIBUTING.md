@@ -26,7 +26,7 @@ Check what you can on your device, and record the results in the table at the to
 - For each role, note what the device showed, such as the privilege level or the profile name. If the privileges come out in the wrong order, the device may count privilege levels the other way round (for example, 0 as the highest). Say so.
 - When Koitohan rejects a user (a wrong password, a locked user, or a user without a role), does the device fall back to its local authentication? Can it be set to do so, or to try local authentication first?
 - When Koitohan does not reply, does the device fall back to its local authentication?
-- Syslog from the device appears under `syslog-ng/log/Hosts/`. Which name does the directory get (the host name or the address of the device)?
+- Syslog from the device appears under `syslog-ng/log/Hosts/`. The directory is named after the address of the device. What is in the host name field of the lines, after the time (the host name or the address of the device)?
 - The device downloads a file from `firmware/` over TFTP.
 - The device uploads its configuration to `configs/` over TFTP.
 
