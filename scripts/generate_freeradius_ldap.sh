@@ -70,5 +70,20 @@ ldap {
     #set_auth = yes
     dereference = yes
     chase_referrals = yes
+
+    # FreeRADIUS finds out that OpenLDAP closed a connection only when it
+    # next uses it. With these, a request that meets such a connection, or
+    # none at all, waits for a new one. Without them it fails at once and
+    # the login is rejected: the first two logins after a restart of
+    # OpenLDAP, and every login while OpenLDAP is down, where no reply is
+    # what lets the devices turn to another server or to their local
+    # accounts. pool is for the searches, bind_pool for the binds of the
+    # users.
+    pool {
+        backlog_on_failed_conn = yes
+    }
+    bind_pool {
+        backlog_on_failed_conn = yes
+    }
 }
 EOF

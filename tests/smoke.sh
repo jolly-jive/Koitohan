@@ -1532,6 +1532,24 @@ report 'admin pass' 'logs' 'no password' "${WHY}"
 # nslcd has to find the restarted OpenLDAP again
 check_ssh 'ldap restart' admin01 "${PASS_ADMIN}" 'koitohan admin' 'id -Gn' < /dev/null
 
+# So has FreeRADIUS, and within the login that finds out. Both of its
+# connections are from before OpenLDAP was made again and restarted, and
+# this is the first request since. Without backlog_on_failed_conn in
+# ldap_openldap it is rejected, and so is the one after it.
+check 'ldap restart' 127.0.0.1 admin01 "${PASS_ADMIN}" Accept 'AVPair = "shell:priv-lvl=15"'
+
+# While OpenLDAP is down, FreeRADIUS does not answer. A reject would
+# keep a device from turning to another server or to its local accounts.
+# The first login after OpenLDAP is back goes through.
+"${COMPOSE[@]}" stop openldap > /dev/null 2>&1
+OUT=$(send_request 127.0.0.1 admin01 "${PASS_ADMIN}")
+WHY=''
+grep -q -F 'No reply from server' <<< "${OUT}" || WHY='expected no reply'
+report 'ldap down' admin01 'no reply' "${WHY}" "${OUT}"
+"${COMPOSE[@]}" start openldap > /dev/null 2>&1
+wait_ldap_ready
+check 'ldap down' 127.0.0.1 admin01 "${PASS_ADMIN}" Accept 'AVPair = "shell:priv-lvl=15"'
+
 # Backup and restore. A backup of the test stack, a change after it,
 # then openldap made again with empty volumes and the backup loaded into
 # it. The change has to be gone, and what was there at the backup has to
