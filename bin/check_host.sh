@@ -2,8 +2,9 @@
 #
 # Checks the state of the Docker host that make does not make: the
 # steps done by hand, mostly with sudo, in the quick start of the
-# README and in docs/tftp.md, docs/logs.md and docs/ssh.md, and the
-# sync of the host clock.
+# README and in docs/tftp.md, docs/logs.md and docs/ssh.md, the sync of
+# the host clock, and an LDAP server left by the slapd package that
+# earlier versions needed.
 #
 #   check_host.sh
 #
@@ -223,6 +224,25 @@ elif [[ "${TIME_STATE}" == *NTP=yes* ]]; then
 else
   ng 'clock: not synchronized, and no NTP client is on' \
     'sudo timedatectl set-ntp true'
+fi
+
+### an LDAP server of the Docker host
+# Earlier versions of Koitohan needed slappasswd on this host, and
+# Debian ships it only with the slapd package, which also starts an
+# LDAP server listening on 389 of every address. Koitohan does not use
+# it. Asks systemd: the slapd in the OpenLDAP container shows up among
+# the processes of this host, too.
+SLAPD_STATE=$(systemctl show -p LoadState -p ActiveState -p UnitFileState slapd.service 2> /dev/null)
+if [[ -z "${SLAPD_STATE}" ]]; then
+  skip 'slapd: systemctl failed, so an LDAP server of this host is not checked'
+elif [[ "${SLAPD_STATE}" == *LoadState=not-found* ]]; then
+  ok 'slapd: not installed on this host'
+elif [[ "${SLAPD_STATE}" == *ActiveState=active* || "${SLAPD_STATE}" == *UnitFileState=enabled* ]]; then
+  warn 'slapd: an LDAP server runs on this host, or starts with it. Koitohan does not use it.' \
+    'sudo systemctl disable --now slapd' \
+    'or, when nothing else uses it: sudo apt purge slapd'
+else
+  ok 'slapd: installed on this host, but neither running nor enabled'
 fi
 
 ### the memory controller of cgroup

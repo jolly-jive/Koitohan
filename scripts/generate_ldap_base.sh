@@ -48,17 +48,39 @@ done
 FREERADIUS_PASSWORD=$(< "${SECRETS_DIR}/freeradius_service_account_password")
 OPENSSH_PASSWORD=$(< "${SECRETS_DIR}/openssh_service_account_password")
 
+# Writes the bytes that HEX spells out. printf passes NUL bytes on to a
+# pipe, which a shell variable could not hold.
+function hex_to_bytes() {
+  local HEX=${1}
+  local I
+
+  for (( I = 0; I < ${#HEX}; I += 2 )); do
+    printf "\\x${HEX:I:2}"
+  done
+}
+
+# {SSHA}, the way slappasswd makes it: base64 of SHA-1(password + salt)
+# followed by the salt. Made with openssl, so that the Docker host does
+# not need slappasswd, which Debian ships only with the slapd server.
 # Hashed here, not inside the here-document below: a failure there would
 # go unnoticed and leave an empty userPassword in the LDIF.
 function hash_password() {
-  local HASH
+  local SALT DIGEST HASH
 
-  HASH=$(slappasswd -s "${1}")
-  if [[ ! "${HASH}" =~ ^\{[A-Z0-9-]+\}. ]]; then
-    echo 'slappasswd did not give a hash' >&2
+  SALT=$(openssl rand -hex 8)
+  DIGEST=$({ printf '%s' "${1}"; hex_to_bytes "${SALT}"; } | openssl dgst -sha1 -r)
+  DIGEST=${DIGEST%% *}
+  if [[ ! "${SALT}" =~ ^[0-9a-f]{16}$ || ! "${DIGEST}" =~ ^[0-9a-f]{40}$ ]]; then
+    echo 'openssl did not give a salt and a digest' >&2
     exit 1
   fi
-  echo "${HASH}"
+  HASH=$(hex_to_bytes "${DIGEST}${SALT}" | openssl base64 -A)
+  # 28 bytes: 20 of the digest and 8 of the salt
+  if [[ ! "${HASH}" =~ ^[A-Za-z0-9+/]{38}==$ ]]; then
+    echo 'openssl did not give the base64 of the hash' >&2
+    exit 1
+  fi
+  echo "{SSHA}${HASH}"
 }
 
 FREERADIUS_HASH=$(hash_password "${FREERADIUS_PASSWORD}")
