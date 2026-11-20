@@ -35,6 +35,13 @@ services:
     networks:
       - default
       - openssh
+    # slapd allocates its tables for as many descriptors as the limit allows.
+    # Some Docker hosts give the containers no limit (containerd with
+    # LimitNOFILE=infinity), and slapd then aborts on start. Every service
+    # sets this, not only the ones known to fail without it: hardly any
+    # software expects a limit of a billion.
+    ulimits:
+      nofile: 1024
     security_opt:
       - no-new-privileges:true
     restart: unless-stopped
@@ -68,6 +75,9 @@ services:
     # up before it starts radiusd
     cap_add:
       - NET_ADMIN
+    # see openldap
+    ulimits:
+      nofile: 1024
     security_opt:
       - no-new-privileges:true
     restart: unless-stopped
@@ -88,6 +98,9 @@ services:
     ports:
       - "0.0.0.0:514:1514/udp"
       - "0.0.0.0:514:1514/tcp"
+    # see openldap
+    ulimits:
+      nofile: 1024
     security_opt:
       - no-new-privileges:true
     restart: unless-stopped
@@ -107,6 +120,8 @@ services:
       - "0.0.0.0:69:69/udp"
     ulimits:
       fsize: ${TFTP_UPLOAD_MAX_BYTES}
+      # see openldap
+      nofile: 1024
     # the entrypoint filters the packets by their source, then gives this
     # up before it starts in.tftpd
     cap_add:
@@ -163,6 +178,11 @@ services:
     # starts sshd
     cap_add:
       - NET_ADMIN
+    # nslcd closes every descriptor up to the limit when it starts, which
+    # takes minutes with no limit, and no one can log in meanwhile (see
+    # openldap)
+    ulimits:
+      nofile: 1024
     security_opt:
       - no-new-privileges:true
     restart: unless-stopped
@@ -184,6 +204,9 @@ services:
       - /run:mode=755,size=1m
     ports:
       - "0.0.0.0:123:123/udp"
+    # see openldap
+    ulimits:
+      nofile: 1024
     security_opt:
       - no-new-privileges:true
     restart: unless-stopped
