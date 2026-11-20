@@ -1234,6 +1234,25 @@ CASES
 check_read_only openssh
 check_read_only openldap
 
+# Some Docker hosts give the containers no limit on the descriptors, and
+# then slapd aborts and nslcd keeps everyone out for minutes. Read the
+# soft limit that the main process of each service got from compose.yaml.
+while IFS='|' read -r SERVICE PROCESS; do
+  WHY=''
+  OUT=$("${COMPOSE[@]}" exec -T "${SERVICE}" sh -c "
+    grep '^Max open files' /proc/\$(pidof -s ${PROCESS})/limits" 2>&1 < /dev/null)
+  [[ "$(awk '{ print $4 }' <<< "${OUT}")" == '1024' ]] \
+    || WHY="expected 1024 as the soft limit of ${PROCESS}"
+  report 'nofile' "${SERVICE}" '1024' "${WHY}" "${OUT}"
+done <<'SERVICES'
+openldap|slapd
+freeradius|freeradius
+syslog-ng|syslog-ng
+tftpd-hpa|in.tftpd
+openssh|nslcd
+chrony|chronyd
+SERVICES
+
 if ! start_egress_target; then
   echo 'could not start the target of the egress checks'
   exit 1

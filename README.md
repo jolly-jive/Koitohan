@@ -45,10 +45,11 @@ FreeRADIUS 4.x is a development version. Koitohan uses it ahead of its official 
 - Docker with the Compose plugin
 - GNU Make 4.3 or later
 - `openssl`
-- `slappasswd` (in the `slapd` package on Debian and Raspberry Pi OS)
 - `ssh-keygen`. `make test` also uses `ssh` from OpenSSH 8.4 or later and a `curl` that supports TFTP.
 - `logrotate`, which rotates the logs
 - The clock of the Docker host kept in sync with NTP (`systemd-timesyncd` does this by default on Raspberry Pi OS). The containers use the host clock, and so do the times in the logs.
+
+Versions up to 1.0.0 also needed `slappasswd`, which Debian and Raspberry Pi OS ship in the `slapd` package. That package also runs an LDAP server on the Docker host, listening on port 389. Koitohan does not use it. If you installed the package for Koitohan, stop the server with `sudo systemctl disable --now slapd`, or remove the package with `sudo apt purge slapd`. `make host_check` warns while the server runs.
 
 ## Quick start
 
@@ -77,7 +78,7 @@ The `install` hands the configuration of the log rotation to logrotate on the Do
 
 The `chown` and `chmod` on `firmware/` open the directory to the users with the role `admin`, and to no other user who logs in over SSH (see the [user guide](docs/user-guide.md#handing-out-firmware-and-taking-out-configurations-admin-only)). The steps in [TFTP](docs/tftp.md) do the same for `configs/`.
 
-`make host_check` checks the state of the Docker host that `make` does not make: the steps above done with `sudo`, the image file of [TFTP](docs/tftp.md), the memory controller that [SSH](docs/ssh.md) needs, and the sync of the clock. It runs without `sudo`, changes nothing, and prints `OK`, `NG`, `WARN` or `SKIP` for each item, with what to do for an `NG` or a `WARN`. It fails when there is an `NG`. A `WARN` is a recommended step that was left out. Run it again whenever you have changed the host or regenerated the logrotate config.
+`make host_check` checks the state of the Docker host that `make` does not make: the steps above done with `sudo`, the image file of [TFTP](docs/tftp.md), the memory controller that [SSH](docs/ssh.md) needs, the sync of the clock, and an LDAP server left by the `slapd` package (see above). It runs without `sudo`, changes nothing, and prints `OK`, `NG`, `WARN` or `SKIP` for each item, with what to do for an `NG` or a `WARN`. It fails when there is an `NG`. A `WARN` is a recommended step that was left out. Run it again whenever you have changed the host or regenerated the logrotate config.
 
 Use `make up` instead of calling `docker compose up` directly on a fresh checkout. It makes sure the generated files exist before Docker mounts them.
 
