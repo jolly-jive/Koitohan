@@ -953,12 +953,17 @@ function check_tls() {
     "$(grep -v -e '^-----' -e '^[A-Za-z0-9+/=]\{64\}$' <<< "${OUT}" | head -n 20)"
 }
 
-# IPv4 addresses and prefixes, separated by spaces, as the ranges of
-# addresses they cover: one line "first-last" (as numbers) for each run,
-# with overlapping and neighbouring ones joined.
+# IPv4 addresses, prefixes and ranges ("a.b.c.d-e.f.g.h", which nft
+# prints for joined prefixes that make no single prefix), separated by
+# spaces, as the ranges of addresses they cover: one line "first-last"
+# (as numbers) for each run, with overlapping and neighbouring ones joined.
 function address_ranges() {
-  tr ' ' '\n' | grep . | awk -F '[./]' '{
+  tr ' ' '\n' | grep . | awk -F '[./-]' '{
       first = (($1 * 256 + $2) * 256 + $3) * 256 + $4
+      if ($0 ~ /-/) {
+        print first, (($5 * 256 + $6) * 256 + $7) * 256 + $8
+        next
+      }
       size = 2 ^ (32 - (NF == 5 ? $5 : 32))
       first -= first % size
       print first, first + size - 1
