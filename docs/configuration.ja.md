@@ -12,6 +12,7 @@
 | `LDAP_ORGANISATION`                   | ディレクトリに保存する組織名。                                                        |
 | `FREERADIUS_SERVICE_ACCOUNT_NAME`     | FreeRADIUS がディレクトリの検索に使うアカウント。                                     |
 | `OPENLDAP_CONTAINER_NAME`             | OpenLDAP のコンテナ名。                                                               |
+| `OPENLDAP_ALLOWED_NETWORKS`           | Docker ホストの外で LDAPS を受け付ける送信元。`none` かアドレス。「[LDAPS の接続元](#ldaps-の接続元)」を参照。 |
 | `FREERADIUS_CONTAINER_NAME`           | FreeRADIUS のコンテナ名。                                                             |
 | `SYSLOG_CONTAINER_NAME`               | syslog-ng のコンテナ名。                                                              |
 | `TFTP_CONTAINER_NAME`                 | tftpd-hpa のコンテナ名。                                                              |
@@ -54,6 +55,20 @@ DEVICE_NETWORKS='10.0.0.0/8 172.16.0.0/12 192.168.0.0/16'
 - SSH(利用者作業用コンテナ)の接続元は、別の変数で指定します(「[SSH の接続元](ssh.ja.md#ssh-の接続元)」を参照)。
 
 変更は `make down && make up` で反映されます。
+
+### LDAPS の接続元
+
+OpenLDAP は Docker ホストで LDAPS(636/tcp)を公開していますが、ホストの外からつなぐものはありません。FreeRADIUS と OpenSSH のコンテナは Docker のネットワークを通ってつなぎ、こちらは常に受け付けます。それ以外に受け付ける相手を `OPENLDAP_ALLOWED_NETWORKS` で指定します。
+
+```sh
+OPENLDAP_ALLOWED_NETWORKS='none'
+```
+
+`none`(既定)は、ホストの外からは何も受け付けません。この変数は、2台の Koitohan でディレクトリを複製する構成(まだ提供していません)のためのもので、各台に相手の台のアドレスを書くことになります。書き方は、`none` のほかは `DEVICE_NETWORKS` と同じです。値が空のとき、書式が誤っているとき、`none` とアドレスを混ぜたときは、OpenLDAP は起動しません。
+
+ユーザーの管理は、外から LDAP のツールでつながず、`bin/manage_users.sh` で行ってください(「[ユーザーとロール](#ユーザーとロール)」を参照)。番号の割り当てや、ユーザーごとにロールを1つにすることなど、Koitohan の決まりをスクリプトが守ります。
+
+変更は `make up` で反映されます。
 
 `OPENSSH_HOSTNAME` は、ユーザーがどのサーバーにログインしているかを見分けるための名前です。プロンプトは `alice@koitohan:/logs/Hosts$` の形になります。Koitohan を複数台で動かすときは、台ごとに別の名前にしてください。変更は `make up` で反映されます。
 

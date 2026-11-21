@@ -12,6 +12,7 @@
 | `LDAP_ORGANISATION`                   | Organization name stored in the directory.                                     |
 | `FREERADIUS_SERVICE_ACCOUNT_NAME`     | Account FreeRADIUS uses to search the directory.                               |
 | `OPENLDAP_CONTAINER_NAME`             | Container name of OpenLDAP.                                                    |
+| `OPENLDAP_ALLOWED_NETWORKS`           | Networks outside the Docker host that LDAPS is accepted from: `none`, or addresses. See [Sources of LDAPS](#sources-of-ldaps). |
 | `FREERADIUS_CONTAINER_NAME`           | Container name of FreeRADIUS.                                                  |
 | `SYSLOG_CONTAINER_NAME`               | Container name of syslog-ng.                                                   |
 | `TFTP_CONTAINER_NAME`                 | Container name of tftpd-hpa.                                                   |
@@ -54,6 +55,20 @@ The default is all the private address ranges. If your devices are managed from 
 - The sources of SSH (the workspace container) have a variable of their own (see [Sources of SSH](ssh.md#sources-of-ssh)).
 
 Apply a change with `make down && make up`.
+
+### Sources of LDAPS
+
+OpenLDAP publishes LDAPS (636/tcp) on the Docker host, but nothing outside the host needs it: FreeRADIUS and the OpenSSH container reach it over the Docker networks, which are always let in. `OPENLDAP_ALLOWED_NETWORKS` names who else may connect.
+
+```sh
+OPENLDAP_ALLOWED_NETWORKS='none'
+```
+
+`none` (the default) lets in nothing from outside the host. The value is there for a pair of Koitohan hosts that replicate their directories, which is not available yet; each host will list the address of the other. Otherwise it is written like `DEVICE_NETWORKS`. OpenLDAP does not start when the value is empty or malformed, or mixes `none` with addresses.
+
+Manage users with `bin/manage_users.sh` (see [Users and roles](#users-and-roles)), not with an LDAP tool from outside: the script keeps the rules of Koitohan, such as the numbers and the single role of each user.
+
+Apply a change with `make up`.
 
 `OPENSSH_HOSTNAME` is the name that tells the users which server they are logged in to. The prompt looks like `alice@koitohan:/logs/Hosts$`. When you run more than one Koitohan, give each a different name. Apply a change with `make up`.
 

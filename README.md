@@ -92,7 +92,7 @@ Once it is up, check with `bin/check_services.sh` that each service works. A ser
 | 1812/udp         | RADIUS authentication |
 | 514/udp, 514/tcp | syslog                |
 | 69/udp           | TFTP                  |
-| 636/tcp          | LDAPS                 |
+| 636/tcp          | LDAPS (from outside the host, only from `OPENLDAP_ALLOWED_NETWORKS`: nothing by default) |
 | 123/udp          | NTP (only with `COMPOSE_PROFILES='ntp'`) |
 
 Every port is published on IPv4 only. IPv6 is not supported.
