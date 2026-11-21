@@ -155,7 +155,7 @@ docker compose logs -f freeradius
 
 ## Known limitations
 
-- Changes to users and roles made without `bin/manage_users.sh` do not reach SSH logins until you run `koitohan-update-users`.
+- Changes to users and roles made without `bin/manage_users.sh` take up to a minute to reach SSH logins (the OpenSSH container reads them again every 60 seconds). Run `koitohan-update-users` to apply them at once.
 - A logged-in user can get around the password check of `passwd`. The check is there to prevent weak passwords set by carelessness. Even then, the minimum length that OpenLDAP checks by itself (`PPOLICY_MIN_LENGTH`) holds.
 - Anyone who can reach the login prompt of a network device or the SSH port can lock a user whose name they know, by sending wrong passwords. A lock ends by itself when its time is over (see [Password policy](docs/configuration.md#password-policy)).
 - By default, a user logged in over SSH reaches nothing but OpenLDAP from the OpenSSH container. Names are still looked up through the DNS of Docker, outside names as well. With `OPENSSH_EGRESS='any'` the user can connect to the Docker host and to outside networks (see [Connections out of the container](docs/ssh.md#connections-out-of-the-container)).

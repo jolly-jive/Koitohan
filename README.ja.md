@@ -155,7 +155,7 @@ docker compose logs -f freeradius
 
 ## 既知の制限
 
-- `bin/manage_users.sh` を使わずに行ったユーザーとロールの変更は、`koitohan-update-users` を実行するまで、SSH のログインに反映されません。
+- `bin/manage_users.sh` を使わずに行ったユーザーとロールの変更は、SSH のログインに反映されるまで、最大で 1 分かかります(OpenSSH のコンテナが 60 秒ごとに読み直します)。すぐに反映させるには `koitohan-update-users` を実行します。
 - `passwd` によるパスワードの判定は、ログインしたユーザーが迂回できます。この判定は、不注意で弱いパスワードを設定することを防ぐためのものです。迂回しても、OpenLDAP 自身が確かめる最小の長さ(`PPOLICY_MIN_LENGTH`)は守られます。
 - ネットワーク機器のログイン画面や SSH のポートに到達できる相手は、誤ったパスワードを送り続けることで、名前を知っているユーザーをロックできます。ロックは時間が過ぎると解除されます(「[パスワードポリシー](docs/configuration.ja.md#パスワードポリシー)」を参照)。
 - 既定では、SSH でログインしたユーザーが OpenSSH のコンテナから届くのは OpenLDAP だけです。ただし名前解決は Docker の DNS を通り、外部の名前も引けます。`OPENSSH_EGRESS='any'` にすると、Docker ホストや外部のネットワークへ接続できます(「[コンテナから外への接続](docs/ssh.ja.md#コンテナから外への接続)」を参照)。

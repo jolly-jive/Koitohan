@@ -65,6 +65,10 @@ services:
 
   openssh:
     container_name: !reset null
+    environment:
+      # the users of LDAP again every 5 seconds, not 60, for the check
+      # "periodic" of smoke.sh
+      KOITOHAN_UPDATE_USERS_INTERVAL: 5
     volumes:
       # the logs that syslog-ng of the test stack writes, as in compose.yaml
       - ./tests/generated/syslog-ng/log/Hosts:/logs/Hosts:ro

@@ -1311,23 +1311,50 @@ add_role_by_hand smoke01 readonly
 check 'three roles' 127.0.0.1 smoke01 "${NEW_PASS}" Accept 'AVPair = "shell:priv-lvl=1"'
 check_ssh 'three roles' smoke01 "${NEW_PASS}" 'koitohan readonly' 'id -Gn' < /dev/null
 
-# The session that is open has to end with the change of the role. A
-# session that never got in ends quickly as well, so the role changes
-# only once the session has said that it runs.
+# An ssh session of smoke01 that runs for a minute. A session that never
+# got in ends quickly as well, so this returns once it has said that it
+# runs, or WHY says that it did not.
 SESSION_OUT="${KOITOHAN_GENERATED_ROOT}/session.out"
-ssh_run smoke01 "${NEW_PASS}" 'echo started; sleep 30' < /dev/null > "${SESSION_OUT}" &
-SESSION_PID=$!
-for (( TRY = 1; TRY <= WAIT_TRIES; TRY++ )); do
-  grep -q -x started "${SESSION_OUT}" && break
-  sleep 1
-done
-WHY=''
-grep -q -x started "${SESSION_OUT}" || WHY='the session did not start'
+function start_session() {
+  ssh_run smoke01 "${NEW_PASS}" 'echo started; sleep 60' < /dev/null > "${SESSION_OUT}" &
+  SESSION_PID=$!
+  for (( TRY = 1; TRY <= WAIT_TRIES; TRY++ )); do
+    grep -q -x started "${SESSION_OUT}" && break
+    sleep 1
+  done
+  WHY=''
+  grep -q -x started "${SESSION_OUT}" || WHY='the session did not start'
+}
+
+# The session has to end within LIMIT seconds of the change
+function check_session_cut() {
+  local NAME=${1}
+  local LIMIT=${2}
+
+  SECONDS=0
+  wait "${SESSION_PID}"
+  [[ -z "${WHY}" && ${SECONDS} -ge ${LIMIT} ]] && WHY='expected the session to be cut'
+  report "${NAME}" smoke01 'session cut' "${WHY}" || indent < "${SESSION_OUT}"
+}
+
+# A change that does not go through bin/manage_users.sh, nor through
+# koitohan-update-users: the openssh container reads the users again by
+# itself (every 5 seconds in the test stack), and ends the session of
+# the user whose group is not the same. Without readonly, smoke01 is
+# operator.
+start_session
+"${COMPOSE[@]}" exec -T openldap sh -c "${LDAP_SUFFIX_SET};"'
+  printf "dn: cn=readonly,ou=Roles,%s\nchangetype: modify\ndelete: uniqueMember\nuniqueMember: uid=smoke01,ou=People,%s\n" \
+    "${SUFFIX}" "${SUFFIX}" \
+  | ldapmodify '"${AS_MANAGER}" > /dev/null 2>&1 || WHY='could not take smoke01 out of readonly'
+check_session_cut 'periodic' 30
+check_ssh 'periodic' smoke01 "${NEW_PASS}" 'koitohan operator' 'id -Gn' < /dev/null
+
+# A change of the role through the script, which runs
+# koitohan-update-users at once
+start_session
 check_users 'users role' 'smoke01 is admin now' '' role smoke01 admin
-SECONDS=0
-wait "${SESSION_PID}"
-[[ -z "${WHY}" && ${SECONDS} -ge 10 ]] && WHY='expected the session to be cut'
-report 'users role' smoke01 'session cut' "${WHY}" || indent < "${SESSION_OUT}"
+check_session_cut 'users role' 10
 check_ssh 'users role' smoke01 "${NEW_PASS}" 'koitohan admin' 'id -Gn' < /dev/null
 
 check_users 'users passwd' 'the password was refused' 'Password1' passwd smoke01

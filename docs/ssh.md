@@ -22,17 +22,13 @@ Apart from this, OpenLDAP checks a minimum length by itself (see [Password polic
 
 ## Applying changes to users and roles
 
-The OpenSSH container reads the directory when it starts and builds the list of users who can log in. `bin/manage_users.sh` rebuilds the list after every change, so there is usually nothing to do. Rebuild the list yourself after you change the directory without the script.
+The OpenSSH container reads the directory when it starts, and every 60 seconds after that, and rebuilds the list of users who can log in. `bin/manage_users.sh` has the list rebuilt at once after every change, so there is usually nothing to do. A change made to the directory without the script also takes effect within a minute. To apply it at once, rebuild the list yourself.
 
 ```sh
 docker compose exec openssh koitohan-update-users
 ```
 
-A change of role does not reach the sessions that are already logged in. To apply it at once, rebuild the list and then close the sessions of that user. `<uidNumber>` is the `uidNumber` of the user.
-
-```sh
-docker compose exec openssh pkill -KILL -u <uidNumber>
-```
+The rebuild closes the sessions of users who were deleted or whose role changed, because a process that is logged in keeps the role it logged in with. The new role applies when the user logs in again. A change of password and a lock do not close sessions.
 
 ## Sources of SSH
 

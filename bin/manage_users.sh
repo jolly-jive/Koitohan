@@ -5,8 +5,8 @@
 #
 # Runs on the Docker host and works inside the containers: LDAP goes
 # through ldapi:/// of openldap, the passwords are judged by pwqcheck of
-# openssh. Every change is followed by koitohan-update-users, and a
-# delete or a change of role cuts the sessions of the user.
+# openssh. Every change is followed by koitohan-update-users, which also
+# ends the sessions of a deleted user, or of one with another role.
 #
 # The password is asked for on the terminal. Without a terminal, it is
 # the first line of the standard input.
@@ -109,13 +109,6 @@ function require_user() {
 
 # The helpers below search before they pipe, so that a failed search
 # fails them too: the status of a pipe is the one of its last command.
-function uid_number_of() {
-  local OUT
-
-  OUT=$(ldap_search -b "$(user_dn "${1}")" -s base uidNumber) || return 1
-  values_of uidNumber <<< "${OUT}"
-}
-
 # cn comes in base64 when it is not plain ASCII
 function full_name_of() {
   local OUT
@@ -211,17 +204,11 @@ EOF
   return 1
 }
 
-# /etc/passwd and /etc/group of the openssh container
+# /etc/passwd and /etc/group of the openssh container, and the sessions
+# that the change ends. The container does it within a minute anyway.
 function update_users() {
   openssh koitohan-update-users < /dev/null \
-  || echo "the change is made, but not shown to ssh yet. Run: docker compose exec openssh koitohan-update-users" >&2
-}
-
-# the UID is a number, as the name may be gone by now
-function cut_sessions() {
-  [[ -n "${1}" ]] || return 0
-  openssh pkill -KILL -u "${1}" < /dev/null
-  return 0
+  || echo "the change is made, but not shown to ssh yet. The openssh container reads the users again within a minute, or run: docker compose exec openssh koitohan-update-users" >&2
 }
 
 function cmd_add() {
@@ -276,12 +263,10 @@ EOF
 
 function cmd_delete() {
   local USER=${1}
-  local DN UID_NUMBER ROLES_NOW ROLE
+  local DN ROLES_NOW ROLE
 
   require_user "${USER}"
   DN=$(user_dn "${USER}")
-  # read before the delete, to cut the sessions after it
-  UID_NUMBER=$(uid_number_of "${USER}") || die 'could not search the directory'
   ROLES_NOW=$(roles_of "${USER}") || die 'could not search the directory'
 
   for ROLE in ${ROLES_NOW}; do
@@ -295,19 +280,17 @@ EOF
   ldap ldapdelete "${DN}" < /dev/null || die "could not delete ${USER}"
 
   update_users
-  cut_sessions "${UID_NUMBER}"
   echo "deleted ${USER}"
 }
 
 function cmd_role() {
   local USER=${1}
   local ROLE=${2}
-  local DN UID_NUMBER CURRENT OLD LDIF=''
+  local DN CURRENT OLD LDIF=''
 
   require_user "${USER}"
   is_role "${ROLE}" || die "${ROLE}: no such role (${ROLES[*]})"
   DN=$(user_dn "${USER}")
-  UID_NUMBER=$(uid_number_of "${USER}") || die 'could not search the directory'
   # a failed search must not pass for "no role": the old roles would stay
   CURRENT=$(roles_of "${USER}") || die 'could not search the directory'
 
@@ -329,7 +312,6 @@ function cmd_role() {
   printf '%s' "${LDIF}" | ldap ldapmodify > /dev/null || die "could not change the role of ${USER}"
 
   update_users
-  cut_sessions "${UID_NUMBER}"
   echo "${USER} is ${ROLE} now"
 }
 
