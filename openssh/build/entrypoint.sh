@@ -187,6 +187,32 @@ until koitohan-update-users; do
   sleep 3
 done
 
+# The users of LDAP again and again, so that a change made on the other
+# host of a pair, or without bin/manage_users.sh, reaches ssh as well.
+# The output goes to the log only when it is not the same as the last
+# time. Only the smoke test sets the interval.
+interval=${KOITOHAN_UPDATE_USERS_INTERVAL:-60}
+case "${interval}" in
+  ''|*[!0-9]*|0*)
+    echo "KOITOHAN_UPDATE_USERS_INTERVAL must be a number of seconds: ${interval}" >&2
+    exit 1
+    ;;
+esac
+watch_users() {
+  last=''
+  while :; do
+    sleep "${interval}"
+    out=$(koitohan-update-users 2>&1) \
+      || out="${out}
+koitohan-update-users failed; the users stay as they were"
+    if [ "${out}" != "${last}" ]; then
+      printf '%s\n' "${out}" >&2
+      last=${out}
+    fi
+  done
+}
+watch_users &
+
 # passwd connects to the socket of nslcd as the user
 install -d -m 755 -o nslcd -g nslcd /run/nslcd
 nslcd -n &

@@ -2,13 +2,27 @@
 #
 # Makes /etc/passwd and /etc/group again from ou=People of LDAP.
 # Writes only the users that have posixAccount and belong to a role.
-# On a failure the files stay as they were.
+# Then ends the sessions of the users who are gone, or whose group is
+# not the same: a process keeps the groups it logged in with.
+# On a failure the files stay as they were, and no session ends.
 set -eu
 
 RUN_DIR=/run/koitohan
 CERT_DIR=/etc/koitohan/certs
 
 LDAP_SUFFIX="dc=$(echo "${LDAP_DOMAIN}" | sed 's/\./,dc=/g')"
+
+# The loop of entrypoint.sh and a run by hand may meet. One at a time,
+# so that the files are compared with the ones they replace.
+exec 9> "${RUN_DIR}/update-users.lock"
+flock 9
+
+# "uidNumber group" of each user of LDAP in a passwd and a group file.
+# The number, not the name: the name of a deleted user is gone with it.
+users_of() {
+  awk -F: 'NR == FNR { n = split($4, m, ","); for (i = 1; i <= n; i++) group[m[i]] = $1; next }
+           $3 >= 10000 && $3 <= 59999 { print $3, ($1 in group ? group[$1] : "-") }' "$2" "$1"
+}
 
 umask 022
 WORK_DIR=$(mktemp -d "${RUN_DIR}/update-users.XXXXXX")
@@ -103,6 +117,18 @@ END {
 cat /etc/group.base "${WORK_DIR}/group" > "${WORK_DIR}/group.new"
 cat /etc/passwd.base "${WORK_DIR}/passwd" > "${WORK_DIR}/passwd.new"
 
+users_of "${RUN_DIR}/passwd" "${RUN_DIR}/group" > "${WORK_DIR}/before"
+users_of "${WORK_DIR}/passwd.new" "${WORK_DIR}/group.new" > "${WORK_DIR}/after"
+
 # a rename, so the readers never see a file half written
 mv "${WORK_DIR}/group.new" "${RUN_DIR}/group"
 mv "${WORK_DIR}/passwd.new" "${RUN_DIR}/passwd"
+
+# After the files, so that a login again gets the new state
+awk 'NR == FNR { after[$1] = $2; next } !($1 in after) || after[$1] != $2 { print $1 }' \
+  "${WORK_DIR}/after" "${WORK_DIR}/before" \
+| while read -r number; do
+    if pkill -KILL -u "${number}"; then
+      echo "ended the sessions of uidNumber ${number}"
+    fi
+  done

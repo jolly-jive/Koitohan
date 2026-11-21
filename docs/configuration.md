@@ -160,7 +160,7 @@ bin/manage_users.sh delete alice                  # delete
 - `add` and `passwd` ask for the password on the terminal. It is checked by the same rules as when a user changes it with `passwd` (see [Password rules](ssh.md#password-rules)). Ask the user to log in over SSH and change the password you set.
 - A user name takes lowercase letters, digits, `_` and `-`, up to 32 characters.
 - `uidNumber` is handed out in order from 10000. A number is never reused, even after its user is deleted. The files a user leaves behind keep the number as their owner. The next number to hand out is kept in `cn=nextUidNumber` in the directory.
-- A change reaches SSH logins at once. `delete` and `role` close the sessions of that user.
+- A change reaches SSH logins at once. With `delete` and `role`, the sessions of that user are closed (see [Applying changes to users and roles](ssh.md#applying-changes-to-users-and-roles)).
 - `unlock` lifts the lock of a user who failed to log in too many times, without waiting for it to end (see [Password policy](#password-policy)). Setting a new password with `passwd` lifts the lock as well.
 
 In the directory, users live under `ou=People`, and roles are `groupOfUniqueNames` entries under `ou=Roles`. A user belongs to a role when the role's `uniqueMember` holds the user's DN.
