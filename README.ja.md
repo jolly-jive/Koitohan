@@ -92,7 +92,7 @@ FreeRADIUS は uid 101 で動作し、`freeradius/log/` にログを書き込み
 | 1812/udp         | RADIUS 認証 |
 | 514/udp、514/tcp | syslog      |
 | 69/udp           | TFTP        |
-| 636/tcp          | LDAPS       |
+| 636/tcp          | LDAPS(ホストの外からは `OPENLDAP_ALLOWED_NETWORKS` からだけ。既定では受け付けない) |
 | 123/udp          | NTP(`COMPOSE_PROFILES='ntp'` のときだけ) |
 
 どのポートも IPv4 でのみ公開しています。IPv6 には対応していません。

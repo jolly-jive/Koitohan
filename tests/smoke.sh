@@ -44,6 +44,9 @@ export OPENSSH_ALLOWED_NETWORKS="${ALLOWED_NETWORKS}"
 # the users of ssh reach only OpenLDAP, as .env.sample has it. One check
 # opens the way out.
 export OPENSSH_EGRESS='none'
+# no other host of a pair reaches OpenLDAP, as .env.sample has it. One
+# check sets addresses on a container of its own.
+export OPENLDAP_ALLOWED_NETWORKS='none'
 # the optional NTP service as well, whatever .env has. The scripts under
 # bin/ see it too.
 export COMPOSE_PROFILES='ntp'
@@ -572,6 +575,7 @@ function check_bad_networks() {
   local VARIABLE=DEVICE_NETWORKS
 
   [[ "${1}" == 'openssh' ]] && VARIABLE=OPENSSH_ALLOWED_NETWORKS
+  [[ "${1}" == 'openldap' ]] && VARIABLE=OPENLDAP_ALLOWED_NETWORKS
   check_bad_value 'bad networks' "${VARIABLE}" "$@"
 }
 
@@ -949,6 +953,73 @@ function check_tls() {
     "$(grep -v -e '^-----' -e '^[A-Za-z0-9+/=]\{64\}$' <<< "${OUT}" | head -n 20)"
 }
 
+# IPv4 addresses and prefixes, separated by spaces, as the ranges of
+# addresses they cover: one line "first-last" (as numbers) for each run,
+# with overlapping and neighbouring ones joined.
+function address_ranges() {
+  tr ' ' '\n' | grep . | awk -F '[./]' '{
+      first = (($1 * 256 + $2) * 256 + $3) * 256 + $4
+      size = 2 ^ (32 - (NF == 5 ? $5 : 32))
+      first -= first % size
+      print first, first + size - 1
+    }' | sort -n -k 1,1 | awk '
+      NR == 1 { a = $1; b = $2; next }
+      $1 <= b + 1 { if ($2 > b) b = $2; next }
+      { printf "%.0f-%.0f\n", a, b; a = $1; b = $2 }
+      END { if (NR) printf "%.0f-%.0f\n", a, b }'
+}
+
+# The sources that the filter of OpenLDAP lets in to 636/tcp, read from
+# the rules: one Docker host has no outside address to send from (what
+# another network of Docker sends to a published port comes in from the
+# gateway of the container's own network). A container in the same
+# network namespace lists them, since the one that put them in has given
+# up NET_ADMIN. VALUE is set on a container of its own, on the default
+# network of the test stack, with no alias for FreeRADIUS and OpenSSH to
+# find; it stays up after its entrypoint stops (it has no secrets), so
+# that its rules can be read. '' reads the running openldap. EXPECT is
+# what VALUE adds to the subnets of the container ('' for nothing).
+function check_ldap_networks() {
+  local VALUE=${1}
+  local EXPECT=${2}
+  local NAME='koitohan-test-ldap-networks'
+  local ID NETWORK OUT='' GOT WANT TRY WHY=''
+
+  if [[ -z "${VALUE}" ]]; then
+    ID=$("${COMPOSE[@]}" ps -q openldap)
+  else
+    NETWORK=$(docker inspect -f '{{range $name, $_ := .NetworkSettings.Networks}}{{$name}} {{end}}' \
+      "$("${COMPOSE[@]}" ps -q freeradius)" 2> /dev/null | cut -d ' ' -f 1)
+    docker rm -f "${NAME}" > /dev/null 2>&1
+    docker run -d --rm --name "${NAME}" --network "${NETWORK}" --cap-add NET_ADMIN \
+      --ulimit nofile=1024 -e "OPENLDAP_ALLOWED_NETWORKS=${VALUE}" -e LDAP_DOMAIN=example.com \
+      --entrypoint sh koitohan/openldap -c '/entrypoint.sh; sleep 60' > /dev/null 2>&1
+    ID=${NAME}
+  fi
+  for (( TRY = 0; TRY < 20; TRY++ )); do
+    OUT=$(docker run --rm --network "container:${ID}" --cap-add NET_ADMIN \
+            --entrypoint nft koitohan/openldap list ruleset 2>&1)
+    grep -q 'dport 636' <<< "${OUT}" && break
+    sleep 0.5
+  done
+  GOT=$(sed -n 's/.* saddr \(.*\) tcp dport 636 accept$/\1/p' <<< "${OUT}" \
+        | tr -d '{} ' | tr ',' '\n' | grep . | sort | paste -s -d ' ')
+  WANT=$( {
+    for NETWORK in $(docker inspect -f '{{range $name, $_ := .NetworkSettings.Networks}}{{$name}} {{end}}' "${ID}"); do
+      docker network inspect -f '{{range .IPAM.Config}}{{.Subnet}}{{"\n"}}{{end}}' "${NETWORK}"
+    done
+    tr ' ' '\n' <<< "${EXPECT}"
+  } | grep . | sort | paste -s -d ' ')
+  # nft joins neighbouring prefixes (two /20 may come back as one /19),
+  # so the two are compared as the addresses they cover
+  [[ -n "${GOT}" && "$(address_ranges <<< "${GOT}")" == "$(address_ranges <<< "${WANT}")" ]] \
+    || WHY="expected ${WANT}, got ${GOT:-no rule}"
+  [[ -n "${VALUE}" ]] && docker rm -f "${NAME}" > /dev/null 2>&1
+  local WHO=running
+  [[ -n "${VALUE}" ]] && WHO=value
+  report 'ldap networks' "${WHO}" "${GOT}" "${WHY}" "${OUT}"
+}
+
 # a missing source of a file bind mount would be created as a directory
 for FILE in \
   CA/default-ca.pem \
@@ -1114,6 +1185,23 @@ check_detail
 check_tls tls1_3 accepted
 check_tls tls1_2 refused
 
+# The filter of OpenLDAP: the test stack has none, as .env.sample, and
+# lets in its own networks only. FreeRADIUS and OpenSSH coming in from
+# them is what every check through RADIUS and SSH shows.
+check_ldap_networks '' ''
+check_ldap_networks '192.0.2.0/24 198.51.100.7' '192.0.2.0/24 198.51.100.7'
+# slapd cannot change the rules: NET_ADMIN (bit 12) is out of its
+# bounding set. A process that docker exec starts gets the capabilities
+# of the container afresh, so nft in one says nothing about slapd.
+OUT=$("${COMPOSE[@]}" exec -T openldap sh -c 'grep CapBnd /proc/$(pidof slapd)/status' 2>&1 < /dev/null)
+WHY=''
+if [[ ! "${OUT}" =~ CapBnd:[[:space:]]*([0-9a-f]{16}) ]]; then
+  WHY='could not read the capabilities of slapd'
+elif (( 16#${BASH_REMATCH[1]} & (1 << 12) )); then
+  WHY='expected slapd to be without NET_ADMIN'
+fi
+report 'ldap networks' 'net_admin' 'slapd without it' "${WHY}" "${OUT}"
+
 # The limit on the source of RADIUS, syslog, TFTP and NTP. The same request,
 # message and file, first from a network that is allowed, then with the
 # containers made again for another network. In between, the file
@@ -1166,6 +1254,11 @@ for SERVICE in freeradius tftpd-hpa openssh; do
   check_bad_networks "${SERVICE}" example.com 'must be IPv4'
   check_bad_networks "${SERVICE}" 10.0.0.0/33 'Error: Prefix length 33 is invalid'
 done
+# OpenLDAP takes none as well, but not with networks
+check_bad_networks openldap '' 'is empty'
+check_bad_networks openldap example.com 'must be none, or IPv4'
+check_bad_networks openldap 10.0.0.0/33 'Error: Prefix length 33 is invalid'
+check_bad_networks openldap 'none 10.0.0.0/8' 'must be none, or IPv4'
 # chronyd itself stops on a malformed network, with its own words, but
 # takes a host name
 check_bad_networks chrony '' 'is empty'

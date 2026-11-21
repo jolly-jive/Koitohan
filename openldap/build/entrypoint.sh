@@ -1,6 +1,71 @@
 #!/bin/sh
 set -eu
 
+# LDAPS is published on the Docker host, and outside the host only the
+# addresses in OPENLDAP_ALLOWED_NETWORKS reach it: the other host of a
+# pair, or none (the default, for a single host). FreeRADIUS and OpenSSH
+# come from the networks of the container, which are always let in.
+# Without the filter the container does not start (it does not listen
+# without the limit).
+if [ "${1:-}" != filtered ]; then
+  words=0
+  none=''
+  # a word must not expand as a pattern of file names
+  set -f
+  for word in ${OPENLDAP_ALLOWED_NETWORKS:-}; do
+    words=$((words + 1))
+    [ "$word" = none ] && none=yes
+  done
+  set +f
+  if [ "$words" -eq 0 ]; then
+    echo "OPENLDAP_ALLOWED_NETWORKS is empty" >&2
+    exit 1
+  fi
+  if [ -n "$none" ]; then
+    if [ "$words" -gt 1 ]; then
+      echo "OPENLDAP_ALLOWED_NETWORKS must be none, or IPv4 addresses or prefixes separated by spaces: $OPENLDAP_ALLOWED_NETWORKS" >&2
+      exit 1
+    fi
+    networks=''
+  else
+    networks=$(printf '%s' "$OPENLDAP_ALLOWED_NETWORKS" | tr -s ' \t\n' ',,,' | sed 's/^,//; s/,$//')
+    if ! printf '%s' "$networks" | grep -Eq '^[0-9./,]+$'; then
+      echo "OPENLDAP_ALLOWED_NETWORKS must be none, or IPv4 addresses or prefixes separated by spaces: $OPENLDAP_ALLOWED_NETWORKS" >&2
+      exit 1
+    fi
+  fi
+
+  # the subnets that Docker gave the networks of the container (the
+  # default one and the one of openssh), so that no address need be fixed.
+  # What the Docker host itself sends comes from the gateway of one of
+  # them.
+  subnets=$(ip -4 route show scope link | awk '{ print $1 }' | paste -s -d , -)
+  if [ -z "$subnets" ]; then
+    echo 'the container has no network for FreeRADIUS and OpenSSH to come from' >&2
+    exit 1
+  fi
+
+  # ldapi:/// is a socket, not on the network. The table is inet, so this
+  # drops IPv6 as well.
+  nft -f - <<EOF
+table inet koitohan {
+	chain input {
+		type filter hook input priority filter; policy drop;
+		iif "lo" accept
+		ct state established,related accept
+		ip saddr { ${subnets}${networks:+,$networks} } tcp dport 636 accept
+	}
+}
+EOF
+
+  # Nothing from here on keeps NET_ADMIN. slapd starts as root, and could
+  # change the rules otherwise. Starting this script again drops it from
+  # every process that follows.
+  # The setpriv of busybox has no --bounding-set; this is the one of
+  # util-linux.
+  exec setpriv --bounding-set -net_admin "$0" filtered
+fi
+
 CONF_DIR=/etc/openldap/slapd.d
 DATA_DIR=/var/lib/openldap/openldap-data
 SOCKET_DIR=/var/lib/openldap/run

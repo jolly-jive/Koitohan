@@ -15,6 +15,7 @@ services:
       LDAP_ORGANISATION: "${LDAP_ORGANISATION}"
       LDAP_DOMAIN: "${LDAP_DOMAIN}"
       LDAP_LOG_LEVEL: "stats"
+      OPENLDAP_ALLOWED_NETWORKS: "${OPENLDAP_ALLOWED_NETWORKS}"
     volumes:
       - ./openldap/data:/var/lib/openldap/openldap-data
       - ./openldap/config:/etc/openldap/slapd.d
@@ -35,6 +36,10 @@ services:
     networks:
       - default
       - openssh
+    # the entrypoint filters the packets by their source, then gives this
+    # up before it starts slapd
+    cap_add:
+      - NET_ADMIN
     # slapd allocates its tables for as many descriptors as the limit allows.
     # Some Docker hosts give the containers no limit (containerd with
     # LimitNOFILE=infinity), and slapd then aborts on start. Every service
