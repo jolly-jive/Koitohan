@@ -110,6 +110,10 @@ if [ ! -e "${SEEDED}" ]; then
 
   echo 'seeding the empty directory'
 
+  # The seed is in two parts: the config, which every host makes for
+  # itself, and the data, which the hosts of a pair share. The config is
+  # all here; the LDIF in SEED_DIR is data alone.
+  #
   # Listens on ldaps:/// and ldapi:/// only (not on 389). Demands a client
   # certificate, and takes TLS 1.3 only.
   slapadd -n 0 -F "${CONF_DIR}" <<EOF
@@ -134,6 +138,7 @@ olcModuleLoad: back_mdb
 olcModuleLoad: memberof
 olcModuleLoad: refint
 olcModuleLoad: argon2
+olcModuleLoad: ppolicy
 
 dn: cn=schema,cn=config
 objectClass: olcSchemaConfig
@@ -196,8 +201,20 @@ olcRefintAttribute: manager
 olcRefintAttribute: uniqueMember
 olcRefintAttribute: member
 olcRefintAttribute: memberOf
+
+# The policy that it names is in the data (400-PPolicy.ldif). Lockout is
+# not told to the client.
+dn: olcOverlay={2}ppolicy,olcDatabase={1}mdb,cn=config
+objectClass: olcOverlayConfig
+objectClass: olcPPolicyConfig
+olcOverlay: {2}ppolicy
+olcPPolicyDefault: cn=default,ou=Policies,${LDAP_SUFFIX}
+olcPPolicyHashCleartext: TRUE
+olcPPolicyUseLockout: FALSE
 EOF
 
+  # The data that the hosts of a pair share: the suffix here, then the
+  # LDIF (the OUs, the roles and the password policy). It holds no config.
   slapadd -n 1 -F "${CONF_DIR}" <<EOF
 dn: ${LDAP_SUFFIX}
 objectClass: top
