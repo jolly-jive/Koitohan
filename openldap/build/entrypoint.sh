@@ -151,7 +151,7 @@ olcDatabase: {-1}frontend
 olcAccess: {0}to * by dn.exact=gidNumber=0+uidNumber=0,cn=peercred,cn=external,cn=auth manage by * break
 olcAccess: {1}to dn.exact="" by * read
 olcAccess: {2}to dn.base="cn=Subschema" by * read
-olcSizeLimit: 500
+olcSizeLimit: unlimited
 olcPasswordHash: {ARGON2}
 
 dn: olcDatabase={0}config,cn=config
@@ -260,7 +260,7 @@ EOF
 fi
 
 # The log level, the minimum of TLS, the scheme of the password hashes,
-# the settings of memberof, the identities of the services and the
+# the limit on the size of a search, the settings of memberof, the identities of the services and the
 # access control are written on every start, and the passwords of the
 # administrators are removed. The
 # environment and this script are where these are kept, and a change
@@ -287,10 +287,17 @@ replace: olcAuthzRegexp
 olcAuthzRegexp: {0}"^cn=freeradius,ou=[^,]+,o=koitohan\$" "cn=freeradius,cn=koitohan"
 olcAuthzRegexp: {1}"^cn=openssh,ou=[^,]+,o=koitohan\$" "cn=openssh,cn=koitohan"
 
+# A search has no limit on its size. Replication sends the whole tree,
+# and a limit would stop it short without an error. Nobody reads more
+# than before: the tree is open to the services and to replication
+# only, and a user reads the own entry alone.
 dn: olcDatabase={-1}frontend,cn=config
 changetype: modify
 replace: olcPasswordHash
 olcPasswordHash: {ARGON2}
+-
+replace: olcSizeLimit
+olcSizeLimit: unlimited
 
 # memberof gives a user that is added the memberOf of the groups that
 # already name it (AddCheck): replication may bring the groups before

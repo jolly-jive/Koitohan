@@ -1514,6 +1514,30 @@ check_ssh 'users delete' smoke01 "${NEW_PASS2}" denied 'id -Gn' < /dev/null
 check 'users delete' 127.0.0.1 smoke01 "${NEW_PASS2}" Reject '-'
 check_users 'users delete' 'no such user' '' delete smoke01
 
+# A search has no limit on its size (replication sends the whole tree).
+# More entries than the old limit (500) go into an OU of their own, and
+# openssh reads them all over LDAPS, as nslcd does. The OU goes again,
+# so that nothing after this sees it.
+SIZE_COUNT=520
+check_ldap 'size limit' 'add' "added ${SIZE_COUNT}" "
+  { printf 'dn: ou=SizeLimit,%s\nobjectClass: organizationalUnit\nou: SizeLimit\n\n' \"\${SUFFIX}\"
+    I=1
+    while [ \${I} -le ${SIZE_COUNT} ]; do
+      printf 'dn: cn=size%s,ou=SizeLimit,%s\nobjectClass: device\ncn: size%s\n\n' \${I} \"\${SUFFIX}\" \${I}
+      I=\$((I + 1))
+    done; } | ldapadd -Q -Y EXTERNAL -H ldapi:/// > /dev/null \
+  && echo \"added \$(ldapsearch -LLL -Q -Y EXTERNAL -H ldapi:/// -b ou=SizeLimit,\${SUFFIX} -s one 1.1 | grep -c '^dn:')\""
+OUT=$("${COMPOSE[@]}" exec -T openssh sh -c '
+  LDAP_SUFFIX="dc=$(echo "${LDAP_DOMAIN}" | sed "s/\./,dc=/g")"
+  LDAPTLS_REQCERT=demand LDAPTLS_CACERT=/etc/koitohan/certs/ca.crt \
+  LDAPTLS_CERT=/etc/koitohan/certs/client.crt LDAPTLS_KEY=/etc/koitohan/certs/client.key \
+  ldapsearch -Q -Y EXTERNAL -LLL -H "${LDAP_URI}" -b "ou=SizeLimit,${LDAP_SUFFIX}" -s one 1.1 > /tmp/size.ldif
+  echo "status $? entries $(grep -c "^dn:" /tmp/size.ldif)"
+  rm -f /tmp/size.ldif' < /dev/null 2>&1)
+check_found 'size limit' 'openssh' "status 0 entries ${SIZE_COUNT}" "${OUT}"
+check_ldap 'size limit' 'delete' 'deleted' \
+  "ldapdelete -r -Q -Y EXTERNAL -H ldapi:/// \"ou=SizeLimit,\${SUFFIX}\" && echo deleted"
+
 # memberof and refint, without bin/manage_users.sh in between, as the
 # other host of a pair or ldapi:/// may write. A user named by a group
 # before it is added gets the memberOf of that group (AddCheck, for
@@ -1619,6 +1643,10 @@ check_ldap 'tls minimum' 'config' 'modifying entry "cn=config"' \
 check_ldap 'hash scheme' 'config' 'modifying entry "olcDatabase={-1}frontend,cn=config"' \
   'ldapmodify -Q -Y EXTERNAL -H ldapi:///' \
   'dn: olcDatabase={-1}frontend,cn=config\nchangetype: modify\nreplace: olcPasswordHash\nolcPasswordHash: {SSHA}\n'
+# and for the limit on the size of a search
+check_ldap 'size limit' 'config' 'modifying entry "olcDatabase={-1}frontend,cn=config"' \
+  'ldapmodify -Q -Y EXTERNAL -H ldapi:///' \
+  'dn: olcDatabase={-1}frontend,cn=config\nchangetype: modify\nreplace: olcSizeLimit\nolcSizeLimit: 500\n'
 # and for the settings of memberof (AddCheck first: memberof refuses it
 # while its own RefInt is on)
 check_ldap 'memberof' 'config' 'modifying entry "olcOverlay={0}memberof,olcDatabase={1}mdb,cn=config"' \
@@ -1639,6 +1667,8 @@ check_ldap 'hash scheme' 'config' 'olcPasswordHash: {ARGON2}' \
   "ldapsearch -LLL -Q -Y EXTERNAL -H ldapi:/// -b 'olcDatabase={-1}frontend,cn=config' -s base olcPasswordHash"
 check_ldap 'service identity' 'config' '"cn=openssh,cn=koitohan"' \
   'ldapsearch -LLL -Q -Y EXTERNAL -H ldapi:/// -b cn=config -s base olcAuthzRegexp'
+check_ldap 'size limit' 'config' 'olcSizeLimit: unlimited' \
+  "ldapsearch -LLL -Q -Y EXTERNAL -H ldapi:/// -b 'olcDatabase={-1}frontend,cn=config' -s base olcSizeLimit"
 check_ldap 'memberof' 'config' 'olcMemberOfAddCheck: TRUE olcMemberOfRefInt: FALSE' \
   "ldapsearch -LLL -Q -Y EXTERNAL -H ldapi:/// -b 'olcOverlay={0}memberof,olcDatabase={1}mdb,cn=config' -s base olcMemberOfAddCheck olcMemberOfRefInt | grep '^olcMemberOf' | sort | paste -s -d ' '"
 
