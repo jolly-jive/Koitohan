@@ -10,7 +10,7 @@
 | -------------------------------------------------- | -------------------------------------------------------------- |
 | `.env`                                             | The settings                                                   |
 | `freeradius/config/clients.conf`                   | The RADIUS clients and their shared secrets                    |
-| `secrets/`                                         | The passwords of the service accounts and of the OpenLDAP administrators |
+| `secrets/`                                         | The passwords of the OpenLDAP administrators                   |
 | `openssh/hostkeys/`                                | The host keys of the OpenSSH container                         |
 | `ldap/config.ldif`, `ldap/data.ldif`               | The configuration and the contents of the directory (users, roles, passwords, locks) |
 | `tftp-configs.tar`                                 | The files in `tftpd-hpa/tftpboot/configs/`, with their owners and modes |
@@ -22,8 +22,6 @@ These are left out:
 - **`tftpd-hpa/tftpboot/firmware/`**. Firmware can be downloaded again from the vendors.
 - **What `make` makes again**: the certificates in `CA/`, the LDIF files, the FreeRADIUS LDAP config, the device networks of syslog-ng and the logrotate config. The certificates are used only between the containers of the stack, so a new CA affects nothing outside.
 - **The steps done with `sudo`** on the Docker host, such as the image file of `configs/` and `/etc/fstab`. Do them again on a new host.
-
-The directory and `secrets/` have to come from the same backup. The directory knows the passwords of the service accounts, and FreeRADIUS and OpenSSH bind with the ones in `secrets/`.
 
 ## Taking a backup
 
@@ -43,7 +41,7 @@ bin/backup.sh -k 14 /var/backups/koitohan
 
 ### Keep the archive safe
 
-The archive is not encrypted. It holds the shared secrets of the devices, the passwords of the service accounts and of the OpenLDAP administrators, the host keys and the password hashes of the users, all as they are. Anyone who has it can pose as Koitohan to the devices and to the users.
+The archive is not encrypted. It holds the shared secrets of the devices, the passwords of the OpenLDAP administrators, the host keys and the password hashes of the users, all as they are. Anyone who has it can pose as Koitohan to the devices and to the users.
 
 - Keep it where only the Koitohan administrators can read it. Keep the mode 0600 when you copy it.
 - Copy it over an encrypted channel, such as `scp` or `rsync` over SSH.
@@ -126,13 +124,7 @@ make up
 
 `bin/restore_ldap.sh` refuses to run while `openldap/data/` or `openldap/config/` has anything in it.
 
-If the passwords of the service accounts have been changed since the backup, `bin/restore_ldap.sh` warns that `secrets/` does not agree with the backup. FreeRADIUS or OpenSSH then cannot bind. After `make up`, give the account named in the warning a new password:
-
-```sh
-bin/change_service_account_password.sh freeradius
-```
-
-The passwords of the OpenLDAP administrators need nothing: OpenLDAP sets the ones in `secrets/` on every start.
+The passwords of the OpenLDAP administrators need nothing: OpenLDAP sets the ones in `secrets/` on every start. Nor do the certificates: FreeRADIUS and OpenSSH bind with the ones that `make` made, whatever the backup.
 
 ## Restoring `configs/` only
 

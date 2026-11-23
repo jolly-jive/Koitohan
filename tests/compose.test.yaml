@@ -1,8 +1,8 @@
 # Overrides compose.yaml for the smoke test (see tests/smoke.sh).
 # The test stack runs as a separate project next to the real one. It
-# publishes no ports and keeps no data. The files that carry the
-# passwords of the service accounts and of the administrators of
-# OpenLDAP come from tests/generated, which the test makes for itself.
+# publishes no ports and keeps no data. The certificates, and the files
+# that carry the passwords of the administrators of OpenLDAP, come from
+# tests/generated, which the test makes for itself.
 
 services:
 
@@ -12,6 +12,9 @@ services:
       # anonymous volumes take the place of the persistent directories
       - /var/lib/openldap/openldap-data
       - /etc/openldap/slapd.d
+      - ./tests/generated/CA/default-ca.pem:/etc/koitohan/certs/ca.crt:ro
+      - ./tests/generated/CA/openldap_server.crt:/etc/koitohan/certs/ldap.crt:ro
+      - ./tests/generated/CA/openldap_server.key:/etc/koitohan/certs/ldap.key:ro
       - ./tests/generated/openldap/ldif:/etc/koitohan/ldif:ro
       - ./tests/generated/secrets/ldap_admin_password:/etc/koitohan/secrets/ldap_admin_password:ro
       - ./tests/generated/secrets/ldap_config_password:/etc/koitohan/secrets/ldap_config_password:ro
@@ -29,6 +32,9 @@ services:
   freeradius:
     container_name: !reset null
     volumes:
+      - ./tests/generated/CA/default-ca.pem:/etc/freeradius/certs/ca.crt:ro
+      - ./tests/generated/CA/freeradius_client.crt:/etc/freeradius/certs/client.crt:ro
+      - ./tests/generated/CA/freeradius_client.key:/etc/freeradius/certs/client.key:ro
       - ./tests/clients.conf:/etc/freeradius/clients.conf:ro
       - ./tests/generated/freeradius/config/mods-available/ldap_openldap:/etc/freeradius/mods-available/ldap_openldap:ro
       # keeps the test out of freeradius/log
@@ -76,7 +82,9 @@ services:
       - /tftpboot/configs
       - /tftpboot/firmware
       - ./tests/sshd_test.conf:/etc/ssh/sshd_config.d/test.conf:ro
-      - ./tests/generated/secrets/openssh_service_account_password:/etc/koitohan/secrets/bindpw:ro
+      - ./tests/generated/CA/default-ca.pem:/etc/koitohan/certs/ca.crt:ro
+      - ./tests/generated/CA/openssh_client.crt:/etc/koitohan/certs/client.crt:ro
+      - ./tests/generated/CA/openssh_client.key:/etc/koitohan/certs/client.key:ro
     ports: !reset []
     restart: "no"
 

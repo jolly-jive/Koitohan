@@ -13,11 +13,11 @@
 # logs in over ssh as each role and checks where the users can connect
 # to from there, then manages a user
 # with bin/manage_users.sh, then runs into the password policy of
-# OpenLDAP, then changes the passwords of the service accounts and of
-# the administrators of OpenLDAP, then takes a backup and restores it
-# into an openldap made again. The running stack is left alone: the
-# test generates its own passwords, LDIFs and ldap_openldap into
-# tests/generated.
+# OpenLDAP, then sees that FreeRADIUS and OpenSSH bound with their
+# certificates, then changes the passwords of the administrators of
+# OpenLDAP, then takes a backup and restores it into an openldap made
+# again. The running stack is left alone: the test generates its own
+# certificates, passwords, LDIFs and ldap_openldap into tests/generated.
 #
 #   KEEP=1 tests/smoke.sh    leave the test stack up for a closer look
 
@@ -27,9 +27,8 @@ ROOT_DIR="${SCRIPT_DIR%/*}"
 cd "${ROOT_DIR}"
 
 COMPOSE=(docker compose -p koitohan-test -f compose.yaml -f tests/compose.test.yaml)
-# the scripts under scripts/, bin/change_service_account_password.sh
-# and bin/change_ldap_admin_password.sh write here instead of secrets/,
-# openldap/ldif/ and freeradius/config/
+# the scripts under scripts/ and bin/change_ldap_admin_password.sh write
+# here instead of CA/, secrets/, openldap/ldif/ and freeradius/config/
 export KOITOHAN_GENERATED_ROOT="${ROOT_DIR}/tests/generated"
 SECRET='testing123'
 # The networks of the devices, whatever .env has: the test sends from
@@ -363,8 +362,6 @@ function check_ssh() {
 # The files in the openssh container that hold a password or a private
 # key. A user who logs in must not read any of them.
 SECRET_FILES=(
-  /run/koitohan/bindpw
-  /etc/koitohan/secrets/bindpw
   /etc/koitohan/certs/client.key
   /run/koitohan/nslcd-certs/client.key
   /etc/nslcd.conf
@@ -438,19 +435,6 @@ function check_ldap() {
         | "${COMPOSE[@]}" exec -T openldap sh -c "${LDAP_SUFFIX_SET}; ${COMMAND}" 2>&1)
   grep -q -F -- "${EXPECT}" <<< "${OUT}" || WHY="expected ${EXPECT}"
   report "${NAME}" "${USER}" "${EXPECT}" "${WHY}" "${OUT}"
-}
-
-# Runs bin/change_service_account_password.sh against the test stack.
-# EXPECT is a fixed string to find in the output.
-function check_service_password() {
-  local SERVICE=${1}
-  local EXPECT=${2}
-  local OUT WHY=''
-
-  OUT=$(COMPOSE_PROJECT_NAME=koitohan-test COMPOSE_FILE=compose.yaml:tests/compose.test.yaml \
-        bin/change_service_account_password.sh "${SERVICE}" 2>&1 < /dev/null)
-  grep -q -F -- "${EXPECT}" <<< "${OUT}" || WHY="expected ${EXPECT}"
-  report 'service pass' "${SERVICE}" "${EXPECT}" "${WHY}" "${OUT}"
 }
 
 # Binds as an administrator of OpenLDAP (admin or config). EXPECT is a
@@ -936,8 +920,9 @@ function check_tls() {
     WHY='could not find the address of openldap'
   else
     OUT=$(timeout 10 openssl s_client -connect "${ADDR}:636" "-${VERSION}" \
-      -CAfile CA/default-ca.pem \
-      -cert CA/freeradius_client.crt -key CA/freeradius_client.key < /dev/null 2>&1)
+      -CAfile "${KOITOHAN_GENERATED_ROOT}/CA/default-ca.pem" \
+      -cert "${KOITOHAN_GENERATED_ROOT}/CA/freeradius_client.crt" \
+      -key "${KOITOHAN_GENERATED_ROOT}/CA/freeradius_client.key" < /dev/null 2>&1)
 
     if grep -q '^New, TLSv' <<< "${OUT}"; then
       GOT='accepted'
@@ -1027,10 +1012,6 @@ function check_ldap_networks() {
 
 # a missing source of a file bind mount would be created as a directory
 for FILE in \
-  CA/default-ca.pem \
-  CA/openldap_server.crt \
-  CA/freeradius_client.crt \
-  CA/openssh_client.crt \
   openssh/hostkeys/ssh_host_ed25519_key
 do
   if [[ ! -e "${FILE}" ]]; then
@@ -1045,13 +1026,16 @@ chmod 700 "${ASKPASS}"
 
 trap cleanup EXIT
 
-# The same scripts as make runs, on passwords of the test's own
+# The same scripts as make runs, on certificates and passwords of the
+# test's own
 rm -rf "${KOITOHAN_GENERATED_ROOT}"
-mkdir -p "${KOITOHAN_GENERATED_ROOT}"/{secrets,openldap/ldif,freeradius/config/mods-available,syslog-ng/config,syslog-ng/log/Hosts,tftpboot/firmware}
+mkdir -p "${KOITOHAN_GENERATED_ROOT}"/{CA,secrets,openldap/ldif,freeradius/config/mods-available,syslog-ng/config,syslog-ng/log/Hosts,tftpboot/firmware}
+# as make private_dirs does CA/ and secrets/: the key of FreeRADIUS is
+# 0644 for the container, and only the directory keeps it in
+chmod 700 "${KOITOHAN_GENERATED_ROOT}"/{CA,secrets}
 # the file to fetch over TFTP, in the firmware of the test stack
 echo koitohan-smoke > "${KOITOHAN_GENERATED_ROOT}/tftpboot/firmware/smoke.txt"
-if ! { scripts/generate_service_account_password.sh freeradius \
-       && scripts/generate_service_account_password.sh openssh \
+if ! { scripts/create_certs.sh > /dev/null 2>&1 \
        && scripts/generate_ldap_admin_password.sh admin \
        && scripts/generate_ldap_admin_password.sh config \
        && scripts/generate_ldap_base.sh \
@@ -1506,7 +1490,7 @@ check 'min length' 127.0.0.1 operator01 "${PASS_OPERATOR}" Accept 'AVPair = "she
 
 # The lock. The failures come in over RADIUS and lock ssh as well.
 check_users 'users unlock' 'smoke01 is not locked' '' unlock smoke01
-# the lock below and the check of the service accounts count on it
+# the lock below counts on it
 MAX_FAILURE=$(policy_value pwdMaxFailure)
 check_policy_number pwdMaxFailure "${MAX_FAILURE}"
 # One failure short of the lock, the password still goes through, and
@@ -1527,63 +1511,12 @@ check_users 'users unlock' 'unlocked smoke01' '' unlock smoke01
 check 'users unlock' 127.0.0.1 smoke01 "${NEW_PASS2}" Accept 'AVPair = "shell:priv-lvl=15"'
 check_ssh 'users unlock' smoke01 "${NEW_PASS2}" 'koitohan admin' 'id -Gn' < /dev/null
 
-# The service accounts are never locked, or nobody could log in.
-# FreeRADIUS and nslcd keep their connections, so a login would not
-# show a lock. This looks at the entries. Their policy records no
-# failure, so the entries cannot show that the failures were counted at
-# all: smoke01, under the default policy, fails the same way first and
-# has to be locked. It is unlocked again here, or the checks of the
-# deletion below would pass on the lock alone.
-FREERADIUS_ACCOUNT=$(source .env && echo "${FREERADIUS_SERVICE_ACCOUNT_NAME}")
-OPENSSH_ACCOUNT=$(source .env && echo "${OPENSSH_SERVICE_ACCOUNT_NAME}")
-check_ldap 'no lock' 'service' 'never locked' '
-  fail() {
-    for TRY in $(seq '"${MAX_FAILURE:-0}"'); do
-      ldapwhoami -x -H ldapi:/// -D "${1}" -w wrong 2>&1 | grep -q "Invalid credentials" || echo "${1}: no failure"
-    done
-  }
-  locked() {
-    ldapsearch -Q -Y EXTERNAL -H ldapi:/// -LLL -b "${1}" -s base "(pwdAccountLockedTime=*)" dn
-  }
-  OK=1
-  CONTROL="uid=smoke01,ou=People,${SUFFIX}"
-  fail "${CONTROL}"
-  [ -n "$(locked "${CONTROL}")" ] || { echo "${CONTROL}: not locked"; OK=; }
-  printf "dn: %s\nchangetype: modify\ndelete: pwdAccountLockedTime\n" "${CONTROL}" \
-  | ldapmodify -Q -Y EXTERNAL -H ldapi:/// > /dev/null 2>&1
-  [ -z "$(locked "${CONTROL}")" ] || { echo "${CONTROL}: still locked"; OK=; }
-  for NAME in '"${FREERADIUS_ACCOUNT} ${OPENSSH_ACCOUNT}"'; do
-    DN="uid=${NAME},ou=ServiceAccounts,${SUFFIX}"
-    if ! ldapsearch -Q -Y EXTERNAL -H ldapi:/// -LLL -b "${DN}" -s base dn 2> /dev/null | grep -q "^dn:"; then
-      echo "${DN}: missing"
-      OK=
-      continue
-    fi
-    fail "${DN}"
-    [ -z "$(locked "${DN}")" ] || { echo "${DN}: locked"; OK=; }
-  done
-  [ -n "${OK}" ] && echo "never locked"'
-
 check_users 'users delete' 'deleted smoke01' '' delete smoke01
 check_ssh 'users delete' smoke01 "${NEW_PASS2}" denied 'id -Gn' < /dev/null
 check 'users delete' 127.0.0.1 smoke01 "${NEW_PASS2}" Reject '-'
 check_users 'users delete' 'no such user' '' delete smoke01
 check_users 'users add' 'uidNumber 10005' "${NEW_PASS}" add smoke02 readonly
 
-# The passwords of the service accounts. Each change recreates the
-# container, which then has to bind with the new password: the old one
-# is gone from the directory. The file of the running stack stays.
-check_service_password bogus 'usage:'
-OLD_FREERADIUS=$(< "${KOITOHAN_GENERATED_ROOT}/secrets/freeradius_service_account_password")
-check_service_password freeradius 'recreated freeradius'
-if ! wait_ready; then
-  echo 'FreeRADIUS did not become ready with the new password'
-  "${COMPOSE[@]}" logs --tail 30 freeradius
-  exit 1
-fi
-check 'service pass' 127.0.0.1 operator01 "${PASS_OPERATOR}" Accept 'AVPair = "shell:priv-lvl=7"'
-check_ldap 'service pass' 'old' 'Invalid credentials' \
-  "ldapwhoami -x -H ldapi:/// -D \"uid=${FREERADIUS_ACCOUNT},ou=ServiceAccounts,\${SUFFIX}\" -w '${OLD_FREERADIUS}'"
 # The way out of the openssh container, opened by a word at a time.
 recreate_egress ssh
 check_egress_tcp 22 reached
@@ -1603,23 +1536,39 @@ check_egress_icmp reached
 check_egress_tcp ${EGRESS_PORT} refused
 check_egress_forwarding 22 reached
 # Opened wide. The limit on the source of ssh that follows makes the
-# container again with OPENSSH_EGRESS of the test, then the change of
-# the password makes it once more, for the networks of the test. Keep
-# the three in this order.
+# container again with OPENSSH_EGRESS of the test, then it is made once
+# more, for the networks of the test. Keep the three in this order.
 recreate_egress any
 check_egress_tcp ${EGRESS_PORT} reached
 check_egress_icmp reached
 check_egress_forwarding ${EGRESS_PORT} reached
 check_egress_own
 check_ssh_other_network
-check_service_password openssh 'recreated openssh'
+"${COMPOSE[@]}" up -d --force-recreate openssh > /dev/null 2>&1
 # the new container has another address
 if ! wait_ssh_ready; then
-  echo 'the openssh container did not become ready with the new password'
+  echo 'the openssh container did not become ready for the networks of the test'
   "${COMPOSE[@]}" logs --tail 30 openssh
   exit 1
 fi
-check_ssh 'service pass' admin01 "${PASS_ADMIN}" 'koitohan admin' 'id -Gn' < /dev/null
+check_ssh 'networks' admin01 "${PASS_ADMIN}" 'koitohan admin' 'id -Gn' < /dev/null
+
+# FreeRADIUS and OpenSSH bind with their client certificates alone,
+# which OpenLDAP maps to DNs that have no entry. Every login so far went
+# through these binds, and this openldap has seen them all.
+for SERVICE in freeradius openssh; do
+  WHY=''
+  "${COMPOSE[@]}" logs openldap 2>&1 \
+    | grep -q -F "BIND dn=\"cn=${SERVICE},cn=koitohan\" mech=EXTERNAL" \
+    || WHY="expected a bind as cn=${SERVICE},cn=koitohan with EXTERNAL"
+  report 'service identity' "${SERVICE}" 'bound with the certificate' "${WHY}"
+done
+# no simple bind but those of the users and the administrators
+OUT=$("${COMPOSE[@]}" logs openldap 2>&1 | grep -F 'BIND dn=' | grep -F 'method=128' \
+      | grep -v -e 'ou=People,' -e 'dn="cn=admin,')
+WHY=''
+[[ -n "${OUT}" ]] && WHY='expected no other simple bind'
+report 'service identity' 'simple bind' 'users only' "${WHY}" "${OUT}"
 
 # The passwords of the administrators of OpenLDAP. The change recreates
 # openldap, and FreeRADIUS does not get over that, so nothing below
@@ -1641,9 +1590,9 @@ check_admin_bind 'admin pass' admin "${OLD_ADMIN}" 'Invalid credentials'
 check_admin_bind 'admin pass' config "${OLD_CONFIG}" 'Invalid credentials'
 
 WHY=''
-[[ -n "$(find secrets -newer "${ASKPASS}" 2> /dev/null)" ]] \
+[[ -n "$(find secrets CA -newer "${ASKPASS}" 2> /dev/null)" ]] \
   && WHY='expected the files of the running stack to stay'
-report 'service pass' 'secrets/' 'untouched' "${WHY}"
+report 'admin pass' 'secrets/ CA/' 'untouched' "${WHY}"
 
 # The minimum of TLS is written on every start as well. Lowered over
 # ldapi:/// here, it has to be back after the restart.
@@ -1654,6 +1603,12 @@ check_ldap 'tls minimum' 'config' 'modifying entry "cn=config"' \
 check_ldap 'hash scheme' 'config' 'modifying entry "olcDatabase={-1}frontend,cn=config"' \
   'ldapmodify -Q -Y EXTERNAL -H ldapi:///' \
   'dn: olcDatabase={-1}frontend,cn=config\nchangetype: modify\nreplace: olcPasswordHash\nolcPasswordHash: {SSHA}\n'
+# and for the identities of the services and the access control. With
+# these gone, FreeRADIUS and OpenSSH read nothing: the logins after the
+# restart below show that they are back.
+check_ldap 'service identity' 'config' 'modifying entry "olcDatabase={1}mdb,cn=config"' \
+  'ldapmodify -Q -Y EXTERNAL -H ldapi:///' \
+  'dn: cn=config\nchangetype: modify\ndelete: olcAuthzRegexp\n\ndn: olcDatabase={1}mdb,cn=config\nchangetype: modify\ndelete: olcAccess\nolcAccess: {2}\n'
 
 check_restart
 
@@ -1661,6 +1616,8 @@ check_ldap 'tls minimum' 'config' 'olcTLSProtocolMin: 3.4' \
   'ldapsearch -LLL -Q -Y EXTERNAL -H ldapi:/// -b cn=config -s base olcTLSProtocolMin'
 check_ldap 'hash scheme' 'config' 'olcPasswordHash: {ARGON2}' \
   "ldapsearch -LLL -Q -Y EXTERNAL -H ldapi:/// -b 'olcDatabase={-1}frontend,cn=config' -s base olcPasswordHash"
+check_ldap 'service identity' 'config' '"cn=openssh,cn=koitohan"' \
+  'ldapsearch -LLL -Q -Y EXTERNAL -H ldapi:/// -b cn=config -s base olcAuthzRegexp'
 
 # the image sets the passwords on every start, from the files it has now
 check_admin_bind 'ldap restart' admin "${NEW_ADMIN}" 'dn:cn=admin,dc='
@@ -1698,9 +1655,10 @@ check 'ldap down' 127.0.0.1 admin01 "${PASS_ADMIN}" Accept 'AVPair = "shell:priv
 # then openldap made again with empty volumes and the backup loaded into
 # it. The change has to be gone, and what was there at the backup has to
 # be back: the users, their passwords and roles, the next uidNumber, and
-# the files in configs/ with their owners. bin/backup.sh and
-# bin/restore_ldap.sh find the files of the test stack through
-# KOITOHAN_GENERATED_ROOT and the mounts of its containers.
+# the files in configs/ with their owners. bin/backup.sh finds the files
+# of the test stack through KOITOHAN_GENERATED_ROOT and the mounts of its
+# containers, and bin/restore_ldap.sh through COMPOSE_PROJECT_NAME and
+# COMPOSE_FILE.
 STACK=(env COMPOSE_PROJECT_NAME=koitohan-test COMPOSE_FILE=compose.yaml:tests/compose.test.yaml)
 BACKUP_DIR="${KOITOHAN_GENERATED_ROOT}/backup"
 BACKUP_HOST=${HOSTNAME%%.*}
@@ -1727,7 +1685,7 @@ check_found 'backup' 'mode' '600' "${OUT}"
 OUT=$(tar -t -z -f "${ARCHIVE}" 2>&1)
 WHY=''
 for MEMBER in .env freeradius/config/clients.conf \
-  secrets/{freeradius,openssh}_service_account_password secrets/ldap_{admin,config}_password \
+  secrets/ldap_{admin,config}_password \
   openssh/hostkeys/ssh_host_ed25519_key ldap/config.ldif ldap/data.ldif \
   tftp-configs.tar koitohan-backup.txt
 do
@@ -1740,8 +1698,8 @@ check_found 'backup' 'members' 'all members' "${OUT}"
 # the files of the test stack, not those of the running one
 OUT='other files'
 tar -x -O -z -f "${ARCHIVE}" freeradius/config/clients.conf | cmp -s - tests/clients.conf \
-  && tar -x -O -z -f "${ARCHIVE}" secrets/freeradius_service_account_password \
-     | cmp -s - "${KOITOHAN_GENERATED_ROOT}/secrets/freeradius_service_account_password" \
+  && tar -x -O -z -f "${ARCHIVE}" secrets/ldap_admin_password \
+     | cmp -s - "${KOITOHAN_GENERATED_ROOT}/secrets/ldap_admin_password" \
   && OUT='files of the stack'
 check_found 'backup' 'files' 'files of the stack' "${OUT}"
 
@@ -1757,8 +1715,6 @@ check_found 'restore' 'running' 'is not empty' "${OUT}"
 "${COMPOSE[@]}" rm -s -f -v openldap > /dev/null 2>&1
 OUT=$("${STACK[@]}" bin/restore_ldap.sh "${ARCHIVE}" 2>&1 < /dev/null)
 check_found 'restore' 'ldap' 'restored the directory' "${OUT}"
-grep -q '^warning:' <<< "${OUT}" || OUT='no warning'
-check_found 'restore' 'secrets' 'no warning' "${OUT}"
 
 # FreeRADIUS does not get over the change of openldap (README), so it is
 # made again as well

@@ -10,7 +10,6 @@
 | ------------------------------------- | ------------------------------------------------------------------------------------- |
 | `LDAP_DOMAIN`                         | ディレクトリのドメイン。`example.com` はサフィックス `dc=example,dc=com` になります。 |
 | `LDAP_ORGANISATION`                   | ディレクトリに保存する組織名。                                                        |
-| `FREERADIUS_SERVICE_ACCOUNT_NAME`     | FreeRADIUS がディレクトリの検索に使うアカウント。                                     |
 | `OPENLDAP_CONTAINER_NAME`             | OpenLDAP のコンテナ名。                                                               |
 | `OPENLDAP_ALLOWED_NETWORKS`           | Docker ホストの外で LDAPS を受け付ける送信元。`none` かアドレス。「[LDAPS の接続元](#ldaps-の接続元)」を参照。 |
 | `FREERADIUS_CONTAINER_NAME`           | FreeRADIUS のコンテナ名。                                                             |
@@ -23,7 +22,6 @@
 | `OPENSSH_SUBNET`                      | OpenSSH と OpenLDAP だけをつなぐ Docker ネットワークのサブネット(CIDR 表記)。         |
 | `OPENSSH_ALLOWED_NETWORKS`            | SSH の接続を受け付ける送信元のネットワーク。「[SSH の接続元](ssh.ja.md#ssh-の接続元)」を参照。 |
 | `OPENSSH_EGRESS`                      | OpenSSH のコンテナからユーザーが接続できる先。`none`、`any`、または `ssh` と `icmp`(空白で区切る)。「[コンテナから外への接続](ssh.ja.md#コンテナから外への接続)」を参照。 |
-| `OPENSSH_SERVICE_ACCOUNT_NAME`        | OpenSSH のコンテナがディレクトリの検索に使うアカウント。                              |
 | `NTP_CONTAINER_NAME`                  | NTP サーバー(chrony)のコンテナ名。書かなければ `chrony`。                             |
 | `PASSWDQC_MIN`                        | `passwd` が受け付けるパスワードの最小の長さ。「[パスワードの規則](ssh.ja.md#パスワードの規則)」を参照。 |
 | `PPOLICY_MIN_LENGTH`                  | OpenLDAP が受け付けるパスワードの最小の長さ。「[パスワードポリシー](#パスワードポリシー)」を参照。 |
@@ -221,7 +219,7 @@ OpenLDAP は、ハッシュ済みのパスワードの書き込みを受け付�
 - 失敗の回数は、ネットワーク機器へのログインと SSH のログインで共通に数えます。認証に成功すると 0 に戻ります。
 - ロックされているあいだは、正しいパスワードでも拒否されます。応答はパスワードを誤ったときと同じで、ロックされていることは相手に伝わりません。
 - ロックは時間が過ぎると解除されます。すぐに解除するには `bin/manage_users.sh unlock <ユーザー>` を使います。
-- FreeRADIUS と OpenSSH のサービスアカウントは、ロックの対象から外しています。
+- FreeRADIUS と OpenSSH は、パスワードではなく証明書で bind するので(「[FreeRADIUS と OpenSSH の身元](#freeradius-と-openssh-の身元)」)、ロックで止まることはありません。
 
 `PPOLICY_*` の値を変えたときは、LDIF を生成し直して、稼働中の OpenLDAP に適用します。ディレクトリのデータを消す必要はありません。
 
@@ -252,36 +250,20 @@ OpenLDAP のコンテナが作り直され、起動し直すまでのあいだ�
   docker compose exec -T openldap slapcat -n 1 -o ldif-wrap=no | awk '/^dn: /{dn=$0} /^userPassword:: e1NTSEF9/{print dn}'
   ```
 
-  サービスアカウント(`ou=ServiceAccounts`)も表示されますが、パスワードが長いランダムな値なので、そのままで構いません。`bin/change_service_account_password.sh` で変えると替わります。
 - 切り替えたあとのディレクトリは、以前のイメージでは起動しません(Argon2 のモジュールがないためです)。切り替えたあとに取ったバックアップも同じです。
 
-## サービスアカウントのパスワード
+## FreeRADIUS と OpenSSH の身元
 
-FreeRADIUS と OpenSSH のコンテナは、それぞれのサービスアカウントでディレクトリを検索します。そのパスワードは `make`(`make secrets`)が生成し、`secrets/` に置きます。
+FreeRADIUS と OpenSSH のコンテナは、クライアント証明書だけで OpenLDAP に bind します。アカウントもパスワードもありません。OpenLDAP は、証明書の subject を身元に対応づけ、その身元に、パスワードを除くディレクトリの読み取りを許します。
 
-| ファイル                                      | アカウント                         |
-| --------------------------------------------- | ---------------------------------- |
-| `secrets/freeradius_service_account_password` | `FREERADIUS_SERVICE_ACCOUNT_NAME`  |
-| `secrets/openssh_service_account_password`    | `OPENSSH_SERVICE_ACCOUNT_NAME`     |
+| 証明書                     | subject                                       | 身元                        |
+| -------------------------- | --------------------------------------------- | --------------------------- |
+| `CA/freeradius_client.crt` | `CN=freeradius, OU=<ホスト名>, O=koitohan`    | `cn=freeradius,cn=koitohan` |
+| `CA/openssh_client.crt`    | `CN=openssh, OU=<ホスト名>, O=koitohan`       | `cn=openssh,cn=koitohan`    |
 
-通常の運用で、このパスワードを入力することはありません。値を確かめるときは、ファイルを読んでください。ファイルの末尾に改行はありません。
-
-```sh
-cat secrets/freeradius_service_account_password; echo
-```
-
-すでにあるファイルは作り直されず、`make clean` でも消えません。ディレクトリが覚えているパスワードと食い違うと、すべてのユーザーの認証が止まるためです。
-
-パスワードを変えるときは、Docker ホストで `bin/change_service_account_password.sh` を使います。スタックが起動している状態で実行してください。
-
-```sh
-bin/change_service_account_password.sh freeradius
-bin/change_service_account_password.sh openssh
-```
-
-スクリプトは、新しいパスワードを生成してディレクトリに書き込み、`secrets/` のファイルを差し替え、LDIF と FreeRADIUS の LDAP 設定を生成し直して、そのコンテナを作り直します。OpenSSH のコンテナを作り直すと、ログイン中のセッションは切れます。
-
-途中で止まったときは、もう一度実行してください。いまのパスワードを必要としないので、`secrets/` のファイルとディレクトリが食い違ってしまったときも、同じコマンドで直せます。
+- 証明書は `make`(`make certs`)が作ります。`OU` は Docker ホストの短いホスト名です。OpenLDAP のログで、どのホストからの接続かを見分けるためだけのものです。
+- 対応づけとアクセス制御は、OpenLDAP のコンテナが起動するたびに書き直します。ディレクトリの側で変えても、次の起動で元に戻ります。
+- 証明書を1枚だけ無効にすることはできません。`CA/` の秘密鍵が漏れたときは、`make certs` ですべての証明書を作り直し、`make down && make up` を実行してください。
 
 ## OpenLDAP の管理者のパスワード
 

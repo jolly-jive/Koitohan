@@ -10,7 +10,6 @@
 | ------------------------------------- | ------------------------------------------------------------------------------ |
 | `LDAP_DOMAIN`                         | Domain of the directory. `example.com` becomes the suffix `dc=example,dc=com`. |
 | `LDAP_ORGANISATION`                   | Organization name stored in the directory.                                     |
-| `FREERADIUS_SERVICE_ACCOUNT_NAME`     | Account FreeRADIUS uses to search the directory.                               |
 | `OPENLDAP_CONTAINER_NAME`             | Container name of OpenLDAP.                                                    |
 | `OPENLDAP_ALLOWED_NETWORKS`           | Networks outside the Docker host that LDAPS is accepted from: `none`, or addresses. See [Sources of LDAPS](#sources-of-ldaps). |
 | `FREERADIUS_CONTAINER_NAME`           | Container name of FreeRADIUS.                                                  |
@@ -23,7 +22,6 @@
 | `OPENSSH_SUBNET`                      | Subnet of the Docker network that connects only OpenSSH and OpenLDAP, in CIDR notation. |
 | `OPENSSH_ALLOWED_NETWORKS`            | Networks that SSH connections are accepted from. See [Sources of SSH](ssh.md#sources-of-ssh). |
 | `OPENSSH_EGRESS`                      | Where the users can connect to from the OpenSSH container: `none`, `any`, or `ssh` and `icmp` separated by a space. See [Connections out of the container](ssh.md#connections-out-of-the-container). |
-| `OPENSSH_SERVICE_ACCOUNT_NAME`        | Account the OpenSSH container uses to search the directory.                    |
 | `NTP_CONTAINER_NAME`                  | Container name of chrony, the NTP server. `chrony` when not set.               |
 | `PASSWDQC_MIN`                        | Minimum lengths of the passwords `passwd` accepts. See [Password rules](ssh.md#password-rules). |
 | `PPOLICY_MIN_LENGTH`                  | Minimum length of the passwords OpenLDAP accepts. See [Password policy](#password-policy). |
@@ -221,7 +219,7 @@ A user who keeps failing to log in is locked for a while. With the values in `.e
 - Logins on the network devices and logins over SSH share one count of failures. A successful login sets it back to 0.
 - While a user is locked, the right password is rejected too. The reply is the same as for a wrong password, so it does not tell that the user is locked.
 - A lock ends by itself when its time is over. To lift it at once, use `bin/manage_users.sh unlock <user>`.
-- The service accounts of FreeRADIUS and OpenSSH are never locked.
+- FreeRADIUS and OpenSSH bind with their certificates, not with a password (see [Identities of FreeRADIUS and OpenSSH](#identities-of-freeradius-and-openssh)), so no lock stops them.
 
 After you change a `PPOLICY_*` value, generate the LDIF files again and apply the policy to the running OpenLDAP. The data in the directory stays.
 
@@ -252,36 +250,20 @@ The OpenLDAP container is recreated, and no login gets through until it is up ag
   docker compose exec -T openldap slapcat -n 1 -o ldif-wrap=no | awk '/^dn: /{dn=$0} /^userPassword:: e1NTSEF9/{print dn}'
   ```
 
-  The service accounts (`ou=ServiceAccounts`) are listed too. Their passwords are long random values, so they can stay. `bin/change_service_account_password.sh` replaces them.
 - After the switch, the directory does not start with an earlier image, which lacks the Argon2 module. The same goes for a backup that was taken after the switch.
 
-## Service account passwords
+## Identities of FreeRADIUS and OpenSSH
 
-The FreeRADIUS and OpenSSH containers search the directory with a service account each. `make` (`make secrets`) generates the passwords of these accounts and puts them in `secrets/`.
+FreeRADIUS and the OpenSSH container bind to OpenLDAP with their client certificates alone. There is no account and no password for them. OpenLDAP maps the subject of each certificate to an identity, which may read the directory except the passwords.
 
-| File                                          | Account                            |
-| --------------------------------------------- | ---------------------------------- |
-| `secrets/freeradius_service_account_password` | `FREERADIUS_SERVICE_ACCOUNT_NAME`  |
-| `secrets/openssh_service_account_password`    | `OPENSSH_SERVICE_ACCOUNT_NAME`     |
+| Certificate                | Subject                                       | Identity                    |
+| -------------------------- | --------------------------------------------- | --------------------------- |
+| `CA/freeradius_client.crt` | `CN=freeradius, OU=<host name>, O=koitohan`   | `cn=freeradius,cn=koitohan` |
+| `CA/openssh_client.crt`    | `CN=openssh, OU=<host name>, O=koitohan`      | `cn=openssh,cn=koitohan`    |
 
-Nobody types these passwords in normal operation. To see one, read the file. It has no newline at the end.
-
-```sh
-cat secrets/freeradius_service_account_password; echo
-```
-
-A file that already exists is kept, and `make clean` keeps it too. If it differed from the password the directory knows, the logins of every user would stop.
-
-To change a password, use `bin/change_service_account_password.sh` on the Docker host. Run it while the stack is up.
-
-```sh
-bin/change_service_account_password.sh freeradius
-bin/change_service_account_password.sh openssh
-```
-
-The script generates a new password, writes it to the directory, replaces the file in `secrets/`, generates the LDIFs and the LDAP configuration of FreeRADIUS again, and recreates the container. Recreating the OpenSSH container cuts the sessions of the users who are logged in.
-
-If the script stops halfway, run it again. It does not need the current password, so the same command also repairs a file in `secrets/` that no longer matches the directory.
+- `make` (`make certs`) makes the certificates. `OU` is the short host name of the Docker host. It only tells in the logs of OpenLDAP which host a connection comes from.
+- The OpenLDAP container writes the mapping and the access control again on every start. A change made in the directory goes back on the next start.
+- A certificate cannot be revoked alone. If a private key in `CA/` leaks, make all the certificates again with `make certs`, then run `make down && make up`.
 
 ## OpenLDAP administrator passwords
 

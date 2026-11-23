@@ -268,12 +268,20 @@ olcModuleLoad: argon2
 EOF
 fi
 
-# The passwords of the administrators, the log level, the minimum of TLS
-# and the scheme of the password hashes are written on every start. The
-# files and the environment are where they are kept, and a change made
+# The passwords of the administrators, the log level, the minimum of TLS,
+# the scheme of the password hashes, the identities of the services and
+# the access control are written on every start. The files, the
+# environment and this script are where they are kept, and a change made
 # over ldapi:/// does not outlive a start. The scheme is for the
 # passwords that are set from now on: a hash that is there stays as it
 # is, and still verifies, until its password is changed.
+#
+# FreeRADIUS and OpenSSH bind with their client certificates alone (SASL
+# EXTERNAL). The subject is mapped to a DN with no entry, which the
+# access control lets read everything but the passwords. OU names the
+# host, and is not looked at: a certificate from the CA of the other host
+# of a pair maps to the same DN. Any other subject binds as itself, and
+# reads nothing.
 slapmodify -n 0 -F "${CONF_DIR}" <<EOF
 dn: cn=config
 changetype: modify
@@ -282,6 +290,10 @@ olcLogLevel: ${LDAP_LOG_LEVEL:-stats}
 -
 replace: olcTLSProtocolMin
 olcTLSProtocolMin: 3.4
+-
+replace: olcAuthzRegexp
+olcAuthzRegexp: {0}"^cn=freeradius,ou=[^,]+,o=koitohan\$" "cn=freeradius,cn=koitohan"
+olcAuthzRegexp: {1}"^cn=openssh,ou=[^,]+,o=koitohan\$" "cn=openssh,cn=koitohan"
 
 dn: olcDatabase={-1}frontend,cn=config
 changetype: modify
@@ -297,6 +309,11 @@ dn: olcDatabase={1}mdb,cn=config
 changetype: modify
 replace: olcRootPW
 olcRootPW: $(slappasswd -T "${SECRETS_DIR}/ldap_admin_password")
+-
+replace: olcAccess
+olcAccess: {0}to * by dn.exact=gidNumber=0+uidNumber=0,cn=peercred,cn=external,cn=auth manage by * break
+olcAccess: {1}to attrs=userPassword,shadowLastChange by self write by dn="cn=admin,${LDAP_SUFFIX}" write by anonymous auth by * none
+olcAccess: {2}to * by self read by dn="cn=admin,${LDAP_SUFFIX}" write by dn.exact="cn=freeradius,cn=koitohan" read by dn.exact="cn=openssh,cn=koitohan" read by * none
 EOF
 
 # slapmodify writes as root, so hand the files back to slapd

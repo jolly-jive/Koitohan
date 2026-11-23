@@ -26,21 +26,12 @@ $(CERT_STAMP): $(ENV_FILE) scripts/create_certs.sh
 	cd CA && ../scripts/create_certs.sh
 	touch $(CERT_STAMP)
 
-### passwords of the service accounts
-SECRETS := \
-	secrets/freeradius_service_account_password \
-	secrets/openssh_service_account_password
-
 ### passwords of the administrators of OpenLDAP
-LDAP_ADMIN_SECRETS := \
+SECRETS := \
 	secrets/ldap_admin_password \
 	secrets/ldap_config_password
 
-secrets: $(SECRETS) $(LDAP_ADMIN_SECRETS)
-
-# made once and kept, clean included: the directory knows no other
-secrets/%_service_account_password:
-	./scripts/generate_service_account_password.sh $*
+secrets: $(SECRETS)
 
 # made once and kept, clean included: the containers that run hold these
 secrets/ldap_%_password:
@@ -50,13 +41,11 @@ secrets/ldap_%_password:
 LDAP_BASE_LDIFS := \
 	openldap/ldif/100-People.ldif \
 	openldap/ldif/200-Roles.ldif \
-	openldap/ldif/300-ServiceAccounts.ldif \
-	openldap/ldif/400-PPolicy.ldif \
-	openldap/ldif/900-ACL.ldif
+	openldap/ldif/400-PPolicy.ldif
 
 ldap_dir: $(LDAP_BASE_LDIFS)
 
-$(LDAP_BASE_LDIFS) &: $(ENV_FILE) $(SECRETS) scripts/generate_ldap_base.sh
+$(LDAP_BASE_LDIFS) &: $(ENV_FILE) scripts/generate_ldap_base.sh
 	./scripts/generate_ldap_base.sh
 
 ### FreeRADIUS config
@@ -65,7 +54,7 @@ FREERADIUS_CLIENTS := freeradius/config/clients.conf
 
 freeradius_conf: $(FREERADIUS_LDAP) $(FREERADIUS_CLIENTS)
 
-$(FREERADIUS_LDAP): $(ENV_FILE) secrets/freeradius_service_account_password scripts/generate_freeradius_ldap.sh
+$(FREERADIUS_LDAP): $(ENV_FILE) scripts/generate_freeradius_ldap.sh
 	./scripts/generate_freeradius_ldap.sh
 
 $(FREERADIUS_CLIENTS):

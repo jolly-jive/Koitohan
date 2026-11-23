@@ -107,8 +107,8 @@ function running() {
 }
 
 ### openldap
-# The way of nslcd and koitohan-update-users: LDAPS, the client
-# certificate and the service account of openssh.
+# The way of nslcd and koitohan-update-users: LDAPS, and a SASL EXTERNAL
+# bind with the client certificate of openssh.
 if ! running openldap; then
   skip 'openldap: not running, not checked'
 elif ! running openssh; then
@@ -119,10 +119,8 @@ elif OUT=$(in_container openssh sh -c '
     LDAPTLS_CACERT=/etc/koitohan/certs/ca.crt \
     LDAPTLS_CERT=/etc/koitohan/certs/client.crt \
     LDAPTLS_KEY=/etc/koitohan/certs/client.key \
-    ldapsearch -x -LLL -o nettimeout=10 \
+    ldapsearch -Q -Y EXTERNAL -LLL -o nettimeout=10 \
       -H "${LDAP_URI}" \
-      -D "uid=${SERVICE_ACCOUNT_NAME},ou=ServiceAccounts,${LDAP_SUFFIX}" \
-      -y /run/koitohan/bindpw \
       -b "${LDAP_SUFFIX}" -s base dn' < /dev/null 2>&1) && [[ "${OUT}" == dn:* ]]; then
   ok 'openldap: openssh binds over LDAPS and reads the suffix'
 else

@@ -17,12 +17,7 @@
 # and reaches the anonymous volumes of the test stack as well. If a run
 # stops halfway, what it loaded is deleted, and it can be run again.
 #
-# The passwords of the service accounts in the directory are the ones
-# in the archive. If secrets/ has others, this warns: FreeRADIUS or
-# OpenSSH will not bind until they agree.
-#
-# COMPOSE_PROJECT_NAME and COMPOSE_FILE select another stack, and
-# KOITOHAN_GENERATED_ROOT the generated files of that stack, as
+# COMPOSE_PROJECT_NAME and COMPOSE_FILE select another stack, as
 # tests/smoke.sh does.
 
 set -u
@@ -40,9 +35,6 @@ function die() {
 [[ $# -eq 1 ]] || { echo "usage: ${0##*/} ARCHIVE" >&2; exit 2; }
 ARCHIVE=$(realpath -e -- "${1}" 2> /dev/null) || die "${1}: no such file"
 
-KOITOHAN_GENERATED_ROOT=$(cd "${KOITOHAN_GENERATED_ROOT:-${ROOT_DIR}}" && pwd) \
-  || die 'KOITOHAN_GENERATED_ROOT: no such directory'
-
 cd "${ROOT_DIR}"
 
 function domain2dn() {
@@ -59,7 +51,7 @@ umask 077
 WORK=$(mktemp -d) || die 'could not make a temporary directory'
 trap 'rm -rf "${WORK}"' EXIT
 
-tar -x -z -f "${ARCHIVE}" -C "${WORK}" ldap/config.ldif ldap/data.ldif secrets 2> /dev/null \
+tar -x -z -f "${ARCHIVE}" -C "${WORK}" ldap/config.ldif ldap/data.ldif 2> /dev/null \
   || die "${ARCHIVE}: not a backup of bin/backup.sh"
 
 # The suffix comes from LDAP_DOMAIN, in the config of FreeRADIUS and of
@@ -105,11 +97,4 @@ in_openldap "touch '${SEEDED}' && chown -R ldap:ldap '${CONF_DIR}' '${DATA_DIR}'
   || undo 'could not mark the directory as seeded'
 
 echo "restored the directory of ${ARCHIVE}"
-
-for SERVICE in freeradius openssh; do
-  FILE="secrets/${SERVICE}_service_account_password"
-  if ! cmp -s "${WORK}/${FILE}" "${KOITOHAN_GENERATED_ROOT}/${FILE}"; then
-    echo "warning: ${KOITOHAN_GENERATED_ROOT}/${FILE} is not the one in the backup. Take it from the backup, or run bin/change_service_account_password.sh ${SERVICE} after 'make up'." >&2
-  fi
-done
 exit 0

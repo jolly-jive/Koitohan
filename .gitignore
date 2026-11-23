@@ -2,6 +2,7 @@
 
 /CA/*
 
+# made by earlier versions of scripts/create_certs.sh
 /scripts/openssl.conf
 
 /freeradius/log/*
