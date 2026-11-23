@@ -25,8 +25,6 @@ services:
       # loaded once, when the directory is empty
       - ./openldap/ldif:/etc/koitohan/ldif:ro
       # set again on every start
-      - ./secrets/ldap_admin_password:/etc/koitohan/secrets/ldap_admin_password:ro
-      - ./secrets/ldap_config_password:/etc/koitohan/secrets/ldap_config_password:ro
     tmpfs:
       - /run:mode=755,size=1m
       # the socket of ldapi:///

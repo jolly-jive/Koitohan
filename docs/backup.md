@@ -2,7 +2,7 @@
 
 [日本語](backup.ja.md)
 
-`bin/backup.sh` puts what Koitohan cannot make again into one archive: the settings, the passwords and keys, the directory of OpenLDAP, and the configurations the devices have uploaded. With the archive and the repository, you can rebuild Koitohan on a new host, for example after the storage of the Raspberry Pi has failed.
+`bin/backup.sh` puts what Koitohan cannot make again into one archive: the settings, the keys, the directory of OpenLDAP, and the configurations the devices have uploaded. With the archive and the repository, you can rebuild Koitohan on a new host, for example after the storage of the Raspberry Pi has failed.
 
 ## What a backup holds
 
@@ -10,7 +10,6 @@
 | -------------------------------------------------- | -------------------------------------------------------------- |
 | `.env`                                             | The settings                                                   |
 | `freeradius/config/clients.conf`                   | The RADIUS clients and their shared secrets                    |
-| `secrets/`                                         | The passwords of the OpenLDAP administrators                   |
 | `openssh/hostkeys/`                                | The host keys of the OpenSSH container                         |
 | `ldap/config.ldif`, `ldap/data.ldif`               | The configuration and the contents of the directory (users, roles, passwords, locks) |
 | `tftp-configs.tar`                                 | The files in `tftpd-hpa/tftpboot/configs/`, with their owners and modes |
@@ -41,7 +40,7 @@ bin/backup.sh -k 14 /var/backups/koitohan
 
 ### Keep the archive safe
 
-The archive is not encrypted. It holds the shared secrets of the devices, the passwords of the OpenLDAP administrators, the host keys and the password hashes of the users, all as they are. Anyone who has it can pose as Koitohan to the devices and to the users.
+The archive is not encrypted. It holds the shared secrets of the devices, the host keys and the password hashes of the users, all as they are. Anyone who has it can pose as Koitohan to the devices and to the users.
 
 - Keep it where only the Koitohan administrators can read it. Keep the mode 0600 when you copy it.
 - Copy it over an encrypted channel, such as `scp` or `rsync` over SSH.
@@ -81,10 +80,10 @@ Run these in the directory of the repository, as the user who will run the stack
    git checkout <commit>
    ```
 
-2. Take the settings, the passwords and the host keys out of the archive, then run `make`. `make` keeps the passwords and the host keys it finds, and makes new certificates.
+2. Take the settings and the host keys out of the archive, then run `make`. `make` keeps the host keys it finds, and makes new certificates.
 
    ```sh
-   tar -x -z -f <archive> .env freeradius/config/clients.conf secrets openssh/hostkeys
+   tar -x -z -f <archive> .env freeradius/config/clients.conf openssh/hostkeys
    make
    ```
 
@@ -124,7 +123,7 @@ make up
 
 `bin/restore_ldap.sh` refuses to run while `openldap/data/` or `openldap/config/` has anything in it.
 
-The passwords of the OpenLDAP administrators need nothing: OpenLDAP sets the ones in `secrets/` on every start. Nor do the certificates: FreeRADIUS and OpenSSH bind with the ones that `make` made, whatever the backup.
+The certificates need nothing: FreeRADIUS and OpenSSH bind with the ones that `make` made, whatever the backup. An archive of an earlier version holds `secrets/` as well, which is no longer used: do not take it out.
 
 ## Restoring `configs/` only
 

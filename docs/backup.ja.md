@@ -2,7 +2,7 @@
 
 [English](backup.md)
 
-`bin/backup.sh` は、Koitohan が作り直せないもの(設定、パスワードと鍵、OpenLDAP のディレクトリ、機器がアップロードしたコンフィグ)を、1つのアーカイブにまとめます。アーカイブとリポジトリがあれば、たとえば Raspberry Pi のストレージが壊れたときに、新しいホストで Koitohan を組み直せます。
+`bin/backup.sh` は、Koitohan が作り直せないもの(設定、鍵、OpenLDAP のディレクトリ、機器がアップロードしたコンフィグ)を、1つのアーカイブにまとめます。アーカイブとリポジトリがあれば、たとえば Raspberry Pi のストレージが壊れたときに、新しいホストで Koitohan を組み直せます。
 
 ## バックアップに入るもの
 
@@ -10,7 +10,6 @@
 | -------------------------------------- | ------------------------------------------------------------ |
 | `.env`                                 | 設定                                                         |
 | `freeradius/config/clients.conf`       | RADIUS のクライアントと共有シークレット                      |
-| `secrets/`                             | OpenLDAP の管理者のパスワード                                |
 | `openssh/hostkeys/`                    | OpenSSH のコンテナのホスト鍵                                 |
 | `ldap/config.ldif`、`ldap/data.ldif`   | ディレクトリの設定と中身(ユーザー、ロール、パスワード、ロック) |
 | `tftp-configs.tar`                     | `tftpd-hpa/tftpboot/configs/` のファイル(所有者とパーミッションを含む) |
@@ -41,7 +40,7 @@ bin/backup.sh -k 14 /var/backups/koitohan
 
 ### アーカイブの扱い
 
-アーカイブは暗号化していません。機器の共有シークレット、OpenLDAP の管理者のパスワード、ホスト鍵、ユーザーのパスワードのハッシュが、そのまま入っています。手に入れた人は、機器やユーザーに対して Koitohan になりすませます。
+アーカイブは暗号化していません。機器の共有シークレット、ホスト鍵、ユーザーのパスワードのハッシュが、そのまま入っています。手に入れた人は、機器やユーザーに対して Koitohan になりすませます。
 
 - こいとはん管理者だけが読める場所に置いてください。コピーするときも、パーミッション 0600 を保ってください。
 - 暗号化された経路でコピーしてください(SSH を通した `scp` や `rsync` など)。
@@ -81,10 +80,10 @@ sudo install -d -m 700 -o "$USER" -g "$USER" /var/backups/koitohan
    git checkout <コミット>
    ```
 
-2. アーカイブから設定、パスワード、ホスト鍵を取り出し、`make` を実行します。`make` は、すでにあるパスワードとホスト鍵をそのまま使い、証明書は新しく作ります。
+2. アーカイブから設定とホスト鍵を取り出し、`make` を実行します。`make` は、すでにあるホスト鍵をそのまま使い、証明書は新しく作ります。
 
    ```sh
-   tar -x -z -f <アーカイブ> .env freeradius/config/clients.conf secrets openssh/hostkeys
+   tar -x -z -f <アーカイブ> .env freeradius/config/clients.conf openssh/hostkeys
    make
    ```
 
@@ -124,7 +123,7 @@ make up
 
 `openldap/data/` か `openldap/config/` に何かが残っていると、`bin/restore_ldap.sh` は実行を断ります。
 
-OpenLDAP の管理者のパスワードは何もしなくて構いません。OpenLDAP は起動のたびに `secrets/` のパスワードを設定します。証明書も同じです。FreeRADIUS と OpenSSH は、バックアップにかかわらず、`make` が作った証明書で bind します。
+証明書は何もしなくて構いません。FreeRADIUS と OpenSSH は、バックアップにかかわらず、`make` が作った証明書で bind します。以前の版のアーカイブには `secrets/` も入っていますが、もう使わないので、取り出さないでください。
 
 ## `configs/` だけを復元する
 

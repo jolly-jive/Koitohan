@@ -1,7 +1,6 @@
 # Overrides compose.yaml for the smoke test (see tests/smoke.sh).
 # The test stack runs as a separate project next to the real one. It
-# publishes no ports and keeps no data. The certificates, and the files
-# that carry the passwords of the administrators of OpenLDAP, come from
+# publishes no ports and keeps no data. The certificates come from
 # tests/generated, which the test makes for itself.
 
 services:
@@ -16,8 +15,6 @@ services:
       - ./tests/generated/CA/openldap_server.crt:/etc/koitohan/certs/ldap.crt:ro
       - ./tests/generated/CA/openldap_server.key:/etc/koitohan/certs/ldap.key:ro
       - ./tests/generated/openldap/ldif:/etc/koitohan/ldif:ro
-      - ./tests/generated/secrets/ldap_admin_password:/etc/koitohan/secrets/ldap_admin_password:ro
-      - ./tests/generated/secrets/ldap_config_password:/etc/koitohan/secrets/ldap_config_password:ro
     networks:
       default:
         aliases:

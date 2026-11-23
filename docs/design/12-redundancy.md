@@ -77,7 +77,7 @@ LDAP ディレクトリへの書き込みは、どちらの台でも起きる。
 **複製するもの**
 
 - 複製するのは、データのデータベース（`{1}mdb`）だけとする。
-- `cn=config` は台ごとに持つ。`olcServerID` と TLS の設定は台ごとに違い、起動スクリプトが起動のたびに書く（管理者のパスワードも台ごとだったが、廃止する。4.11 節）。複製すると、互いに書き戻し合う。
+- `cn=config` は台ごとに持つ。`olcServerID` と TLS の設定は台ごとに違い、起動スクリプトが起動のたびに書く（管理者のパスワードも台ごとだったが、廃止した。4.11 節）。複製すると、互いに書き戻し合う。
 - `memberOf` は複製しない（`olcSyncrepl` の `exattrs=memberOf`）。各台の memberof オーバーレイが、ロールのグループから自分で作る。memberof の説明書（`slapo-memberof`）の指示による。複製すると、ロールの変更と認証の失敗が重なったときに、`memberOf` が食い違った（上の表）。
 - 複製で届くエントリの順序は決まっておらず、ユーザより先にロールのグループが届くことがある。memberof の `olcMemberOfAddCheck` を有効にして、ユーザのエントリが足されたときに、すでにあるグループから `memberOf` を付けさせる。有効にしないと、空の2台目で、既存のユーザに `memberOf` が付かなかった。
 - `olcMemberOfAddCheck` は、memberof 自身の参照の整合（`olcMemberOfRefInt`。いまは有効）と併用できない（Ondřej Kuzník、openldap-technical、2024-08-08）。`olcMemberOfRefInt` は無効にする。ユーザを消したときにロールのグループから外すのは、refint オーバーレイ（`uniqueMember` と `memberOf` を見ている）が受け持つ。試作で、消したユーザは両方の台でグループから外れた。ロールのグループの削除と名前の変更は試していない（Koitohan はしない）。

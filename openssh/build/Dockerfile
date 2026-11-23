@@ -42,12 +42,12 @@ COPY update-users.sh /usr/local/sbin/koitohan-update-users
 
 # The root filesystem is read-only. The files written at the start go in
 # /run (tmpfs), and symbolic links in /etc point at them.
-# /etc/koitohan is where the certificates, the host keys and the password
-# to bind with are mounted. Only root can enter it.
+# /etc/koitohan is where the certificates and the host keys are mounted.
+# Only root can enter it.
 # The two under /tftpboot have the owner and the permissions that their
 # sources (tftpd-hpa/tftpboot/) are asked to have.
 RUN mkdir -m 700 /etc/koitohan \
- && mkdir /etc/koitohan/certs /etc/koitohan/hostkeys /etc/koitohan/secrets \
+ && mkdir /etc/koitohan/certs /etc/koitohan/hostkeys \
  && mkdir -p /logs/Hosts /tftpboot/configs /tftpboot/firmware \
  && chown 1000:10001 /tftpboot/configs /tftpboot/firmware \
  && chmod 2770 /tftpboot/configs /tftpboot/firmware \
