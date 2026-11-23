@@ -32,7 +32,7 @@ memberOf: cn=admin,ou=Roles,dc=example,dc=com
 
 ### 4.2 サービスの身元
 
-FreeRADIUS と利用者作業用コンテナ（7 節）は、クライアント証明書（4.5 節）だけで OpenLDAP に bind する（SASL EXTERNAL。2026-11-22 に決定。実装はまだで、それまではパスワードのサービスアカウントのまま動く）。サービスアカウントのエントリとパスワードは置かない。
+FreeRADIUS と利用者作業用コンテナ（7 節）は、クライアント証明書（4.5 節）だけで OpenLDAP に bind する（SASL EXTERNAL。2026-11-22 に決定し、実装済み）。サービスアカウントのエントリとパスワードは置かない。
 
 以前は、`ou=ServiceAccounts` にパスワードのアカウント（`uid=radius`、`uid=openssh`）を置き、クライアント証明書で TLS を通したうえで、パスワードで simple bind していた。次の理由で改めた。
 
@@ -52,7 +52,7 @@ OpenLDAP は、クライアント証明書の subject を、決まった DN に�
 | 利用者作業用コンテナ | `CN=openssh,OU=<台>,O=koitohan`      | `cn=openssh,cn=koitohan`    |
 
 - DN のエントリは置かない。パスワードもない。アクセス制御（4.3 節）に、この DN を書く。
-- `OU` は、対応づけでは見ない。どの台の CA が発行した証明書も、同じ DN になる。`OU` は、どの台からの接続かを、ログで見分けるためのものである。値を何から決めるかは、実装のときに決める。
+- `OU` は、対応づけでは見ない。どの台の CA が発行した証明書も、同じ DN になる。`OU` は、どの台からの接続かを、ログで見分けるためのものである。値は、証明書を作るときの Docker ホストの短いホスト名（`hostname -s`）にする。`.env` に変数を足さずに、台ごとに違う値になる。
 - subject は、以前の形（`DC=<コンテナ名>,<サフィックス>`）から、冗長構成の複製用の証明書（12.1 節）と同じ形に改める。
 - 発行した CA は見ない。OpenLDAP が信頼する CA（自分の台の CA。冗長構成では相手の台の CA も）が発行した証明書なら、subject だけで決まる。決まった形でない subject の証明書でも bind はできるが、subject そのものが身元になり、アクセス制御に書いていないので何も読めない。
 - 対応づけとアクセス制御は、起動スクリプトが起動のたびに書く（TLS の下限と同じ。4.5 節）。`ldapi:///` から書き換えても、次の起動で戻る。
@@ -270,12 +270,12 @@ passwdqc は Alpine のパッケージとしては入手できないので、利
 
 ### 4.10 サービスアカウントのパスワード
 
-廃止する（2026-11-22 に決定。実装はまだ）。サービスは証明書だけで bind し（4.2 節）、パスワードを持たない。
+廃止した（2026-11-22 に決定し、実装済み）。サービスは証明書だけで bind し（4.2 節）、パスワードを持たない。
 
-以前は、サービスアカウント（`uid=radius`、`uid=openssh`）のパスワードを、構築時にスクリプトが 48 桁の 16 進数で生成し、`secrets/` に置いていた（`make secrets`）。値は、初期投入の LDIF（ハッシュ）、FreeRADIUS の LDAP モジュール設定、利用者作業用コンテナ（ファイル単体のマウント）に渡し、稼働中の変更は `bin/change_service_account_password.sh` で行っていた。これらは、サービスアカウントとともに外す。
+以前は、サービスアカウント（`uid=radius`、`uid=openssh`）のパスワードを、構築時にスクリプトが 48 桁の 16 進数で生成し、`secrets/` に置いていた（`make secrets`）。値は、初期投入の LDIF（ハッシュ）、FreeRADIUS の LDAP モジュール設定、利用者作業用コンテナ（ファイル単体のマウント）に渡し、稼働中の変更は `bin/change_service_account_password.sh` で行っていた。これらは、サービスアカウントとともに外した。
 
-- 外すもの: `secrets/` の2つのファイル、生成のスクリプト（`scripts/generate_service_account_password.sh`）、変更のスクリプト、`.env` のアカウント名（`FREERADIUS_SERVICE_ACCOUNT_NAME`、`OPENSSH_SERVICE_ACCOUNT_NAME`）、初期投入の `300-ServiceAccounts`、利用者作業用コンテナへのファイルのマウント。
-- FreeRADIUS の LDAP モジュール設定は、パスワードを含まなくなるが、サフィックスを `.env` から決めるので、引き続き生成する。
+- 外したもの: `secrets/` の2つのファイル、生成のスクリプト（`scripts/generate_service_account_password.sh`）、変更のスクリプト、`.env` のアカウント名（`FREERADIUS_SERVICE_ACCOUNT_NAME`、`OPENSSH_SERVICE_ACCOUNT_NAME`）、初期投入の `300-ServiceAccounts` と `900-ACL`（前の版が生成したファイルは、生成のスクリプトが消す）、利用者作業用コンテナへのファイルのマウント。
+- FreeRADIUS の LDAP モジュール設定は、パスワードを含まなくなったが、サフィックスを `.env` から決めるので、引き続き生成する。
 - 稼働中の環境に残る古いエントリ（`ou=ServiceAccounts` とその下、ポリシーの `cn=serviceaccounts`）は、パスワードで bind できるまま残るので、消す。起動スクリプトは消さない。いまの実環境の利用者は少ないので、消すコマンドをリリースノートに書くだけにする（ユーザの判断）。
 
 ### 4.11 OpenLDAP の管理者のパスワード

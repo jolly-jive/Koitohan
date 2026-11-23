@@ -30,7 +30,7 @@ if [[ -e "${OUT_FILE}" ]]; then
   exit 1
 fi
 
-# letters and digits only, like the passwords of the service accounts
+# letters and digits only: the value goes into files and commands as it is
 PASSWORD=$(openssl rand -hex 24)
 if [[ ${#PASSWORD} -ne 48 ]]; then
   echo 'could not make a password' >&2

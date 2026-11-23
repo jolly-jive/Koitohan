@@ -136,24 +136,15 @@ install -d -m 700 -o nslcd -g nslcd "${NSLCD_CERT_DIR}"
 install -m 400 -o nslcd -g nslcd \
   "${CERT_DIR}/ca.crt" "${CERT_DIR}/client.crt" "${CERT_DIR}/client.key" "${NSLCD_CERT_DIR}/"
 
-# The password to bind with comes in a file, not in the environment, so
-# that docker inspect does not show it. The -y of ldapsearch takes a newline
-# as part of the password, so none is written.
-SERVICE_ACCOUNT_PASSWORD=$(cat /etc/koitohan/secrets/bindpw)
-if [ -z "${SERVICE_ACCOUNT_PASSWORD}" ]; then
-  echo 'the password of the service account is empty' >&2
-  exit 1
-fi
-(umask 077; printf '%s' "${SERVICE_ACCOUNT_PASSWORD}" > "${RUN_DIR}/bindpw")
-
 (umask 077; cat <<EOF > "${RUN_DIR}/nslcd.conf")
 uid nslcd
 gid nslcd
 
 uri ${LDAP_URI}
 base ou=People,${LDAP_SUFFIX}
-binddn uid=${SERVICE_ACCOUNT_NAME},ou=ServiceAccounts,${LDAP_SUFFIX}
-bindpw ${SERVICE_ACCOUNT_PASSWORD}
+# binds with the client certificate below, which OpenLDAP maps to the
+# identity of this container: no password
+sasl_mech EXTERNAL
 
 tls_reqcert demand
 tls_cacertfile ${NSLCD_CERT_DIR}/ca.crt

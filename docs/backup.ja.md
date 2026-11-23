@@ -10,7 +10,7 @@
 | -------------------------------------- | ------------------------------------------------------------ |
 | `.env`                                 | 設定                                                         |
 | `freeradius/config/clients.conf`       | RADIUS のクライアントと共有シークレット                      |
-| `secrets/`                             | サービスアカウントと OpenLDAP の管理者のパスワード           |
+| `secrets/`                             | OpenLDAP の管理者のパスワード                                |
 | `openssh/hostkeys/`                    | OpenSSH のコンテナのホスト鍵                                 |
 | `ldap/config.ldif`、`ldap/data.ldif`   | ディレクトリの設定と中身(ユーザー、ロール、パスワード、ロック) |
 | `tftp-configs.tar`                     | `tftpd-hpa/tftpboot/configs/` のファイル(所有者とパーミッションを含む) |
@@ -22,8 +22,6 @@
 - **`tftpd-hpa/tftpboot/firmware/`**。ファームウェアはベンダーから取り直せます。
 - **`make` が作り直すもの**: `CA/` の証明書、LDIF、FreeRADIUS の LDAP 設定、syslog-ng の機器のネットワーク、logrotate の設定。証明書はスタックのコンテナ間でしか使わないので、CA が新しくなっても外には影響しません。
 - **Docker ホストでの `sudo` の作業**(`configs/` のイメージファイルや `/etc/fstab` など)。新しいホストでやり直します。
-
-ディレクトリと `secrets/` は、同じバックアップのものを使ってください。ディレクトリはサービスアカウントのパスワードを覚えていて、FreeRADIUS と OpenSSH は `secrets/` のパスワードで bind します。
 
 ## バックアップを取る
 
@@ -43,7 +41,7 @@ bin/backup.sh -k 14 /var/backups/koitohan
 
 ### アーカイブの扱い
 
-アーカイブは暗号化していません。機器の共有シークレット、サービスアカウントと OpenLDAP の管理者のパスワード、ホスト鍵、ユーザーのパスワードのハッシュが、そのまま入っています。手に入れた人は、機器やユーザーに対して Koitohan になりすませます。
+アーカイブは暗号化していません。機器の共有シークレット、OpenLDAP の管理者のパスワード、ホスト鍵、ユーザーのパスワードのハッシュが、そのまま入っています。手に入れた人は、機器やユーザーに対して Koitohan になりすませます。
 
 - こいとはん管理者だけが読める場所に置いてください。コピーするときも、パーミッション 0600 を保ってください。
 - 暗号化された経路でコピーしてください(SSH を通した `scp` や `rsync` など)。
@@ -126,13 +124,7 @@ make up
 
 `openldap/data/` か `openldap/config/` に何かが残っていると、`bin/restore_ldap.sh` は実行を断ります。
 
-バックアップのあとでサービスアカウントのパスワードを変えていた場合、`bin/restore_ldap.sh` は、`secrets/` がバックアップと食い違っていると警告します。このままでは FreeRADIUS か OpenSSH が bind できません。`make up` のあと、警告に出たアカウントのパスワードを変えてください。
-
-```sh
-bin/change_service_account_password.sh freeradius
-```
-
-OpenLDAP の管理者のパスワードは何もしなくて構いません。OpenLDAP は起動のたびに `secrets/` のパスワードを設定します。
+OpenLDAP の管理者のパスワードは何もしなくて構いません。OpenLDAP は起動のたびに `secrets/` のパスワードを設定します。証明書も同じです。FreeRADIUS と OpenSSH は、バックアップにかかわらず、`make` が作った証明書で bind します。
 
 ## `configs/` だけを復元する
 

@@ -28,15 +28,14 @@ umask 022
 WORK_DIR=$(mktemp -d "${RUN_DIR}/update-users.XXXXXX")
 trap 'rm -rf "${WORK_DIR}"' EXIT
 
-# a password in the arguments would show in ps to the users logged in
+# binds with the client certificate, which OpenLDAP maps to the identity
+# of this container
 LDAPTLS_REQCERT=demand \
 LDAPTLS_CACERT="${CERT_DIR}/ca.crt" \
 LDAPTLS_CERT="${CERT_DIR}/client.crt" \
 LDAPTLS_KEY="${CERT_DIR}/client.key" \
-ldapsearch -x -LLL -o ldif-wrap=no \
+ldapsearch -Q -Y EXTERNAL -LLL -o ldif-wrap=no \
   -H "${LDAP_URI}" \
-  -D "uid=${SERVICE_ACCOUNT_NAME},ou=ServiceAccounts,${LDAP_SUFFIX}" \
-  -y "${RUN_DIR}/bindpw" \
   -b "ou=People,${LDAP_SUFFIX}" -s one \
   '(&(objectClass=posixAccount)(memberOf=*))' uid uidNumber memberOf \
   > "${WORK_DIR}/people.ldif"

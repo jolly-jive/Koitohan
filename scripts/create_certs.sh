@@ -7,7 +7,20 @@ ROOT_DIR="${SCRIPT_DIR%/*}"
 
 source "${ROOT_DIR}/.env"
 
-OUT_DIR="${ROOT_DIR}/CA"
+# tests/smoke.sh keeps its own generated files apart
+GENERATED_ROOT="${KOITOHAN_GENERATED_ROOT:-${ROOT_DIR}}"
+
+OUT_DIR="${GENERATED_ROOT}/CA"
+
+# OpenLDAP maps the subjects of the client certificates to the identities
+# of the services (olcAuthzRegexp in openldap/build/entrypoint.sh). It
+# looks at CN and O only; OU tells in the logs which host a connection
+# comes from.
+SERVICE_OU=$(hostname -s)
+if [[ ! "${SERVICE_OU}" =~ ^[A-Za-z0-9-]+$ ]]; then
+  echo "the host name is not one to put in a certificate: ${SERVICE_OU}" >&2
+  exit 1
+fi
 
 function domain2dn() {
   local DOMAIN=${1}
@@ -27,15 +40,18 @@ function comma_dn2slash_dn() {
 }
 
 
+# The third argument, if any, is the subject in place of the one made
+# from the host name.
 function set_names() {
   local SUBJ_HOSTNAME=${1}
   local SUBJ_ID=${2}
+  local SUBJ_DN=${3:-DC=${SUBJ_HOSTNAME},${LDAP_SUFFIX}}
   local SUBJ_ID_LOWER=${SUBJ_ID,,}
 
   cat <<-EOF
 	${SUBJ_ID}_HOSTNAME="${SUBJ_HOSTNAME}"
 	${SUBJ_ID}_FQDN="${SUBJ_HOSTNAME}.${LDAP_DOMAIN}"
-	${SUBJ_ID}_DN="DC=${SUBJ_HOSTNAME},${LDAP_SUFFIX}"
+	${SUBJ_ID}_DN="${SUBJ_DN}"
 	${SUBJ_ID}_DN_SLASH=\$(comma_dn2slash_dn \$${SUBJ_ID}_DN)
 	${SUBJ_ID}_KEY_FILE="${OUT_DIR}/${SUBJ_ID_LOWER}.key"
 	${SUBJ_ID}_CSR_FILE="${OUT_DIR}/${SUBJ_ID_LOWER}.csr"
@@ -46,7 +62,7 @@ function set_names() {
 
 echo -e "\n# SET NAMES"
 
-eval $(set_names ${FREERADIUS_CONTAINER_NAME} FREERADIUS_CLIENT)
+eval $(set_names ${FREERADIUS_CONTAINER_NAME} FREERADIUS_CLIENT "O=koitohan,OU=${SERVICE_OU},CN=freeradius")
 
 echo -e "\n## FREERADIUS_CLIENT"
 echo "  FQDN     = ${FREERADIUS_CLIENT_FQDN}"
@@ -54,7 +70,7 @@ echo "  DN       = ${FREERADIUS_CLIENT_DN}"
 echo "  DN_SLASH = ${FREERADIUS_CLIENT_DN_SLASH}"
 
 
-eval $(set_names ${OPENSSH_CONTAINER_NAME} OPENSSH_CLIENT)
+eval $(set_names ${OPENSSH_CONTAINER_NAME} OPENSSH_CLIENT "O=koitohan,OU=${SERVICE_OU},CN=openssh")
 
 echo -e "\n## OPENSSH_CLIENT"
 echo "  FQDN     = ${OPENSSH_CLIENT_FQDN}"
@@ -81,11 +97,12 @@ echo "  DN       = ${CA_DN}"
 echo "  DN_SLASH = ${CA_DN_SLASH}"
 
 
-CNF_FILE="${SCRIPT_DIR}/openssl.conf"
+# used for the issue only, and removed with the key of the CA
+CNF_FILE="${OUT_DIR}/openssl.conf"
 
 echo -e "\n# CREATE CONFIG FILE: ${CNF_FILE}"
 {
-  cat "${CNF_FILE}.template"
+  cat "${SCRIPT_DIR}/openssl.conf.template"
   echo "DNS.1 = ${OPENLDAP_SERVER_HOSTNAME}"
   echo "DNS.2 = ${OPENLDAP_SERVER_FQDN}"
   echo "DNS.3 = localhost"
@@ -137,7 +154,7 @@ function issue_cert() {
 # Removed on the way out, also when a step below fails.
 function remove_ca_key() {
   echo -e "\n# REMOVE CA KEY AND CSRS"
-  rm -f ${CA_KEY_FILE} \
+  rm -f ${CA_KEY_FILE} ${CNF_FILE} \
     ${OPENLDAP_SERVER_CSR_FILE} ${FREERADIUS_CLIENT_CSR_FILE} ${OPENSSH_CLIENT_CSR_FILE}
 }
 trap remove_ca_key EXIT

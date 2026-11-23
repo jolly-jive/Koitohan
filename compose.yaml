@@ -148,7 +148,6 @@ services:
       TZ: "${TZ}"
       LDAP_URI: "ldaps://${OPENLDAP_CONTAINER_NAME}"
       LDAP_DOMAIN: "${LDAP_DOMAIN}"
-      SERVICE_ACCOUNT_NAME: "${OPENSSH_SERVICE_ACCOUNT_NAME}"
       PASSWDQC_MIN: "${PASSWDQC_MIN}"
       OPENSSH_ALLOWED_NETWORKS: "${OPENSSH_ALLOWED_NETWORKS}"
       OPENSSH_EGRESS: "${OPENSSH_EGRESS}"
@@ -157,7 +156,6 @@ services:
       - ./CA/openssh_client.crt:/etc/koitohan/certs/client.crt:ro
       - ./CA/openssh_client.key:/etc/koitohan/certs/client.key:ro
       - ./openssh/hostkeys:/etc/koitohan/hostkeys:ro
-      - ./secrets/openssh_service_account_password:/etc/koitohan/secrets/bindpw:ro
       - ./syslog-ng/log/Hosts:/logs/Hosts:ro
       - ./tftpd-hpa/tftpboot/configs:/tftpboot/configs
       - ./tftpd-hpa/tftpboot/firmware:/tftpboot/firmware

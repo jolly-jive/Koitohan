@@ -69,8 +69,6 @@ umask 077
 
 CONF_DIR=/etc/openldap/slapd.d
 SECRETS=(
-  freeradius_service_account_password
-  openssh_service_account_password
   ldap_admin_password
   ldap_config_password
 )

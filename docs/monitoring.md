@@ -18,7 +18,7 @@ If you have monitoring apart from Koitohan (a monitoring server you already run,
 | Item              | How                                                                                       | NG or WARN when                                    |
 | ----------------- | ----------------------------------------------------------------------------------------- | -------------------------------------------------- |
 | Containers        | The state of the containers that should be up (with the number of restarts)               | one is not running (NG)                            |
-| OpenLDAP          | From the OpenSSH container, binds over LDAPS with its service account                     | the bind fails (NG)                                |
+| OpenLDAP          | From the OpenSSH container, binds over LDAPS with its certificate and reads the directory  | the bind or the read fails (NG)                    |
 | FreeRADIUS        | Sends Status-Server from inside the container                                             | no answer (NG)                                     |
 | syslog-ng         | Asks over its control socket                                                              | no answer (NG)                                     |
 | Where logs go     | The space on the filesystem of `syslog-ng/log/`                                           | 90% or more used (WARN)                            |
@@ -98,7 +98,7 @@ When the Docker host itself is down (power, storage, network), this command does
 ## Good to know
 
 - The tftpd-hpa check leaves a line in `tftpd-hpa/log/tftpd.log` each time (`RRQ from 127.0.0.1 filename firmware/koitohan-service-check`): a request to see that the file is missing. Do not put a file of that name in `firmware/`.
-- The FreeRADIUS check sees only that it answers Status-Server. It does not check how FreeRADIUS asks OpenLDAP (the client certificate and the service account of FreeRADIUS). To check that, log in from a device.
+- The FreeRADIUS check sees only that it answers Status-Server. It does not check how FreeRADIUS asks OpenLDAP (the client certificate of FreeRADIUS). To check that, log in from a device.
 - It does not remember the last results, so it does not tell only when something changes.
 - The thresholds (90% of the space, 30 days for the certificates) are constants at the top of the script.
 - `make host_check` checks the setup of the Docker host; this one checks the running services. When `check_services.sh` shows an `NG`, run `make host_check` as well.

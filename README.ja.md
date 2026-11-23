@@ -68,7 +68,7 @@ make host_check        # ここまでの手作業を確かめる
 make up
 ```
 
-`.env` にパスワードはありません。OpenLDAP の管理者のパスワードと、FreeRADIUS と OpenSSH のサービスアカウントのパスワードは、`make` が生成して `secrets/` に置きます(「[OpenLDAP の管理者のパスワード](docs/configuration.ja.md#openldap-の管理者のパスワード)」と「[サービスアカウントのパスワード](docs/configuration.ja.md#サービスアカウントのパスワード)」を参照)。
+`.env` にパスワードはありません。OpenLDAP の管理者のパスワードは、`make` が生成して `secrets/` に置きます(「[OpenLDAP の管理者のパスワード](docs/configuration.ja.md#openldap-の管理者のパスワード)」を参照)。FreeRADIUS と OpenSSH にはパスワードがなく、クライアント証明書で OpenLDAP に bind します(「[FreeRADIUS と OpenSSH の身元](docs/configuration.ja.md#freeradius-と-openssh-の身元)」を参照)。
 
 `make` は `clients.conf.sample` から `freeradius/config/clients.conf` を作ります。`make up` の前に、サンプルのクライアントを自分の機器に書き換えてください。
 
@@ -105,8 +105,8 @@ RADIUS アカウンティング(1813/udp)は提供していません。ログイ
 make                    # private_dirs + certs + secrets + ldap_dir + freeradius_conf + device_networks + ssh_hostkeys + logrotate_conf
 make private_dirs       # 鍵とパスワードのディレクトリを、所有者しか入れないようにする
 make certs              # プライベート CA、サーバー証明書、クライアント証明書
-make secrets            # サービスアカウントと OpenLDAP の管理者のパスワード(すでにあれば作り直さない)
-make ldap_dir           # OU、ロール、サービスアカウント、パスワードポリシー、ACL の LDIF
+make secrets            # OpenLDAP の管理者のパスワード(すでにあれば作り直さない)
+make ldap_dir           # OU、ロール、パスワードポリシーの LDIF
 make freeradius_conf    # FreeRADIUS の LDAP モジュール設定と clients.conf
 make device_networks    # syslog-ng に渡す、機器のネットワークの設定
 make ssh_hostkeys       # sshd のホスト鍵(すでにあれば作り直さない)
@@ -117,7 +117,6 @@ make up                 # スタックを起動
 make down               # スタックを停止
 make clean              # 生成した証明書、LDIF、設定を削除
 bin/manage_users.sh     # ユーザーの登録、削除、ロールの変更、パスワードの再発行、ロックの解除
-bin/change_service_account_password.sh   # サービスアカウントのパスワードの変更
 bin/change_ldap_admin_password.sh        # OpenLDAP の管理者のパスワードの変更
 bin/backup.sh           # 稼働中のスタックのバックアップ
 bin/restore_ldap.sh     # バックアップのディレクトリを、空の OpenLDAP に読み込む
@@ -136,7 +135,7 @@ docker compose run --rm --no-deps freeradius radiusd -XC
 make test
 ```
 
-`make test` は、すべてのコンテナを別のプロジェクト(`koitohan-test`)として起動し、`bin/manage_users.sh` でテストユーザーを登録して認証し、機器種別とロールの組み合わせごとに応答属性を照合します。FreeRADIUS が、ローテーションで移動された detail ログを作り直すことも確かめます。RADIUS、syslog、TFTP、NTP については、`DEVICE_NETWORKS` の範囲からは届き、範囲の外からは届かないことを確かめます。TFTP の転送がファイルに記録されることと、ホストの時刻の同期が外れると NTP サーバーが「同期していない」と答えることも確かめます。続いて、各ロールのユーザーで SSH でログインし、ディレクトリの権限、圧縮されたログの読み取り、パスワードの変更を確かめます。そのあと、`bin/manage_users.sh` の各操作と、パスワードポリシー(最小の長さ、ロックとその解除)、サービスアカウントと OpenLDAP の管理者のパスワードの変更を確かめます。続いて OpenLDAP のコンテナを再起動し、起動し直せることを確かめます。`bin/check_services.sh` が、健全なときに異常を出さず、`configs/` の所有者の誤り、止まった syslog-ng、配るのをやめた NTP を異常として出すことも確かめます。最後に `bin/backup.sh` でバックアップを取り、OpenLDAP を空のデータで作り直して `bin/restore_ldap.sh` で復元し、ユーザーと `configs/` のファイルが戻ることを確かめます。ポートを公開せず、データも残さず、パスワードもテスト用に生成する(`tests/generated/`)ので、稼働中のスタックには影響しません。事前に `make` を済ませておいてください。失敗した項目は `KEEP=1 tests/smoke.sh` でテスト用のスタックを残して調べられます。
+`make test` は、すべてのコンテナを別のプロジェクト(`koitohan-test`)として起動し、`bin/manage_users.sh` でテストユーザーを登録して認証し、機器種別とロールの組み合わせごとに応答属性を照合します。FreeRADIUS が、ローテーションで移動された detail ログを作り直すことも確かめます。RADIUS、syslog、TFTP、NTP については、`DEVICE_NETWORKS` の範囲からは届き、範囲の外からは届かないことを確かめます。TFTP の転送がファイルに記録されることと、ホストの時刻の同期が外れると NTP サーバーが「同期していない」と答えることも確かめます。続いて、各ロールのユーザーで SSH でログインし、ディレクトリの権限、圧縮されたログの読み取り、パスワードの変更を確かめます。そのあと、`bin/manage_users.sh` の各操作と、パスワードポリシー(最小の長さ、ロックとその解除)、FreeRADIUS と OpenSSH が証明書で bind すること、OpenLDAP の管理者のパスワードの変更を確かめます。続いて OpenLDAP のコンテナを再起動し、起動し直せることを確かめます。`bin/check_services.sh` が、健全なときに異常を出さず、`configs/` の所有者の誤り、止まった syslog-ng、配るのをやめた NTP を異常として出すことも確かめます。最後に `bin/backup.sh` でバックアップを取り、OpenLDAP を空のデータで作り直して `bin/restore_ldap.sh` で復元し、ユーザーと `configs/` のファイルが戻ることを確かめます。ポートを公開せず、データも残さず、証明書とパスワードもテスト用に生成する(`tests/generated/`)ので、稼働中のスタックには影響しません。事前に `make` を済ませておいてください。失敗した項目は `KEEP=1 tests/smoke.sh` でテスト用のスタックを残して調べられます。
 
 OpenLDAP、FreeRADIUS、tftpd-hpa、OpenSSH、chrony のイメージは、最初の `make up` で自動的にビルドされます。`openldap/build/`、`freeradius/build/`、`tftpd-hpa/build/`、`openssh/build/`、`chrony/build/` を変更したときは、ビルドし直してから起動します。
 
@@ -145,7 +144,7 @@ docker compose build openldap freeradius tftpd-hpa openssh chrony
 make up
 ```
 
-`make clean` は、sshd のホスト鍵(`openssh/hostkeys/`)を消しません。ホスト鍵が変わると、すべてのユーザーの手元で警告が出るためです。`secrets/` のパスワードも消しません(「[サービスアカウントのパスワード](docs/configuration.ja.md#サービスアカウントのパスワード)」と「[OpenLDAP の管理者のパスワード](docs/configuration.ja.md#openldap-の管理者のパスワード)」を参照)。
+`make clean` は、sshd のホスト鍵(`openssh/hostkeys/`)を消しません。ホスト鍵が変わると、すべてのユーザーの手元で警告が出るためです。`secrets/` のパスワードも消しません(「[OpenLDAP の管理者のパスワード](docs/configuration.ja.md#openldap-の管理者のパスワード)」を参照)。
 
 サービスのログを追う:
 
