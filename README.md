@@ -68,7 +68,7 @@ make host_check        # check the steps above
 make up
 ```
 
-There are no passwords in `.env`. `make` generates the passwords of the OpenLDAP administrators and puts them in `secrets/` (see [OpenLDAP administrator passwords](docs/configuration.md#openldap-administrator-passwords)). FreeRADIUS and OpenSSH need no password: they bind to OpenLDAP with their client certificates (see [Identities of FreeRADIUS and OpenSSH](docs/configuration.md#identities-of-freeradius-and-openssh)).
+There are no passwords to set. FreeRADIUS and OpenSSH bind to OpenLDAP with their client certificates (see [Identities of FreeRADIUS and OpenSSH](docs/configuration.md#identities-of-freeradius-and-openssh)), and the administrators of OpenLDAP work inside its container, without a password (see [OpenLDAP administrators](docs/configuration.md#openldap-administrators)).
 
 `make` creates `freeradius/config/clients.conf` from `clients.conf.sample`. Replace the sample clients with your own devices before you run `make up`.
 
@@ -102,10 +102,9 @@ RADIUS accounting (1813/udp) is not provided. The logins are recorded in the det
 ## Commands
 
 ```sh
-make                    # private_dirs + certs + secrets + ldap_dir + freeradius_conf + device_networks + ssh_hostkeys + logrotate_conf
+make                    # private_dirs + certs + ldap_dir + freeradius_conf + device_networks + ssh_hostkeys + logrotate_conf
 make private_dirs       # close the directories of keys and passwords to everyone but their owner
 make certs              # private CA, server and client certificates
-make secrets            # passwords of the OpenLDAP administrators (kept if they already exist)
 make ldap_dir           # LDIF files for OUs, roles and the password policy
 make freeradius_conf    # FreeRADIUS LDAP module config and clients.conf
 make device_networks    # the device networks, in the config of syslog-ng
@@ -117,7 +116,6 @@ make up                 # start the stack
 make down               # stop the stack
 make clean              # delete generated certificates, LDIF files and config
 bin/manage_users.sh     # add and delete users, change a role, set a new password, unlock
-bin/change_ldap_admin_password.sh        # change the passwords of the OpenLDAP administrators
 bin/backup.sh           # take a backup of the running stack
 bin/restore_ldap.sh     # load the directory of a backup into an empty OpenLDAP
 bin/check_services.sh   # check that each service of the running stack works
@@ -135,7 +133,7 @@ Check authentication and authorization end to end:
 make test
 ```
 
-`make test` starts every container as a separate project (`koitohan-test`), adds test users with `bin/manage_users.sh`, authenticates as them, and compares the reply attributes for every combination of device type and role. It also checks that FreeRADIUS makes a detail log again after the rotation has moved it away. For RADIUS, syslog, TFTP and NTP, it checks that traffic from the networks in `DEVICE_NETWORKS` arrives and that traffic from elsewhere does not. It also checks that a TFTP transfer is recorded in the file, and that the NTP server answers that it is not synchronized once the host clock goes out of sync. It then logs in over SSH as a user of each role and checks the permissions on the directories, the reading of a compressed log and a password change. After that it runs each operation of `bin/manage_users.sh` and checks the password policy (the minimum length, the lock and the unlock) that FreeRADIUS and OpenSSH bind with their certificates, and the change of the passwords of the OpenLDAP administrators. Then it restarts the OpenLDAP container and checks that it comes up again. It checks that `bin/check_services.sh` reports nothing wrong while all is well, and reports a wrong owner of `configs/`, a stopped syslog-ng and an NTP server that stopped serving. At the end it takes a backup with `bin/backup.sh`, makes OpenLDAP again with empty data, restores the backup with `bin/restore_ldap.sh` and checks that the users and the files in `configs/` are back. It publishes no ports, keeps no data and generates certificates and passwords of its own (`tests/generated/`), so it does not affect a running stack. Run `make` beforehand. To look into a failed check, keep the test stack up with `KEEP=1 tests/smoke.sh`.
+`make test` starts every container as a separate project (`koitohan-test`), adds test users with `bin/manage_users.sh`, authenticates as them, and compares the reply attributes for every combination of device type and role. It also checks that FreeRADIUS makes a detail log again after the rotation has moved it away. For RADIUS, syslog, TFTP and NTP, it checks that traffic from the networks in `DEVICE_NETWORKS` arrives and that traffic from elsewhere does not. It also checks that a TFTP transfer is recorded in the file, and that the NTP server answers that it is not synchronized once the host clock goes out of sync. It then logs in over SSH as a user of each role and checks the permissions on the directories, the reading of a compressed log and a password change. After that it runs each operation of `bin/manage_users.sh` and checks the password policy (the minimum length, the lock and the unlock) that FreeRADIUS and OpenSSH bind with their certificates, and that the OpenLDAP administrators have no password. Then it restarts the OpenLDAP container and checks that it comes up again. It checks that `bin/check_services.sh` reports nothing wrong while all is well, and reports a wrong owner of `configs/`, a stopped syslog-ng and an NTP server that stopped serving. At the end it takes a backup with `bin/backup.sh`, makes OpenLDAP again with empty data, restores the backup with `bin/restore_ldap.sh` and checks that the users and the files in `configs/` are back. It publishes no ports, keeps no data and generates certificates and passwords of its own (`tests/generated/`), so it does not affect a running stack. Run `make` beforehand. To look into a failed check, keep the test stack up with `KEEP=1 tests/smoke.sh`.
 
 The OpenLDAP, FreeRADIUS, tftpd-hpa, OpenSSH and chrony images are built automatically by the first `make up`. After you change `openldap/build/`, `freeradius/build/`, `tftpd-hpa/build/`, `openssh/build/` or `chrony/build/`, rebuild them before you start the stack.
 
@@ -144,7 +142,7 @@ docker compose build openldap freeradius tftpd-hpa openssh chrony
 make up
 ```
 
-`make clean` keeps the sshd host keys (`openssh/hostkeys/`). A new host key makes the client of every user show a warning. It keeps the passwords in `secrets/` as well (see [OpenLDAP administrator passwords](docs/configuration.md#openldap-administrator-passwords)).
+`make clean` keeps the sshd host keys (`openssh/hostkeys/`). A new host key makes the client of every user show a warning.
 
 Follow the logs of a service:
 
@@ -161,17 +159,16 @@ docker compose logs -f freeradius
 
 ## Security notes
 
-These files contain private keys, shared secrets or passwords. Git ignores all of them. Keep them out of backups and copies that others can read. The archive that `bin/backup.sh` writes holds most of them, unencrypted (see [Backup and restore](docs/backup.md#keep-the-archive-safe)).
+These files contain private keys, shared secrets or password hashes. Git ignores all of them. Keep them out of backups and copies that others can read. The archive that `bin/backup.sh` writes holds most of them, unencrypted (see [Backup and restore](docs/backup.md#keep-the-archive-safe)).
 
 - `CA/`
 - `freeradius/config/clients.conf`
 - `freeradius/config/mods-available/ldap_openldap`
 - `openldap/ldif/*.ldif`
 - `openssh/hostkeys/`
-- `secrets/`
 - `tftpd-hpa/tftpboot/configs/` (device configurations, which can contain password hashes and shared secrets)
 
-`make` and `make up` close `CA/`, `secrets/` and `openssh/hostkeys/` to everyone but their owner (0700). `CA/freeradius_client.key` has the mode 0644, because FreeRADIUS reads it as uid 101 inside the container. The mode of the directory is what keeps it from the other users of the Docker host, so do not loosen it.
+`make` and `make up` close `CA/` and `openssh/hostkeys/` to everyone but their owner (0700). `CA/freeradius_client.key` has the mode 0644, because FreeRADIUS reads it as uid 101 inside the container. The mode of the directory is what keeps it from the other users of the Docker host, so do not loosen it.
 
 The private key of the CA is deleted once the certificates are issued. `make certs` makes a new CA every time, so the key is not needed again.
 

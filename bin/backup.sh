@@ -7,7 +7,7 @@
 # Runs on the Docker host, and needs openldap and tftpd-hpa running.
 # Writes DIRECTORY/koitohan-<host>-<date>-<time>.tar.gz, mode 0600:
 #
-#   .env, freeradius/config/clients.conf, secrets/, openssh/hostkeys/
+#   .env, freeradius/config/clients.conf, openssh/hostkeys/
 #       the files themselves, under the paths they have in the repository
 #   ldap/config.ldif, ldap/data.ldif
 #       slapcat of cn=config and of the directory, which is consistent
@@ -21,14 +21,15 @@
 # Neither the logs nor firmware/ are taken, and nothing that make makes
 # again. The archive has no directory entries, so that unpacking it into
 # the repository changes the mode of no directory there. It is not
-# encrypted: it holds the passwords and the keys in clear text.
+# encrypted: it holds the shared secrets, the host keys and the hashes
+# of the passwords as they are.
 #
 # -k COUNT deletes the older archives of this host in DIRECTORY, once
 # the new one is written, and keeps COUNT of them.
 #
-# COMPOSE_PROJECT_NAME and COMPOSE_FILE select another stack, and
-# KOITOHAN_GENERATED_ROOT the generated files of that stack, as
-# tests/smoke.sh does.
+# COMPOSE_PROJECT_NAME and COMPOSE_FILE select another stack, as
+# tests/smoke.sh does. The files come from where the containers of that
+# stack have them mounted from.
 
 set -u
 
@@ -60,18 +61,11 @@ shift $((OPTIND - 1))
 
 OUT_DIR=$(cd "${1}" && pwd) || die "${1}: no such directory"
 
-KOITOHAN_GENERATED_ROOT=$(cd "${KOITOHAN_GENERATED_ROOT:-${ROOT_DIR}}" && pwd) \
-  || die 'KOITOHAN_GENERATED_ROOT: no such directory'
-
 cd "${ROOT_DIR}"
 
 umask 077
 
 CONF_DIR=/etc/openldap/slapd.d
-SECRETS=(
-  ldap_admin_password
-  ldap_config_password
-)
 
 function container_of() {
   docker compose ps -a -q "${1}" 2> /dev/null
@@ -90,12 +84,6 @@ for SERVICE in openldap tftpd-hpa; do
     || die "${SERVICE} is not running. Start the stack first."
 done
 
-# The passwords have to be the ones of this stack, or the backup would
-# not agree with its own directory.
-docker inspect -f '{{range .Mounts}}{{println .Source}}{{end}}' "$(container_of openldap)" \
-| grep -q -x -F -- "${KOITOHAN_GENERATED_ROOT}/secrets/ldap_admin_password" \
-  || die "openldap does not read ${KOITOHAN_GENERATED_ROOT}/secrets/ldap_admin_password. For another stack, set KOITOHAN_GENERATED_ROOT."
-
 # the files the containers read, wherever this stack has them
 CLIENTS_CONF=$(source_of "$(container_of freeradius)" /etc/freeradius/clients.conf)
 HOSTKEYS_DIR=$(source_of "$(container_of openssh)" /etc/koitohan/hostkeys)
@@ -104,14 +92,10 @@ HOSTKEYS_DIR=$(source_of "$(container_of openssh)" /etc/koitohan/hostkeys)
 
 STAGE=$(mktemp -d "${OUT_DIR}/.koitohan-backup.XXXXXX") || die "could not write to ${OUT_DIR}"
 trap 'rm -rf "${STAGE}"' EXIT
-mkdir -p "${STAGE}"/{freeradius/config,secrets,openssh/hostkeys,ldap}
+mkdir -p "${STAGE}"/{freeradius/config,openssh/hostkeys,ldap}
 
 cp -p .env "${STAGE}/.env" || die 'could not copy .env'
 cp -p "${CLIENTS_CONF}" "${STAGE}/freeradius/config/clients.conf" || die "could not copy ${CLIENTS_CONF}"
-for SECRET in "${SECRETS[@]}"; do
-  cp -p "${KOITOHAN_GENERATED_ROOT}/secrets/${SECRET}" "${STAGE}/secrets/" \
-    || die "could not copy ${KOITOHAN_GENERATED_ROOT}/secrets/${SECRET}"
-done
 HOSTKEYS=("${HOSTKEYS_DIR}"/ssh_host_*)
 [[ -f "${HOSTKEYS[0]}" ]] || die "no host keys in ${HOSTKEYS_DIR}"
 cp -p "${HOSTKEYS[@]}" "${STAGE}/openssh/hostkeys/" || die "could not copy the host keys in ${HOSTKEYS_DIR}"

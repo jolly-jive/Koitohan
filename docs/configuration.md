@@ -265,30 +265,13 @@ FreeRADIUS and the OpenSSH container bind to OpenLDAP with their client certific
 - The OpenLDAP container writes the mapping and the access control again on every start. A change made in the directory goes back on the next start.
 - A certificate cannot be revoked alone. If a private key in `CA/` leaks, make all the certificates again with `make certs`, then run `make down && make up`.
 
-## OpenLDAP administrator passwords
+## OpenLDAP administrators
 
-OpenLDAP has two administrators that log in with a password. Neither is subject to the access control or to the password policy. `make` (`make secrets`) generates their passwords and puts them in `secrets/`.
+OpenLDAP has two administrators: the one of the data (`cn=admin,<suffix>`) and the one of the configuration (`cn=admin,cn=config`). Neither is subject to the access control or to the password policy. Neither has a password, so nobody can log in as them over the network.
 
-| File                           | Administrator                                          |
-| ------------------------------ | ------------------------------------------------------ |
-| `secrets/ldap_admin_password`  | Administrator of the data (`cn=admin,<suffix>`)        |
-| `secrets/ldap_config_password` | Administrator of the configuration (`cn=admin,cn=config`) |
+Work as an administrator on the Docker host, through `ldapi:///` inside the container, which makes you an administrator without a password (`docker compose exec openldap ldapsearch -Q -Y EXTERNAL -H ldapi:/// ...`). The scripts of this stack do the same.
 
-The scripts of this stack use neither password. Work from the Docker host goes through `ldapi:///` inside the container, which makes you an administrator without a password (`docker compose exec openldap ldapsearch -Q -Y EXTERNAL -H ldapi:/// ...`). You need a password only when you connect an LDAP client to port 636, and you can pass it as the file (`ldapsearch -y secrets/ldap_admin_password`). The files have no newline at the end.
-
-The OpenLDAP container sets the passwords from the files again on every start. A password that you change in the directory alone goes back on the next start.
-
-A file that already exists is kept, and `make clean` keeps it too.
-
-To change the passwords, use `bin/change_ldap_admin_password.sh` on the Docker host. Run it while the stack is up.
-
-```sh
-bin/change_ldap_admin_password.sh
-```
-
-The script generates the two passwords, replaces the files in `secrets/`, recreates the OpenLDAP container and checks that the new passwords work. No login gets through until OpenLDAP is up again.
-
-If the script stops halfway, run it again. It does not need the current passwords.
+The OpenLDAP container removes the passwords of the administrators on every start, also one that you set in the directory. Earlier versions of Koitohan kept these passwords in `secrets/`. The files there are no longer used, and you can delete them.
 
 ## Changing the directory seed
 

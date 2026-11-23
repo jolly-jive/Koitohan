@@ -73,7 +73,6 @@ RUN_DIR=/run/koitohan
 CERT_DIR=/etc/koitohan/certs
 SLAPD_CERT_DIR="${RUN_DIR}/certs"
 SEED_DIR=/etc/koitohan/ldif
-SECRETS_DIR=/etc/koitohan/secrets
 
 # marks a seed that ran to the end, so that slapd does not serve a config
 # and data that were left halfway
@@ -84,15 +83,6 @@ if [ -z "${LDAP_DOMAIN:-}" ]; then
   exit 1
 fi
 LDAP_SUFFIX="dc=$(echo "${LDAP_DOMAIN}" | sed 's/\./,dc=/g')"
-
-# the -T of slappasswd takes a newline as part of the password, so the
-# files have none
-for WHICH in admin config; do
-  if [ ! -s "${SECRETS_DIR}/ldap_${WHICH}_password" ]; then
-    echo "the password of the administrator (${WHICH}) is missing or empty" >&2
-    exit 1
-  fi
-done
 
 # slapd writes to syslog, so pass it on to the stdout of the container
 # (with -d it writes to stderr, but stamps the time in hexadecimal).
@@ -268,11 +258,11 @@ olcModuleLoad: argon2
 EOF
 fi
 
-# The passwords of the administrators, the log level, the minimum of TLS,
-# the scheme of the password hashes, the identities of the services and
-# the access control are written on every start. The files, the
-# environment and this script are where they are kept, and a change made
-# over ldapi:/// does not outlive a start. The scheme is for the
+# The log level, the minimum of TLS, the scheme of the password hashes,
+# the identities of the services and the access control are written on
+# every start, and the passwords of the administrators are removed. The
+# environment and this script are where these are kept, and a change
+# made over ldapi:/// does not outlive a start. The scheme is for the
 # passwords that are set from now on: a hash that is there stays as it
 # is, and still verifies, until its password is changed.
 #
@@ -300,20 +290,23 @@ changetype: modify
 replace: olcPasswordHash
 olcPasswordHash: {ARGON2}
 
+# The administrators (the rootdns) have no password, so nobody can bind
+# as them. Administration goes over ldapi:///, as the root of the
+# container. A replace with no value removes the passwords that earlier
+# versions set, and does nothing where there is none.
 dn: olcDatabase={0}config,cn=config
 changetype: modify
 replace: olcRootPW
-olcRootPW: $(slappasswd -T "${SECRETS_DIR}/ldap_config_password")
+-
 
 dn: olcDatabase={1}mdb,cn=config
 changetype: modify
 replace: olcRootPW
-olcRootPW: $(slappasswd -T "${SECRETS_DIR}/ldap_admin_password")
 -
 replace: olcAccess
 olcAccess: {0}to * by dn.exact=gidNumber=0+uidNumber=0,cn=peercred,cn=external,cn=auth manage by * break
-olcAccess: {1}to attrs=userPassword,shadowLastChange by self write by dn="cn=admin,${LDAP_SUFFIX}" write by anonymous auth by * none
-olcAccess: {2}to * by self read by dn="cn=admin,${LDAP_SUFFIX}" write by dn.exact="cn=freeradius,cn=koitohan" read by dn.exact="cn=openssh,cn=koitohan" read by * none
+olcAccess: {1}to attrs=userPassword,shadowLastChange by self write by anonymous auth by * none
+olcAccess: {2}to * by self read by dn.exact="cn=freeradius,cn=koitohan" read by dn.exact="cn=openssh,cn=koitohan" read by * none
 EOF
 
 # slapmodify writes as root, so hand the files back to slapd

@@ -14,10 +14,10 @@
 # to from there, then manages a user
 # with bin/manage_users.sh, then runs into the password policy of
 # OpenLDAP, then sees that FreeRADIUS and OpenSSH bound with their
-# certificates, then changes the passwords of the administrators of
-# OpenLDAP, then takes a backup and restores it into an openldap made
-# again. The running stack is left alone: the test generates its own
-# certificates, passwords, LDIFs and ldap_openldap into tests/generated.
+# certificates and that the administrators of OpenLDAP have no password,
+# then takes a backup and restores it into an openldap made again. The
+# running stack is left alone: the test generates its own certificates,
+# LDIFs and ldap_openldap into tests/generated.
 #
 #   KEEP=1 tests/smoke.sh    leave the test stack up for a closer look
 
@@ -27,8 +27,8 @@ ROOT_DIR="${SCRIPT_DIR%/*}"
 cd "${ROOT_DIR}"
 
 COMPOSE=(docker compose -p koitohan-test -f compose.yaml -f tests/compose.test.yaml)
-# the scripts under scripts/ and bin/change_ldap_admin_password.sh write
-# here instead of CA/, secrets/, openldap/ldif/ and freeradius/config/
+# the scripts under scripts/ write here instead of CA/, openldap/ldif/
+# and freeradius/config/
 export KOITOHAN_GENERATED_ROOT="${ROOT_DIR}/tests/generated"
 SECRET='testing123'
 # The networks of the devices, whatever .env has: the test sends from
@@ -437,8 +437,9 @@ function check_ldap() {
   report "${NAME}" "${USER}" "${EXPECT}" "${WHY}" "${OUT}"
 }
 
-# Binds as an administrator of OpenLDAP (admin or config). EXPECT is a
-# fixed string to find in the output.
+# Binds as an administrator of OpenLDAP (admin or config) with PASS, a
+# simple bind over ldapi:///. EXPECT is a fixed string to find in the
+# output.
 function check_admin_bind() {
   local NAME=${1}
   local WHICH=${2}
@@ -1026,18 +1027,15 @@ chmod 700 "${ASKPASS}"
 
 trap cleanup EXIT
 
-# The same scripts as make runs, on certificates and passwords of the
-# test's own
+# The same scripts as make runs, on certificates of the test's own
 rm -rf "${KOITOHAN_GENERATED_ROOT}"
-mkdir -p "${KOITOHAN_GENERATED_ROOT}"/{CA,secrets,openldap/ldif,freeradius/config/mods-available,syslog-ng/config,syslog-ng/log/Hosts,tftpboot/firmware}
-# as make private_dirs does CA/ and secrets/: the key of FreeRADIUS is
-# 0644 for the container, and only the directory keeps it in
-chmod 700 "${KOITOHAN_GENERATED_ROOT}"/{CA,secrets}
+mkdir -p "${KOITOHAN_GENERATED_ROOT}"/{CA,openldap/ldif,freeradius/config/mods-available,syslog-ng/config,syslog-ng/log/Hosts,tftpboot/firmware}
+# as make private_dirs does CA/: the key of FreeRADIUS is 0644 for the
+# container, and only the directory keeps it in
+chmod 700 "${KOITOHAN_GENERATED_ROOT}/CA"
 # the file to fetch over TFTP, in the firmware of the test stack
 echo koitohan-smoke > "${KOITOHAN_GENERATED_ROOT}/tftpboot/firmware/smoke.txt"
 if ! { scripts/create_certs.sh > /dev/null 2>&1 \
-       && scripts/generate_ldap_admin_password.sh admin \
-       && scripts/generate_ldap_admin_password.sh config \
        && scripts/generate_ldap_base.sh \
        && scripts/generate_freeradius_ldap.sh \
        && scripts/generate_device_networks.sh; }; then
@@ -1563,36 +1561,31 @@ for SERVICE in freeradius openssh; do
     || WHY="expected a bind as cn=${SERVICE},cn=koitohan with EXTERNAL"
   report 'service identity' "${SERVICE}" 'bound with the certificate' "${WHY}"
 done
-# no simple bind but those of the users and the administrators
+# no simple bind but those of the users
 OUT=$("${COMPOSE[@]}" logs openldap 2>&1 | grep -F 'BIND dn=' | grep -F 'method=128' \
-      | grep -v -e 'ou=People,' -e 'dn="cn=admin,')
+      | grep -v -F 'ou=People,')
 WHY=''
 [[ -n "${OUT}" ]] && WHY='expected no other simple bind'
 report 'service identity' 'simple bind' 'users only' "${WHY}" "${OUT}"
 
-# The passwords of the administrators of OpenLDAP. The change recreates
-# openldap, and FreeRADIUS does not get over that, so nothing below
-# goes through RADIUS.
-ADMIN_FILE="${KOITOHAN_GENERATED_ROOT}/secrets/ldap_admin_password"
-CONFIG_FILE="${KOITOHAN_GENERATED_ROOT}/secrets/ldap_config_password"
-OLD_ADMIN=$(< "${ADMIN_FILE}")
-OLD_CONFIG=$(< "${CONFIG_FILE}")
-check_admin_bind 'admin pass' admin "${OLD_ADMIN}" 'dn:cn=admin,dc='
-check_admin_bind 'admin pass' config "${OLD_CONFIG}" 'dn:cn=admin,cn=config'
-OUT=$(COMPOSE_PROJECT_NAME=koitohan-test COMPOSE_FILE=compose.yaml:tests/compose.test.yaml \
-      bin/change_ldap_admin_password.sh 2>&1 < /dev/null)
-check_found 'admin pass' 'change' 'recreated openldap' "${OUT}"
-NEW_ADMIN=$(< "${ADMIN_FILE}")
-NEW_CONFIG=$(< "${CONFIG_FILE}")
-check_admin_bind 'admin pass' admin "${NEW_ADMIN}" 'dn:cn=admin,dc='
-check_admin_bind 'admin pass' config "${NEW_CONFIG}" 'dn:cn=admin,cn=config'
-check_admin_bind 'admin pass' admin "${OLD_ADMIN}" 'Invalid credentials'
-check_admin_bind 'admin pass' config "${OLD_CONFIG}" 'Invalid credentials'
-
 WHY=''
-[[ -n "$(find secrets CA -newer "${ASKPASS}" 2> /dev/null)" ]] \
+[[ -n "$(find CA -newer "${ASKPASS}" 2> /dev/null)" ]] \
   && WHY='expected the files of the running stack to stay'
-report 'admin pass' 'secrets/ CA/' 'untouched' "${WHY}"
+report 'running stack' 'CA/' 'untouched' "${WHY}"
+
+# The administrators of OpenLDAP have no password, and nobody can bind
+# as them. The restart below cuts the two connections of FreeRADIUS, so
+# from here to "ldap restart" nothing goes through RADIUS.
+ROOTPW_COUNT='ldapsearch -LLL -Q -Y EXTERNAL -H ldapi:/// -b cn=config "(olcRootPW=*)" dn | grep -c "^dn:"'
+check_ldap 'admin pass' 'none' 'olcRootPW: 0' "echo \"olcRootPW: \$(${ROOTPW_COUNT})\""
+check_admin_bind 'admin pass' admin 'smoke-root-pw' 'Invalid credentials'
+check_admin_bind 'admin pass' config 'smoke-root-pw' 'Invalid credentials'
+# One written over ldapi:/// works until the restart, which removes it.
+check_ldap 'admin pass' 'written' 'modifying entry "olcDatabase={1}mdb,cn=config"' \
+  'ldapmodify -Q -Y EXTERNAL -H ldapi:///' \
+  'dn: olcDatabase={0}config,cn=config\nchangetype: modify\nreplace: olcRootPW\nolcRootPW: smoke-root-pw\n\ndn: olcDatabase={1}mdb,cn=config\nchangetype: modify\nreplace: olcRootPW\nolcRootPW: smoke-root-pw\n'
+check_admin_bind 'admin pass' admin 'smoke-root-pw' 'dn:cn=admin,dc='
+check_admin_bind 'admin pass' config 'smoke-root-pw' 'dn:cn=admin,cn=config'
 
 # The minimum of TLS is written on every start as well. Lowered over
 # ldapi:/// here, it has to be back after the restart.
@@ -1619,23 +1612,17 @@ check_ldap 'hash scheme' 'config' 'olcPasswordHash: {ARGON2}' \
 check_ldap 'service identity' 'config' '"cn=openssh,cn=koitohan"' \
   'ldapsearch -LLL -Q -Y EXTERNAL -H ldapi:/// -b cn=config -s base olcAuthzRegexp'
 
-# the image sets the passwords on every start, from the files it has now
-check_admin_bind 'ldap restart' admin "${NEW_ADMIN}" 'dn:cn=admin,dc='
-check_admin_bind 'ldap restart' config "${NEW_CONFIG}" 'dn:cn=admin,cn=config'
-
-# The entrypoint must not log the passwords it reads. This container
-# has read them twice by now.
-WHY=''
-"${COMPOSE[@]}" logs openldap 2>&1 | grep -q -F -e "${NEW_ADMIN}" -e "${NEW_CONFIG}" \
-  && WHY='expected no password in the logs of openldap'
-report 'admin pass' 'logs' 'no password' "${WHY}"
+# the image removes the passwords of the administrators on every start
+check_ldap 'ldap restart' 'rootpw' 'olcRootPW: 0' "echo \"olcRootPW: \$(${ROOTPW_COUNT})\""
+check_admin_bind 'ldap restart' admin 'smoke-root-pw' 'Invalid credentials'
+check_admin_bind 'ldap restart' config 'smoke-root-pw' 'Invalid credentials'
 
 # nslcd has to find the restarted OpenLDAP again
 check_ssh 'ldap restart' admin01 "${PASS_ADMIN}" 'koitohan admin' 'id -Gn' < /dev/null
 
 # So has FreeRADIUS, and within the login that finds out. Both of its
-# connections are from before OpenLDAP was made again and restarted, and
-# this is the first request since. Without backlog_on_failed_conn in
+# connections are from before OpenLDAP was restarted, and this is the
+# first request since. Without backlog_on_failed_conn in
 # ldap_openldap it is rejected, and so is the one after it.
 check 'ldap restart' 127.0.0.1 admin01 "${PASS_ADMIN}" Accept 'AVPair = "shell:priv-lvl=15"'
 
@@ -1655,10 +1642,10 @@ check 'ldap down' 127.0.0.1 admin01 "${PASS_ADMIN}" Accept 'AVPair = "shell:priv
 # then openldap made again with empty volumes and the backup loaded into
 # it. The change has to be gone, and what was there at the backup has to
 # be back: the users, their passwords and roles, the next uidNumber, and
-# the files in configs/ with their owners. bin/backup.sh finds the files
-# of the test stack through KOITOHAN_GENERATED_ROOT and the mounts of its
-# containers, and bin/restore_ldap.sh through COMPOSE_PROJECT_NAME and
-# COMPOSE_FILE.
+# the files in configs/ with their owners. bin/backup.sh and
+# bin/restore_ldap.sh find the test stack through COMPOSE_PROJECT_NAME
+# and COMPOSE_FILE, and bin/backup.sh its files through the mounts of
+# its containers.
 STACK=(env COMPOSE_PROJECT_NAME=koitohan-test COMPOSE_FILE=compose.yaml:tests/compose.test.yaml)
 BACKUP_DIR="${KOITOHAN_GENERATED_ROOT}/backup"
 BACKUP_HOST=${HOSTNAME%%.*}
@@ -1685,21 +1672,20 @@ check_found 'backup' 'mode' '600' "${OUT}"
 OUT=$(tar -t -z -f "${ARCHIVE}" 2>&1)
 WHY=''
 for MEMBER in .env freeradius/config/clients.conf \
-  secrets/ldap_{admin,config}_password \
   openssh/hostkeys/ssh_host_ed25519_key ldap/config.ldif ldap/data.ldif \
   tftp-configs.tar koitohan-backup.txt
 do
   grep -q -x -F -- "${MEMBER}" <<< "${OUT}" || WHY="${WHY} ${MEMBER}"
 done
 grep -q '/$' <<< "${OUT}" && WHY="${WHY} (directories)"
+# nothing is kept in secrets/ any more
+grep -q '^secrets/' <<< "${OUT}" && WHY="${WHY} (secrets/)"
 [[ -z "${WHY}" ]] && OUT='all members'
 check_found 'backup' 'members' 'all members' "${OUT}"
 
 # the files of the test stack, not those of the running one
 OUT='other files'
 tar -x -O -z -f "${ARCHIVE}" freeradius/config/clients.conf | cmp -s - tests/clients.conf \
-  && tar -x -O -z -f "${ARCHIVE}" secrets/ldap_admin_password \
-     | cmp -s - "${KOITOHAN_GENERATED_ROOT}/secrets/ldap_admin_password" \
   && OUT='files of the stack'
 check_found 'backup' 'files' 'files of the stack' "${OUT}"
 
@@ -1735,7 +1721,6 @@ check_found 'restore' 'openldap' 'not seeded' "${OUT}"
 check 'restore' 127.0.0.1 smoke02 "${NEW_PASS}" Accept 'AVPair = "shell:priv-lvl=1"'
 check_ssh 'restore' readonly01 "${NEW_PASS}" 'koitohan readonly' 'id -Gn' < /dev/null
 check_users 'restore' 'uidNumber 10006' "${NEW_PASS}" add smoke03 operator
-check_admin_bind 'restore' admin "${NEW_ADMIN}" 'dn:cn=admin,dc='
 
 # configs/, as docs/backup.md restores it
 OUT=$(tar -x -O -z -f "${ARCHIVE}" tftp-configs.tar \

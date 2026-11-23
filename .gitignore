@@ -15,7 +15,8 @@
 
 /openssh/hostkeys/*
 
-/secrets/*
+# made by earlier versions, which kept passwords there
+/secrets/
 
 /logrotate/*
 

@@ -22,10 +22,10 @@ COPY entrypoint.sh /entrypoint.sh
 # (/var/lib/openldap/openldap-data), both mounted, and in /run and
 # /var/lib/openldap/run, both tmpfs (the socket of ldapi:///, where the
 # build of the package put it).
-# /etc/koitohan is where the certificates, the LDIF of the seed and the
-# passwords of the administrators are mounted. Only root can enter it.
+# /etc/koitohan is where the certificates and the LDIF of the seed are
+# mounted. Only root can enter it.
 RUN mkdir -m 700 /etc/koitohan \
- && mkdir /etc/koitohan/certs /etc/koitohan/ldif /etc/koitohan/secrets \
+ && mkdir /etc/koitohan/certs /etc/koitohan/ldif \
  && mkdir -p /etc/openldap/slapd.d /var/lib/openldap/openldap-data /var/lib/openldap/run
 
 EXPOSE 636/tcp
