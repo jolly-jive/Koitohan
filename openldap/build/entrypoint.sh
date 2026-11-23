@@ -181,7 +181,8 @@ objectClass: olcOverlayConfig
 objectClass: olcMemberOf
 olcOverlay: {0}memberof
 olcMemberOfDangling: ignore
-olcMemberOfRefInt: TRUE
+olcMemberOfRefInt: FALSE
+olcMemberOfAddCheck: TRUE
 olcMemberOfGroupOC: groupOfUniqueNames
 olcMemberOfMemberAD: uniqueMember
 olcMemberOfMemberOfAD: memberOf
@@ -259,8 +260,9 @@ EOF
 fi
 
 # The log level, the minimum of TLS, the scheme of the password hashes,
-# the identities of the services and the access control are written on
-# every start, and the passwords of the administrators are removed. The
+# the settings of memberof, the identities of the services and the
+# access control are written on every start, and the passwords of the
+# administrators are removed. The
 # environment and this script are where these are kept, and a change
 # made over ldapi:/// does not outlive a start. The scheme is for the
 # passwords that are set from now on: a hash that is there stays as it
@@ -289,6 +291,19 @@ dn: olcDatabase={-1}frontend,cn=config
 changetype: modify
 replace: olcPasswordHash
 olcPasswordHash: {ARGON2}
+
+# memberof gives a user that is added the memberOf of the groups that
+# already name it (AddCheck): replication may bring the groups before
+# their members. AddCheck cannot go with the referential integrity of
+# memberof itself, which is off: the refint overlay takes a deleted
+# user out of the groups.
+dn: olcOverlay={0}memberof,olcDatabase={1}mdb,cn=config
+changetype: modify
+replace: olcMemberOfRefInt
+olcMemberOfRefInt: FALSE
+-
+replace: olcMemberOfAddCheck
+olcMemberOfAddCheck: TRUE
 
 # The administrators (the rootdns) have no password, so nobody can bind
 # as them. Administration goes over ldapi:///, as the root of the

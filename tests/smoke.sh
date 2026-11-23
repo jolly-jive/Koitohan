@@ -1513,6 +1513,29 @@ check_users 'users delete' 'deleted smoke01' '' delete smoke01
 check_ssh 'users delete' smoke01 "${NEW_PASS2}" denied 'id -Gn' < /dev/null
 check 'users delete' 127.0.0.1 smoke01 "${NEW_PASS2}" Reject '-'
 check_users 'users delete' 'no such user' '' delete smoke01
+
+# memberof and refint, without bin/manage_users.sh in between, as the
+# other host of a pair or ldapi:/// may write. A user named by a group
+# before it is added gets the memberOf of that group (AddCheck, for
+# replication, which may bring the groups first). A user deleted
+# directly is taken out of the groups by the refint overlay (the one of
+# memberof is off). refint does that in the background, so the group is
+# read again for a while.
+check_ldap 'memberof' 'add check' 'memberOf: cn=readonly,ou=Roles,' "
+  printf 'dn: cn=readonly,ou=Roles,%s\nchangetype: modify\nadd: uniqueMember\nuniqueMember: uid=addcheck01,ou=People,%s\n\ndn: uid=addcheck01,ou=People,%s\nchangetype: add\nobjectClass: inetOrgPerson\nuid: addcheck01\ncn: addcheck01\nsn: addcheck01\n' \
+    \"\${SUFFIX}\" \"\${SUFFIX}\" \"\${SUFFIX}\" \
+  | ldapmodify -Q -Y EXTERNAL -H ldapi:/// > /dev/null \
+  && ldapsearch -LLL -Q -Y EXTERNAL -H ldapi:/// -b \"uid=addcheck01,ou=People,\${SUFFIX}\" -s base memberOf"
+check_ldap 'memberof' 'refint' 'out of the group' "
+  ldapdelete -Q -Y EXTERNAL -H ldapi:/// \"uid=addcheck01,ou=People,\${SUFFIX}\" || exit 1
+  TRY=0
+  while [ \${TRY} -lt 30 ]; do
+    ldapsearch -LLL -Q -Y EXTERNAL -H ldapi:/// -b \"cn=readonly,ou=Roles,\${SUFFIX}\" -s base uniqueMember \
+      | grep -q -i '^uniqueMember: uid=addcheck01,' || { echo 'out of the group'; exit 0; }
+    TRY=\$((TRY + 1))
+    sleep 0.2
+  done
+  echo 'still in the group'"
 check_users 'users add' 'uidNumber 10005' "${NEW_PASS}" add smoke02 readonly
 
 # The way out of the openssh container, opened by a word at a time.
@@ -1596,6 +1619,11 @@ check_ldap 'tls minimum' 'config' 'modifying entry "cn=config"' \
 check_ldap 'hash scheme' 'config' 'modifying entry "olcDatabase={-1}frontend,cn=config"' \
   'ldapmodify -Q -Y EXTERNAL -H ldapi:///' \
   'dn: olcDatabase={-1}frontend,cn=config\nchangetype: modify\nreplace: olcPasswordHash\nolcPasswordHash: {SSHA}\n'
+# and for the settings of memberof (AddCheck first: memberof refuses it
+# while its own RefInt is on)
+check_ldap 'memberof' 'config' 'modifying entry "olcOverlay={0}memberof,olcDatabase={1}mdb,cn=config"' \
+  'ldapmodify -Q -Y EXTERNAL -H ldapi:///' \
+  'dn: olcOverlay={0}memberof,olcDatabase={1}mdb,cn=config\nchangetype: modify\nreplace: olcMemberOfAddCheck\nolcMemberOfAddCheck: FALSE\n\ndn: olcOverlay={0}memberof,olcDatabase={1}mdb,cn=config\nchangetype: modify\nreplace: olcMemberOfRefInt\nolcMemberOfRefInt: TRUE\n'
 # and for the identities of the services and the access control. With
 # these gone, FreeRADIUS and OpenSSH read nothing: the logins after the
 # restart below show that they are back.
@@ -1611,6 +1639,8 @@ check_ldap 'hash scheme' 'config' 'olcPasswordHash: {ARGON2}' \
   "ldapsearch -LLL -Q -Y EXTERNAL -H ldapi:/// -b 'olcDatabase={-1}frontend,cn=config' -s base olcPasswordHash"
 check_ldap 'service identity' 'config' '"cn=openssh,cn=koitohan"' \
   'ldapsearch -LLL -Q -Y EXTERNAL -H ldapi:/// -b cn=config -s base olcAuthzRegexp'
+check_ldap 'memberof' 'config' 'olcMemberOfAddCheck: TRUE olcMemberOfRefInt: FALSE' \
+  "ldapsearch -LLL -Q -Y EXTERNAL -H ldapi:/// -b 'olcOverlay={0}memberof,olcDatabase={1}mdb,cn=config' -s base olcMemberOfAddCheck olcMemberOfRefInt | grep '^olcMemberOf' | sort | paste -s -d ' '"
 
 # the image removes the passwords of the administrators on every start
 check_ldap 'ldap restart' 'rootpw' 'olcRootPW: 0' "echo \"olcRootPW: \$(${ROOTPW_COUNT})\""
