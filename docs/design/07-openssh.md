@@ -131,7 +131,7 @@ GID もファイルに数値で残るため、後から変更しない。
 
 1. パケットフィルタを入れ、`NET_ADMIN` を落として自分自身を起動し直す（8 節の「接続元の制限」）。入ってくる側は `OPENSSH_ALLOWED_NETWORKS` からの 22/tcp を、出ていく側は、`OPENSSH_EGRESS` が `any` でなければ、コンテナのネットワークのサブネット宛ての 636/tcp に加えて、語ごとのもの（`ssh` は宛先を問わない 22/tcp、`icmp` は echo request）だけを許し、`any` のとき、宛先を問わず 514/tcp、514/udp、69/udp を断る。許さない通信は、TCP なら RST、それ以外なら ICMP の administratively prohibited で断る。断る番号は `compose.yaml` で公開しているホスト側の番号で、変えるときは揃える。サブネットは `.env` の `OPENSSH_SUBNET` ではなく、コンテナの経路表（`ip -4 route show scope link`）から取る。スモークテストのネットワークは Docker が割り当てるためである。`OPENSSH_EGRESS` が空のとき、知らない語を含むとき、`none` や `any` をほかの語と並べたときは起動しない。語を読むあいだはファイル名の展開を止める（`set -f`）。
 2. busybox の `syslogd` を起動する。sshd、`nslcd`、PAM の出力をコンテナの標準出力へ流すためである（tftpd-hpa と同じ方法）。
-3. `/run/koitohan/`（tmpfs）に、`nslcd.conf`、`nslcd` 用の証明書の写し、bind 用のパスワード、`passwdqc.conf`、sshd の `AllowTcpForwarding`（`sshd_forwarding.conf`。`OPENSSH_EGRESS` が `ssh` を含むか `any` なら `local`、それ以外は `no`。1 の段階で決め、起動し直したあとへ環境変数 `KOITOHAN_TCP_FORWARDING` で渡す）を書き出す。bind 用のパスワードは、マウントされたファイル（`/etc/koitohan/secrets/bindpw`。4.10 節）から読む。
+3. `/run/koitohan/`（tmpfs）に、`nslcd.conf`、`nslcd` 用の証明書の写し、`passwdqc.conf`、sshd の `AllowTcpForwarding`（`sshd_forwarding.conf`。`OPENSSH_EGRESS` が `ssh` を含むか `any` なら `local`、それ以外は `no`。1 の段階で決め、起動し直したあとへ環境変数 `KOITOHAN_TCP_FORWARDING` で渡す）を書き出す。`nslcd` は、証明書の身元で bind する（4.2 節）。bind 用のパスワードはない。
 4. `koitohan-update-users` で `/etc/passwd` と `/etc/group` を作る。OpenLDAP が応答するまで繰り返し、一定回数で諦めて終了する。
 5. `nslcd` と sshd を起動する。どちらかが終了したらコンテナごと終了し、Docker に起動し直させる。
 
@@ -139,7 +139,7 @@ PID 1 は Docker の init（`init: true`）とし、ユーザが残したプロ�
 
 **`/etc/passwd` と `/etc/group` の生成（`koitohan-update-users`）**
 
-- サービスアカウントで `ou=People` を検索し、`posixAccount` を持ち、`memberOf` がロールを指すユーザだけを書き出す。ロールは `uniqueMember` を読まず、FreeRADIUS と同じく `memberOf` から決める。複数のロールを指すときは、いちばん弱いロールのグループにだけ入れる（7.2 節）。
+- 証明書の身元（4.2 節）で `ou=People` を検索し、`posixAccount` を持ち、`memberOf` がロールを指すユーザだけを書き出す。ロールは `uniqueMember` を読まず、FreeRADIUS と同じく `memberOf` から決める。複数のロールを指すときは、いちばん弱いロールのグループにだけ入れる（7.2 節）。
 - 次のユーザは書き出さず、理由を出力する。ログイン名として使えない `uid`、イメージに元からあるアカウントと同じ名前、範囲（10000〜59999）の外の `uidNumber`、ほかのユーザと重なる `uidNumber`。
 - `gidNumber`、`homeDirectory`、`loginShell` は LDAP の値を使わず、それぞれ 10000、`/`、`/bin/sh` を書く。
   ホームディレクトリを実在しないパスにすると、sshd がログインのたびに警告を表示するため、`/` とした。

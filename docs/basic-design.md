@@ -79,7 +79,7 @@ Raspberry Pi 5 を Docker ホストとして利用し、
 ```
 
 設定値（ドメイン、コンテナ名など）は `.env` に集約し、証明書・LDIF・FreeRADIUS の LDAP モジュール設定はスクリプトで `.env` から生成する。  
-パスワードは人が決める値ではないので、`.env` には置かず、構築時に生成する（サービスアカウントは 4.10 節、OpenLDAP の管理者は 4.11 節）。
+パスワードは人が決める値ではないので、`.env` には置かず、構築時に生成する（OpenLDAP の管理者。4.11 節）。FreeRADIUS と利用者作業用コンテナは、パスワードを持たず、クライアント証明書で OpenLDAP に bind する（4.2 節）。
 
 ---
 
@@ -101,9 +101,9 @@ Raspberry Pi 5 を Docker ホストとして利用し、
 本文: [design/04-ldap.md](design/04-ldap.md)
 
 - 4.1 ロール
-- 4.2 ServiceAccounts OU
-- 4.3 ServiceAccounts OU の ACL 設計
-- 4.4 FreeRADIUS 用サービスアカウント uid=radius
+- 4.2 サービスの身元
+- 4.3 サービスのアクセス制御
+- 4.4 FreeRADIUS と利用者作業用コンテナの bind
 - 4.5 TLS
 - 4.6 初期投入
 - 4.7 ユーザの管理
@@ -188,7 +188,7 @@ Raspberry Pi 5 を Docker ホストとして利用し、
   ├── scripts/             ← 構築用: 証明書・LDIF・設定の生成スクリプト
   ├── bin/                 ← 運用用: ユーザ管理、パスワード変更、バックアップと復元のスクリプト
   ├── CA/                  ← 生成した CA と証明書
-  ├── secrets/             ← 生成したパスワード（サービスアカウント、OpenLDAP の管理者）
+  ├── secrets/             ← 生成したパスワード（OpenLDAP の管理者）
   ├── logrotate/           ← 生成した logrotate の設定（/etc/logrotate.d/ に置く元）
   ├── docs/
   ├── tests/               ← スモークテスト
