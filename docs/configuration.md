@@ -228,7 +228,7 @@ make ldap_dir
 docker compose exec -T openldap ldapmodify -c -Q -Y EXTERNAL -H ldapi:/// < openldap/ldif/400-PPolicy.ldif
 ```
 
-It reports `Type or value exists`, `overlay "ppolicy" already in list` and `Already exists` for the module, the overlay and the entries that are already there, which is fine. Only the values are replaced.
+It reports `Already exists` for the entries that are already there, which is fine. Only the values are replaced.
 
 ### Password hashes
 

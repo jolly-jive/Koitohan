@@ -228,7 +228,7 @@ make ldap_dir
 docker compose exec -T openldap ldapmodify -c -Q -Y EXTERNAL -H ldapi:/// < openldap/ldif/400-PPolicy.ldif
 ```
 
-すでにあるモジュール、オーバーレイ、エントリには `Type or value exists`、`overlay "ppolicy" already in list`、`Already exists` と表示されますが、問題ありません。値だけが置き換わります。
+すでにあるエントリには `Already exists` と表示されますが、問題ありません。値だけが置き換わります。
 
 ### パスワードのハッシュ
 

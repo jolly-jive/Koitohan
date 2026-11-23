@@ -72,28 +72,15 @@ uniqueMember:
 EOF
 
 
-# The overlay refuses hashed passwords (pwdCheckQuality: 2), so an LDIF
+# The policy refuses hashed passwords (pwdCheckQuality: 2), so an LDIF
 # that carries one would have to go in before this. None does now. The
-# order inside matters: the policy needs the module.
+# module and the overlay are config, which the entrypoint of OpenLDAP
+# writes; the files here are the data that the hosts of a pair share.
 #
 # The values are set by a replace, apart from the entries. That way the
 # file can be applied again to a running directory (ldapmodify -c), and
 # the values follow .env.
 cat <<EOF > ${PPOLICY_LDIF}
-dn: cn=module{0},cn=config
-changetype: modify
-add: olcModuleLoad
-olcModuleLoad: ppolicy
-
-dn: olcOverlay=ppolicy,olcDatabase={1}mdb,cn=config
-changetype: add
-objectClass: olcOverlayConfig
-objectClass: olcPPolicyConfig
-olcOverlay: ppolicy
-olcPPolicyDefault: cn=default,${POLICIES_DN}
-olcPPolicyHashCleartext: TRUE
-olcPPolicyUseLockout: FALSE
-
 dn: ${POLICIES_DN}
 changetype: add
 objectClass: organizationalUnit
