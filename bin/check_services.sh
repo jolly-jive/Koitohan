@@ -129,6 +129,72 @@ else
     'docker compose logs openldap openssh'
 fi
 
+### the other host of a pair
+# The two hosts have to hold the same entries, each at the same
+# entryCSN. Both are read from inside openldap: this one over ldapi:///,
+# the other one over LDAPS with the replication certificate, the way
+# replication itself goes. A change made just now may not have reached
+# the other host yet, so a difference is looked at again before the
+# WARN. A difference that stays does not mend by itself (docs/pair.md).
+PEER=''
+if running openldap; then
+  PEER=$(docker inspect -f '{{range .Config.Env}}{{println .}}{{end}}' "${CONTAINER[openldap]}" 2> /dev/null \
+           | sed -n 's/^OPENLDAP_PEER_ADDRESS=//p')
+fi
+if ! running openldap; then
+  skip 'pair: openldap is not running, not checked'
+elif [[ -z "${PEER}" || "${PEER}" == none ]]; then
+  skip 'pair: a single host (OPENLDAP_PEER_ADDRESS is none)'
+else
+  for TRY in 1 2 3; do
+    # the DN and the entryCSN of every entry, this host, a line of
+    # dashes, then the other host. Exits with 3 when the other host
+    # cannot be read.
+    OUT=$(in_container openldap sh -c '
+        SUFFIX="dc=$(echo "${LDAP_DOMAIN}" | sed "s/\./,dc=/g")"
+        pairs() {
+          awk "/^dn: / { dn = substr(\$0, 5) } /^entryCSN: / { print dn \" \" substr(\$0, 11) }" | sort
+        }
+        HERE=$(ldapsearch -Q -Y EXTERNAL -LLL -o ldif-wrap=no -H ldapi:/// \
+                 -b "${SUFFIX}" "(objectClass=*)" entryCSN 2>&1) || { echo "${HERE}"; exit 2; }
+        THERE=$(LDAPTLS_REQCERT=demand \
+                LDAPTLS_CACERT=/run/koitohan/certs/ca.crt \
+                LDAPTLS_CERT=/run/koitohan/certs/replication.crt \
+                LDAPTLS_KEY=/run/koitohan/certs/replication.key \
+                ldapsearch -Q -Y EXTERNAL -LLL -o ldif-wrap=no -o nettimeout=10 \
+                  -H "ldaps://${OPENLDAP_PEER_ADDRESS}" \
+                  -b "${SUFFIX}" "(objectClass=*)" entryCSN 2>&1) || { echo "${THERE}"; exit 3; }
+        echo "${HERE}" | pairs
+        echo -----
+        echo "${THERE}" | pairs' < /dev/null 2>&1)
+    RC=$?
+    [[ ${RC} -ne 0 ]] && break
+    HERE=$(sed '/^-----$/,$d' <<< "${OUT}")
+    THERE=$(sed '1,/^-----$/d' <<< "${OUT}")
+    [[ "${HERE}" == "${THERE}" ]] && break
+    sleep 5
+  done
+  if [[ ${RC} -eq 3 ]]; then
+    warn "pair: cannot read the other host (${PEER})" \
+      "${OUT//$'\n'/ }" \
+      'See "When the two hosts differ" in docs/pair.md.'
+  elif [[ ${RC} -ne 0 ]]; then
+    ng 'pair: openldap could not read its own entries' \
+      "${OUT//$'\n'/ }" \
+      'docker compose logs openldap'
+  elif [[ "${HERE}" == "${THERE}" ]]; then
+    ok "pair: the same $(grep -c . <<< "${HERE}") entries as the other host (${PEER})"
+  else
+    # the lines of one side only: an entry missing, or at another
+    # entryCSN. A few of each.
+    mapfile -t ONLY_HERE < <(LC_ALL=C comm -23 <(LC_ALL=C sort <<< "${HERE}") <(LC_ALL=C sort <<< "${THERE}") | head -n 5 | sed 's/^/only here:  /')
+    mapfile -t ONLY_THERE < <(LC_ALL=C comm -13 <(LC_ALL=C sort <<< "${HERE}") <(LC_ALL=C sort <<< "${THERE}") | head -n 5 | sed 's/^/only there: /')
+    warn "pair: differs from the other host (${PEER})" \
+      "${ONLY_HERE[@]}" "${ONLY_THERE[@]}" \
+      'See "When the two hosts differ" in docs/pair.md.'
+  fi
+fi
+
 ### freeradius
 # Status-Server answers without going to LDAP, so no user is needed.
 # The secret goes through stdin and a file, as arguments show in ps.

@@ -192,6 +192,7 @@ For the Koitohan administrators:
 - [Logs](docs/logs.md): where the logs are and how they rotate
 - [Backup and restore](docs/backup.md): what a backup holds, running it every day, restoring onto a new host
 - [Checking the services](docs/monitoring.md): checking that the services work, and doing it on a schedule (recommended)
+- [Redundant pair](docs/pair.md): two hosts that share the directory, setting them up, rules, when they differ
 - [Device configuration examples](docs/devices/README.md): settings on the network devices, sent by contributors
 - [Basic design](docs/basic-design.md) (Japanese)
 

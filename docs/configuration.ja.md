@@ -12,8 +12,8 @@
 | `LDAP_ORGANISATION`                   | ディレクトリに保存する組織名。                                                        |
 | `OPENLDAP_CONTAINER_NAME`             | OpenLDAP のコンテナ名。                                                               |
 | `OPENLDAP_ALLOWED_NETWORKS`           | Docker ホストの外で LDAPS を受け付ける送信元。`none` かアドレス。「[LDAPS の接続元](#ldaps-の接続元)」を参照。 |
-| `OPENLDAP_HOST_ADDRESS`               | 冗長構成のためのもので、まだ使えません。`none` のままにしてください。                |
-| `OPENLDAP_PEER_ADDRESS`               | 冗長構成のためのもので、まだ使えません。`none` のままにしてください。                |
+| `OPENLDAP_HOST_ADDRESS`               | [冗長構成](pair.ja.md)で、もう片方の台から見たこの台のアドレス。1台なら `none`。 |
+| `OPENLDAP_PEER_ADDRESS`               | [冗長構成](pair.ja.md)の、もう片方の台のアドレス。1台なら `none`。               |
 | `FREERADIUS_CONTAINER_NAME`           | FreeRADIUS のコンテナ名。                                                             |
 | `SYSLOG_CONTAINER_NAME`               | syslog-ng のコンテナ名。                                                              |
 | `TFTP_CONTAINER_NAME`                 | tftpd-hpa のコンテナ名。                                                              |
@@ -64,7 +64,7 @@ OpenLDAP は Docker ホストで LDAPS(636/tcp)を公開していますが、ホ
 OPENLDAP_ALLOWED_NETWORKS='none'
 ```
 
-`none`(既定)は、ホストの外からは何も受け付けません。この変数は、2台の Koitohan でディレクトリを複製する構成(まだ提供していません)のためのもので、各台に相手の台のアドレスを書くことになります。書き方は、`none` のほかは `DEVICE_NETWORKS` と同じです。値が空のとき、書式が誤っているとき、`none` とアドレスを混ぜたときは、OpenLDAP は起動しません。
+`none`(既定)は、ホストの外からは何も受け付けません。[冗長構成](pair.ja.md)では、各台に相手の台のアドレスを書きます。書き方は、`none` のほかは `DEVICE_NETWORKS` と同じです。値が空のとき、書式が誤っているとき、`none` とアドレスを混ぜたときは、OpenLDAP は起動しません。
 
 ユーザーの管理は、外から LDAP のツールでつながず、`bin/manage_users.sh` で行ってください(「[ユーザーとロール](#ユーザーとロール)」を参照)。番号の割り当てや、ユーザーごとにロールを1つにすることなど、Koitohan の決まりをスクリプトが守ります。
 

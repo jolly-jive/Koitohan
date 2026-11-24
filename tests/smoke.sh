@@ -1184,6 +1184,13 @@ function check_pair_same() {
     "$(diff <(echo "${A}") <(echo "${B}") | head -n 20)"
 }
 
+# The lines of bin/check_services.sh about the pair, without -q: OK and
+# SKIP as well.
+function services_pair() {
+  COMPOSE_PROJECT_NAME=koitohan-test COMPOSE_FILE=compose.yaml:tests/compose.test.yaml \
+    bin/check_services.sh 2>&1 | awk '/^[A-Z]+ +pair:/ { p = 1; print; next } /^[A-Z]/ { p = 0 } p'
+}
+
 # the replication settings of SERVICE, in one line
 PAIR_CONFIG='for F in "(objectClass=olcSyncProvConfig)" "(olcSyncrepl=*)" "(olcMultiProvider=TRUE)"; do
     echo -n "$(ldapsearch -LLL -Q -Y EXTERNAL -H ldapi:/// -b cn=config "${F}" dn | grep -c "^dn:") "
@@ -2170,6 +2177,72 @@ description: after the restart of host A
 EOF' > /dev/null
 check_pair_same 'restarted A'
 
+# bin/check_services.sh compares the two hosts, entry by entry.
+check_found 'services' 'pair same' 'OK    pair: the same' "$(services_pair)"
+
+# A restore in a pair, as docs/backup.md has it: host A from the
+# backup, host B deleted, both started. A user deleted after the backup
+# is back on both. restore_ldap.sh tells to delete the other host.
+OUT=$("${STACK[@]}" bin/backup.sh "${BACKUP_DIR}" 2>&1 < /dev/null)
+PAIR_ARCHIVE=$(sed -n 's/^wrote //p' <<< "${OUT}")
+on_ldap openldap 'ldapdelete -Q -Y EXTERNAL -H ldapi:/// "uid=smoke03,ou=People,${SUFFIX}"' > /dev/null
+check_pair_same 'before restore'
+"${COMPOSE[@]}" stop openldap-b > /dev/null 2>&1
+"${COMPOSE[@]}" rm -s -f -v openldap > /dev/null 2>&1
+OUT=$(OPENLDAP_PEER_ADDRESS="${PEER_ADDRESS}" "${STACK[@]}" bin/restore_ldap.sh "${PAIR_ARCHIVE}" 2>&1 < /dev/null)
+check_found 'pair restore' 'note' 'This host is one of a pair' "${OUT}"
+"${COMPOSE[@]}" rm -s -f -v openldap-b > /dev/null 2>&1
+if ! OPENLDAP_PEER_ADDRESS="${PEER_ADDRESS}" "${COMPOSE[@]}" up -d --no-deps openldap > /dev/null 2>&1 \
+   || ! wait_ldap_ready; then
+  echo 'host A did not start after the restore'
+  "${COMPOSE[@]}" logs --tail 30 openldap
+  exit 1
+fi
+"${COMPOSE[@]}" up -d --no-deps openldap-b > /dev/null 2>&1
+link_pair
+WHY=''
+wait_log openldap-b 'received the data from the other host' 60 || WHY='expected host B to receive the data'
+report 'pair restore' 'host B' 'received again' "${WHY}" "$("${COMPOSE[@]}" logs --tail 10 openldap-b 2>&1)"
+check_pair_same 'restored'
+check_found 'pair restore' 'host B' 'uid=smoke03: 1' \
+  "$(on_ldap openldap-b 'echo "uid=smoke03: $(ldapsearch -LLL -Q -Y EXTERNAL -H ldapi:/// -b "${SUFFIX}" "(uid=smoke03)" dn | grep -c "^dn:")"')"
+
+# Replication cut one way: what host B sends to LDAPS elsewhere, and
+# what comes back from there, is dropped in its namespace, the
+# connection it has to host A as well. A change on host A stays there.
+# check_services.sh on host A still reads host B, on the LDAPS of host
+# B, and finds the difference. The restart of host B below ends the cut.
+docker run --rm --network "container:$("${COMPOSE[@]}" ps -q openldap-b)" --cap-add NET_ADMIN \
+  -i --ulimit nofile=1024 --entrypoint nft koitohan/openldap -f - > /dev/null 2>&1 <<'EOF'
+table ip cut {
+	chain in {
+		type filter hook input priority 0;
+		tcp sport 636 drop
+	}
+	chain out {
+		type filter hook output priority 0;
+		tcp dport 636 drop
+	}
+}
+EOF
+on_ldap openldap 'ldapmodify -Q -Y EXTERNAL -H ldapi:/// > /dev/null <<EOF
+dn: uid=smoke03,ou=People,${SUFFIX}
+changetype: modify
+replace: description
+description: on host A only
+EOF' > /dev/null
+OUT=$(services_pair)
+check_found 'services' 'pair differs' 'WARN  pair: differs from the other host' "${OUT}"
+check_found 'services' 'pair differs' 'only here:  uid=smoke03' "${OUT}"
+# host B away
+"${COMPOSE[@]}" stop openldap-b > /dev/null 2>&1
+check_found 'services' 'pair away' 'WARN  pair: cannot read the other host' "$(services_pair)"
+# back, and the way open again
+"${COMPOSE[@]}" start openldap-b > /dev/null 2>&1
+link_pair
+check_pair_same 'mended'
+check_found 'services' 'pair mended' 'OK    pair: the same' "$(services_pair)"
+
 # Without the other host, openldap is a single host again: no server
 # ID, no syncrepl, and syncprov stays.
 if ! "${COMPOSE[@]}" up -d --no-deps openldap > /dev/null 2>&1 || ! wait_ldap_ready; then
@@ -2178,6 +2251,7 @@ if ! "${COMPOSE[@]}" up -d --no-deps openldap > /dev/null 2>&1 || ! wait_ldap_re
   exit 1
 fi
 check_ldap 'replication' 'single again' '1 0 0 none' "${PAIR_CONFIG}"
+check_found 'services' 'pair single' 'SKIP  pair: a single host' "$(services_pair)"
 
 echo
 if [[ ${FAILED} -ne 0 ]]; then
