@@ -125,6 +125,39 @@ make up
 
 証明書は何もしなくて構いません。FreeRADIUS と OpenSSH は、バックアップにかかわらず、`make` が作った証明書で bind します。以前の版のアーカイブには `secrets/` も入っていますが、もう使わないので、取り出さないでください。
 
+## 冗長構成の復元
+
+[冗長構成](pair.ja.md)では、バックアップから戻すのは片方の台だけにします(どちらでもかまいません)。もう片方の台は、ディレクトリを消して、戻した台からすべて受け取ります。
+
+**もう片方の台の削除を省かないでください。** ディレクトリを残したまま起動すると、もう片方の台の内容が、戻した台を上書きすることがあります。試したときは、戻した台のバックアップの内容は残らず、何も言わずに、2台とも、もう片方の台が持っていた状態(戻す前と同じ状態)に揃いました。それより前の試作では、逆に、2台が食い違ったまま直りませんでした。`bin/check_services.sh` は、後者では `WARN pair: differs from the other host` を出しますが、前者では何も出しません。`bin/restore_ldap.sh` は、対の台では最後にそのことを注意します。
+
+1. 両方の台を止めます。そのあいだ、機器はローカルのアカウントでしかログインできません。
+
+   ```sh
+   make down     # 両方の台で
+   ```
+
+2. 戻す台で、バックアップを読み込みます。
+
+   ```sh
+   sudo find openldap/data openldap/config -mindepth 1 ! -name .gitkeep -delete
+   bin/restore_ldap.sh <アーカイブ>
+   ```
+
+3. もう片方の台で、ディレクトリを消します。
+
+   ```sh
+   sudo find openldap/data openldap/config -mindepth 1 ! -name .gitkeep -delete
+   ```
+
+4. 両方の台を起動します。順序は問いません。戻した台が起動すると、もう片方の台はディレクトリを受け取ります(「[稼働中の Koitohan から対を作る](pair.ja.md#稼働中の-koitohan-から対を作る)」の手順 5 を参照)。
+
+   ```sh
+   make up       # 両方の台で
+   ```
+
+5. 両方の台で `bin/check_services.sh` を実行し、`OK pair: the same ... entries as the other host` が出ることを確かめます。
+
 ## `configs/` だけを復元する
 
 ```sh

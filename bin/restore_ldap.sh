@@ -97,4 +97,26 @@ in_openldap "touch '${SEEDED}' && chown -R ldap:ldap '${CONF_DIR}' '${DATA_DIR}'
   || undo 'could not mark the directory as seeded'
 
 echo "restored the directory of ${ARCHIVE}"
+
+# A host of a pair. The other host has to receive everything from this
+# one again. Started with its own data, it wrote that data over this
+# one in a test, and the backup put back here did not last: both hosts
+# ended up as they were before the restore. In an earlier trial the two
+# hosts stayed different for good instead (docs/backup.md). Only a note:
+# what makes the other host receive is deleting its persistent data
+# there.
+PEER=$(docker inspect -f '{{range .Config.Env}}{{println .}}{{end}}' "${CONTAINER}" 2> /dev/null \
+         | sed -n 's/^OPENLDAP_PEER_ADDRESS=//p')
+if [[ -n "${PEER}" && "${PEER}" != none ]]; then
+  cat <<EOF
+
+This host is one of a pair (OPENLDAP_PEER_ADDRESS=${PEER}).
+Before you start OpenLDAP here, stop it on the other host and delete
+its persistent data there, so that it receives everything from this
+host. Started with its own data, the other host can write that data
+over this host without a word, so that the backup put back here does
+not last, or the two hosts can stay different for good.
+See "Restoring a pair" in docs/backup.md.
+EOF
+fi
 exit 0

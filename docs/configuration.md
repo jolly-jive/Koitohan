@@ -12,8 +12,8 @@
 | `LDAP_ORGANISATION`                   | Organization name stored in the directory.                                     |
 | `OPENLDAP_CONTAINER_NAME`             | Container name of OpenLDAP.                                                    |
 | `OPENLDAP_ALLOWED_NETWORKS`           | Networks outside the Docker host that LDAPS is accepted from: `none`, or addresses. See [Sources of LDAPS](#sources-of-ldaps). |
-| `OPENLDAP_HOST_ADDRESS`               | For a redundant pair, which is not ready yet. Leave it `none`.                 |
-| `OPENLDAP_PEER_ADDRESS`               | For a redundant pair, which is not ready yet. Leave it `none`.                 |
+| `OPENLDAP_HOST_ADDRESS`               | The address of this host, for the other host of a [redundant pair](pair.md). `none` for a single host. |
+| `OPENLDAP_PEER_ADDRESS`               | The address of the other host of a [redundant pair](pair.md). `none` for a single host. |
 | `FREERADIUS_CONTAINER_NAME`           | Container name of FreeRADIUS.                                                  |
 | `SYSLOG_CONTAINER_NAME`               | Container name of syslog-ng.                                                   |
 | `TFTP_CONTAINER_NAME`                 | Container name of tftpd-hpa.                                                   |
@@ -64,7 +64,7 @@ OpenLDAP publishes LDAPS (636/tcp) on the Docker host, but nothing outside the h
 OPENLDAP_ALLOWED_NETWORKS='none'
 ```
 
-`none` (the default) lets in nothing from outside the host. The value is there for a pair of Koitohan hosts that replicate their directories, which is not available yet; each host will list the address of the other. Otherwise it is written like `DEVICE_NETWORKS`. OpenLDAP does not start when the value is empty or malformed, or mixes `none` with addresses.
+`none` (the default) lets in nothing from outside the host. In a [redundant pair](pair.md), each host lists the address of the other. Otherwise it is written like `DEVICE_NETWORKS`. OpenLDAP does not start when the value is empty or malformed, or mixes `none` with addresses.
 
 Manage users with `bin/manage_users.sh` (see [Users and roles](#users-and-roles)), not with an LDAP tool from outside: the script keeps the rules of Koitohan, such as the numbers and the single role of each user.
 

@@ -125,6 +125,39 @@ make up
 
 The certificates need nothing: FreeRADIUS and OpenSSH bind with the ones that `make` made, whatever the backup. An archive of an earlier version holds `secrets/` as well, which is no longer used: do not take it out.
 
+## Restoring a pair
+
+In a [redundant pair](pair.md), restore one host only, either of them. The other host deletes its directory and receives everything from the restored one.
+
+**Do not skip the delete on the other host.** Started with its own directory, the other host can write it over the restored host: in a test, the backup put back on the restored host did not last, and without a word, both hosts ended up with the directory of the other host, as before the restore. In an earlier trial, the two hosts stayed different for good instead. `bin/check_services.sh` gives `WARN pair: differs from the other host` for the second, and nothing for the first. `bin/restore_ldap.sh` reminds you at the end when the host is one of a pair.
+
+1. Stop both hosts. Meanwhile the devices can log in with their local accounts only.
+
+   ```sh
+   make down     # on both hosts
+   ```
+
+2. On the host to restore, load the backup:
+
+   ```sh
+   sudo find openldap/data openldap/config -mindepth 1 ! -name .gitkeep -delete
+   bin/restore_ldap.sh <archive>
+   ```
+
+3. On the other host, delete the directory:
+
+   ```sh
+   sudo find openldap/data openldap/config -mindepth 1 ! -name .gitkeep -delete
+   ```
+
+4. Start both hosts, in either order. The other host receives the directory once the restored one is up (see step 5 of [Making a pair](pair.md#making-a-pair-from-a-running-koitohan)).
+
+   ```sh
+   make up       # on both hosts
+   ```
+
+5. Check with `bin/check_services.sh` on both hosts: `OK pair: the same ... entries as the other host`.
+
 ## Restoring `configs/` only
 
 ```sh
