@@ -75,8 +75,13 @@ SLAPD_CERT_DIR="${RUN_DIR}/certs"
 SEED_DIR=/etc/koitohan/ldif
 
 # marks a seed that ran to the end, so that slapd does not serve a config
-# and data that were left halfway
+# and data that were left halfway. A host that receives its data from
+# the other host of a pair has the second mark until it has all of it,
+# and then the first.
 SEEDED="${CONF_DIR}/koitohan-seeded"
+RECEIVING="${CONF_DIR}/koitohan-receiving"
+# the DN that the replication certificates map to. There is no entry.
+REPLICATION_DN='cn=replication,cn=koitohan'
 
 if [ -z "${LDAP_DOMAIN:-}" ]; then
   echo 'LDAP_DOMAIN is empty' >&2
@@ -84,20 +89,50 @@ if [ -z "${LDAP_DOMAIN:-}" ]; then
 fi
 LDAP_SUFFIX="dc=$(echo "${LDAP_DOMAIN}" | sed 's/\./,dc=/g')"
 
+# none, or one IPv4 address
+valid_address() {
+  [ "$1" = none ] || echo "$1" | awk -F . '
+    $0 !~ /^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$/ { exit 1 }
+    { for (i = 1; i <= 4; i++) if (length($i) > 3 || $i > 255) exit 1 }'
+}
+
 # The other host of a redundant pair: none (a single host), or its IPv4
 # address. Its CA is trusted only when there is one, so that a single
 # host does not take more client certificates than its own.
+# The address of this host, which the other one connects to, is in the
+# server certificate. Of the two addresses, the lower one makes server
+# ID 1 and the higher one 2, so that the two hosts never share one.
+HOST_ADDRESS="${OPENLDAP_HOST_ADDRESS:-}"
 PEER_ADDRESS="${OPENLDAP_PEER_ADDRESS:-}"
 PEER_CA=/etc/koitohan/peer/ca.pem
-if [ "${PEER_ADDRESS}" != none ] && ! echo "${PEER_ADDRESS}" | awk -F . '
-    $0 !~ /^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$/ { exit 1 }
-    { for (i = 1; i <= 4; i++) if (length($i) > 3 || $i > 255) exit 1 }'; then
+if ! valid_address "${HOST_ADDRESS}"; then
+  echo "OPENLDAP_HOST_ADDRESS must be none or an IPv4 address: '${HOST_ADDRESS}'" >&2
+  exit 1
+fi
+if ! valid_address "${PEER_ADDRESS}"; then
   echo "OPENLDAP_PEER_ADDRESS must be none or an IPv4 address: '${PEER_ADDRESS}'" >&2
   exit 1
 fi
-if [ "${PEER_ADDRESS}" != none ] && [ ! -s "${PEER_CA}" ]; then
-  echo "OPENLDAP_PEER_ADDRESS is set, and openldap/peer/ca.pem (the CA certificate of the other host) is missing" >&2
-  exit 1
+SERVER_ID=''
+if [ "${PEER_ADDRESS}" != none ]; then
+  if [ ! -s "${PEER_CA}" ]; then
+    echo "OPENLDAP_PEER_ADDRESS is set, and openldap/peer/ca.pem (the CA certificate of the other host) is missing" >&2
+    exit 1
+  fi
+  if [ "${HOST_ADDRESS}" = none ]; then
+    echo 'OPENLDAP_PEER_ADDRESS is set, and OPENLDAP_HOST_ADDRESS is none: a host of a pair needs its own address' >&2
+    exit 1
+  fi
+  SERVER_ID=$(awk -v host="${HOST_ADDRESS}" -v peer="${PEER_ADDRESS}" 'BEGIN {
+    split(host, h, "."); split(peer, p, ".")
+    for (i = 1; i <= 4; i++) {
+      if (h[i] + 0 < p[i] + 0) { print 1; exit }
+      if (h[i] + 0 > p[i] + 0) { print 2; exit }
+    } }')
+  if [ -z "${SERVER_ID}" ]; then
+    echo "OPENLDAP_HOST_ADDRESS and OPENLDAP_PEER_ADDRESS are the same address: '${HOST_ADDRESS}'" >&2
+    exit 1
+  fi
 fi
 
 # slapd writes to syslog, so pass it on to the stdout of the container
@@ -126,6 +161,16 @@ chmod 400 "${SLAPD_CERT_DIR}/ca.crt"
 
 chown ldap:ldap "${SOCKET_DIR}"
 
+# What a receipt that was stopped left behind is a part of what the
+# other host holds in full. It is deleted, and the receipt starts again.
+# The mark goes last, so that a stop in the middle of this comes back
+# here.
+if [ -e "${RECEIVING}" ]; then
+  echo 'a receipt from the other host stopped halfway: deleting it, to receive again'
+  rm -rf "${CONF_DIR}/cn=config" "${CONF_DIR}/cn=config.ldif" "${DATA_DIR}/data.mdb" "${DATA_DIR}/lock.mdb"
+  rm -f "${RECEIVING}"
+fi
+
 if [ ! -e "${SEEDED}" ]; then
   # Contents without the mark come from a seed that stopped halfway, and
   # cannot be carried on from. Whether to delete them is for the
@@ -136,11 +181,20 @@ if [ ! -e "${SEEDED}" ]; then
     exit 1
   fi
 
-  echo 'seeding the empty directory'
-
   # The seed is in two parts: the config, which every host makes for
   # itself, and the data, which the hosts of a pair share. The config is
   # all here; the LDIF in SEED_DIR is data alone.
+  #
+  # An empty host with the other host set is the second of a pair: it
+  # makes the config alone, and receives the data from the other host
+  # (below). Seeding the data on both would give the same entries two
+  # different entryUUIDs, which replication cannot put together.
+  if [ "${PEER_ADDRESS}" = none ]; then
+    echo 'seeding the empty directory'
+  else
+    echo "making the config of the empty directory, to receive the data from the other host (${PEER_ADDRESS})"
+    touch "${RECEIVING}"
+  fi
   #
   # Listens on ldaps:/// and ldapi:/// only (not on 389). Demands a client
   # certificate, and takes TLS 1.3 only.
@@ -240,7 +294,9 @@ olcPPolicyDefault: cn=default,ou=Policies,${LDAP_SUFFIX}
 olcPPolicyHashCleartext: TRUE
 olcPPolicyUseLockout: FALSE
 EOF
+fi
 
+if [ ! -e "${SEEDED}" ] && [ ! -e "${RECEIVING}" ]; then
   # The data that the hosts of a pair share: the suffix here, then the
   # LDIF (the OUs, the roles and the password policy). It holds no config.
   slapadd -n 1 -F "${CONF_DIR}" <<EOF
@@ -289,6 +345,32 @@ EOF
   echo 'seeded'
 fi
 
+# Replication: syncprov sends the changes of this host to the other one.
+# It is there on a single host as well, which becomes the first of a
+# pair with OPENLDAP_PEER_ADDRESS alone. The module goes in first: the
+# schema of the overlay is not known until it is loaded.
+MODULES=$(slapcat -n 0 -F "${CONF_DIR}" -a '(objectClass=olcModuleList)')
+if ! echo "${MODULES}" | grep -q '^olcModuleLoad: {[0-9]*}syncprov$'; then
+  echo 'loading the module of syncprov'
+  slapmodify -n 0 -F "${CONF_DIR}" <<EOF
+dn: cn=module{0},cn=config
+changetype: modify
+add: olcModuleLoad
+olcModuleLoad: syncprov
+EOF
+fi
+if ! slapcat -n 0 -F "${CONF_DIR}" -a '(objectClass=olcSyncProvConfig)' | grep -q '^dn:'; then
+  echo 'adding the overlay of syncprov'
+  # after memberof, refint and ppolicy
+  slapmodify -n 0 -F "${CONF_DIR}" <<EOF
+dn: olcOverlay=syncprov,olcDatabase={1}mdb,cn=config
+changetype: add
+objectClass: olcOverlayConfig
+objectClass: olcSyncProvConfig
+olcOverlay: syncprov
+EOF
+fi
+
 # A directory that was seeded before the passwords were hashed with
 # Argon2 does not load the module. It has to be there before the scheme
 # below is written: slapmodify writes the scheme unchecked, and slapd
@@ -305,9 +387,10 @@ EOF
 fi
 
 # The log level, the minimum of TLS, the scheme of the password hashes,
-# the limit on the size of a search, the settings of memberof, the identities of the services and the
-# access control are written on every start, and the passwords of the
-# administrators are removed. The
+# the limit on the size of a search, the settings of memberof, the
+# identities of the services and of replication, the access control and
+# the settings of a pair are written on every start, and the passwords
+# of the administrators are removed. The
 # environment and this script are where these are kept, and a change
 # made over ldapi:/// does not outlive a start. The scheme is for the
 # passwords that are set from now on: a hash that is there stays as it
@@ -318,7 +401,34 @@ fi
 # access control lets read everything but the passwords. OU names the
 # host, and is not looked at: a certificate from the CA of the other host
 # of a pair maps to the same DN. Any other subject binds as itself, and
-# reads nothing.
+# reads nothing. The replication certificate of the other host binds
+# the same way, and reads everything, the passwords too. It writes
+# nothing: what it reads, its own host writes into its own database.
+#
+# The other host, its server ID and the syncrepl towards it are written
+# on every start too, or removed when there is none.
+#
+# The syncrepl: refreshAndPersist sends every change at once. memberOf
+# is not sent: memberof makes it on every host from the groups. retry
+# has no end, as the other host may be away for days. keepalive finds
+# a connection that the other host dropped without closing (a loss of
+# power), which would otherwise wait for good. network-timeout gives up
+# a connection that gets no answer, so that the next try starts afresh.
+if [ "${PEER_ADDRESS}" = none ]; then
+  PAIR_CONFIG='replace: olcServerID'
+  PAIR_DATABASE='replace: olcMultiProvider
+-
+replace: olcSyncrepl'
+else
+  PAIR_CONFIG="replace: olcServerID
+olcServerID: ${SERVER_ID}"
+  PAIR_DATABASE="replace: olcSyncrepl
+olcSyncrepl: rid=001 provider=ldaps://${PEER_ADDRESS}:636 bindmethod=sasl saslmech=EXTERNAL tls_cert=${SLAPD_CERT_DIR}/replication.crt tls_key=${SLAPD_CERT_DIR}/replication.key tls_cacert=${SLAPD_CERT_DIR}/ca.crt tls_reqcert=demand tls_protocol_min=3.4 searchbase=\"${LDAP_SUFFIX}\" scope=sub attrs=\"*,+\" exattrs=memberOf type=refreshAndPersist retry=\"10 30 60 +\" keepalive=240:10:30 network-timeout=10
+-
+replace: olcMultiProvider
+olcMultiProvider: TRUE"
+fi
+
 slapmodify -n 0 -F "${CONF_DIR}" <<EOF
 dn: cn=config
 changetype: modify
@@ -331,6 +441,9 @@ olcTLSProtocolMin: 3.4
 replace: olcAuthzRegexp
 olcAuthzRegexp: {0}"^cn=freeradius,ou=[^,]+,o=koitohan\$" "cn=freeradius,cn=koitohan"
 olcAuthzRegexp: {1}"^cn=openssh,ou=[^,]+,o=koitohan\$" "cn=openssh,cn=koitohan"
+olcAuthzRegexp: {2}"^cn=replication,ou=[^,]+,o=koitohan\$" "${REPLICATION_DN}"
+-
+${PAIR_CONFIG}
 
 # A search has no limit on its size. Replication sends the whole tree,
 # and a limit would stop it short without an error. Nobody reads more
@@ -372,11 +485,61 @@ replace: olcRootPW
 -
 replace: olcAccess
 olcAccess: {0}to * by dn.exact=gidNumber=0+uidNumber=0,cn=peercred,cn=external,cn=auth manage by * break
-olcAccess: {1}to attrs=userPassword,shadowLastChange by self write by anonymous auth by * none
-olcAccess: {2}to * by self read by dn.exact="cn=freeradius,cn=koitohan" read by dn.exact="cn=openssh,cn=koitohan" read by * none
+olcAccess: {1}to attrs=userPassword,shadowLastChange by self write by dn.exact="${REPLICATION_DN}" read by anonymous auth by * none
+olcAccess: {2}to * by self read by dn.exact="cn=freeradius,cn=koitohan" read by dn.exact="cn=openssh,cn=koitohan" read by dn.exact="${REPLICATION_DN}" read by * none
+-
+${PAIR_DATABASE}
 EOF
 
 # slapmodify writes as root, so hand the files back to slapd
 chown -R ldap:ldap "${CONF_DIR}" "${DATA_DIR}"
+
+# The second host of a pair receives all the data from the other host
+# before it serves anything. slapd listens on ldapi:/// alone meanwhile:
+# the users are not all there, and a login would be refused for nothing.
+# The other host connects again and again until this one listens.
+# The receipt is over once the suffix has a contextCSN, which syncrepl
+# writes when it has the whole tree. slapcat looks, not a search, which
+# slapd would log every time. It runs as the user of slapd, and only
+# once slapd is up: as root, before slapd, it made the files of the
+# database for root, and slapd could not open them. There is no time limit: seeding the
+# data after one would make a directory that the other host could never
+# be put together with. A stop makes the next start begin again.
+if [ -e "${RECEIVING}" ]; then
+  echo "receiving the data from the other host (${PEER_ADDRESS}), listening on ldapi:/// alone until it is all here"
+  slapd -u ldap -g ldap -F "${CONF_DIR}" -h 'ldapi:///' -d 0 &
+  RECEIVE_PID=$!
+  # sh as process 1 gets no default action for TERM
+  trap 'kill ${RECEIVE_PID} 2> /dev/null; exit 143' TERM INT
+  TRY=0
+  until ldapwhoami -Q -Y EXTERNAL -H ldapi:/// > /dev/null 2>&1; do
+    TRY=$((TRY + 1))
+    if [ ${TRY} -ge 100 ] || ! kill -0 ${RECEIVE_PID} 2> /dev/null; then
+      echo 'slapd did not start to receive the data' >&2
+      exit 1
+    fi
+    sleep 0.1
+  done
+  WAITED=0
+  until setpriv --reuid ldap --regid ldap --clear-groups \
+          slapcat -n 1 -F "${CONF_DIR}" -s "${LDAP_SUFFIX}" -a '(contextCSN=*)' 2> /dev/null \
+          | grep -q '^contextCSN:'; do
+    if ! kill -0 ${RECEIVE_PID} 2> /dev/null; then
+      echo 'slapd stopped while receiving the data' >&2
+      exit 1
+    fi
+    if [ $((WAITED % 60)) -eq 0 ]; then
+      echo "waiting for the data from ${PEER_ADDRESS} (${WAITED} seconds so far)"
+    fi
+    sleep 2
+    WAITED=$((WAITED + 2))
+  done
+  kill ${RECEIVE_PID}
+  wait ${RECEIVE_PID} || true
+  trap - TERM INT
+  # one rename: never both marks, nor neither
+  mv "${RECEIVING}" "${SEEDED}"
+  echo "received the data from the other host in about ${WAITED} seconds"
+fi
 
 exec slapd -u ldap -g ldap -F "${CONF_DIR}" -h 'ldaps:/// ldapi:///' -d 0

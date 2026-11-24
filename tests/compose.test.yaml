@@ -29,6 +29,48 @@ services:
     ports: !reset []
     restart: "no"
 
+  # The other host of a pair (host B), for the checks of replication. It
+  # has the CA of its own that the test makes in tests/generated/peer,
+  # and trusts the one of openldap (host A). The addresses are TEST-NET,
+  # as in the server certificates; the test sends them on to the
+  # containers. Started by name only.
+  openldap-b:
+    image: koitohan/openldap
+    profiles:
+      - pair
+    read_only: true
+    environment:
+      TZ: "${TZ}"
+      LDAP_ORGANISATION: "${LDAP_ORGANISATION}"
+      LDAP_DOMAIN: "${LDAP_DOMAIN}"
+      LDAP_LOG_LEVEL: "stats sync"
+      OPENLDAP_ALLOWED_NETWORKS: "none"
+      OPENLDAP_HOST_ADDRESS: "${KOITOHAN_TEST_B_ADDRESS:-none}"
+      OPENLDAP_PEER_ADDRESS: "${KOITOHAN_TEST_A_ADDRESS:-none}"
+    volumes:
+      - /var/lib/openldap/openldap-data
+      - /etc/openldap/slapd.d
+      - ./tests/generated/peer/CA/default-ca.pem:/etc/koitohan/certs/ca.crt:ro
+      - ./tests/generated/peer/CA/openldap_server.crt:/etc/koitohan/certs/ldap.crt:ro
+      - ./tests/generated/peer/CA/openldap_server.key:/etc/koitohan/certs/ldap.key:ro
+      - ./tests/generated/peer/CA/openldap_replication.crt:/etc/koitohan/certs/replication.crt:ro
+      - ./tests/generated/peer/CA/openldap_replication.key:/etc/koitohan/certs/replication.key:ro
+      - ./tests/generated/peer/openldap/peer:/etc/koitohan/peer:ro
+      # not read: host B receives its data
+      - ./tests/generated/openldap/ldif:/etc/koitohan/ldif:ro
+    tmpfs:
+      - /run:mode=755,size=1m
+      - /var/lib/openldap/run:mode=755,size=1m
+    networks:
+      - default
+    cap_add:
+      - NET_ADMIN
+    ulimits:
+      nofile: 1024
+    security_opt:
+      - no-new-privileges:true
+    restart: "no"
+
   freeradius:
     container_name: !reset null
     volumes:

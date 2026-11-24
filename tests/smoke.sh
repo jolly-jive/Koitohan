@@ -55,6 +55,10 @@ PEER_ADDRESS='203.0.113.10'
 export OPENLDAP_HOST_ADDRESS="${HOST_ADDRESS}"
 export OPENLDAP_PEER_ADDRESS='none'
 PEER_ROOT="${ROOT_DIR}/tests/generated/peer"
+# for openldap-b of tests/compose.test.yaml, the other host (host B) in
+# the checks of replication: its own address, and that of openldap
+export KOITOHAN_TEST_A_ADDRESS="${HOST_ADDRESS}"
+export KOITOHAN_TEST_B_ADDRESS="${PEER_ADDRESS}"
 # the optional NTP service as well, whatever .env has. The scripts under
 # bin/ see it too.
 export COMPOSE_PROFILES='ntp'
@@ -68,9 +72,9 @@ function cleanup() {
   rm -f "${ASKPASS}"
   docker rm -f "${EGRESS_NAME}" > /dev/null 2>&1
   if [[ -n "${KEEP}" ]]; then
-    echo "test stack left up: ${COMPOSE[*]} down -v && rm -rf tests/generated"
+    echo "test stack left up: ${COMPOSE[*]} --profile pair down -v && rm -rf tests/generated"
   else
-    "${COMPOSE[@]}" down -v > /dev/null 2>&1
+    "${COMPOSE[@]}" --profile pair down -v > /dev/null 2>&1
     rm -rf "${KOITOHAN_GENERATED_ROOT}"
   fi
 }
@@ -1067,6 +1071,126 @@ function check_peer_tls() {
   report 'peer tls' "${WHO}" "${GOT}" "${WHY}" "${OUT}"
 }
 
+# Runs COMMAND with sh in the container of SERVICE (openldap, or
+# openldap-b of a pair), where SUFFIX is the suffix of the directory.
+# INPUT goes to the standard input of the command.
+function on_ldap() {
+  local SERVICE=${1}
+  local COMMAND=${2}
+  local INPUT=${3:-}
+
+  printf '%b' "${INPUT}" \
+    | "${COMPOSE[@]}" exec -T "${SERVICE}" sh -c "${LDAP_SUFFIX_SET}; ${COMMAND}" 2>&1
+}
+
+# A bind over LDAPS to openldap, as the other host of a pair: the
+# replication certificate from the CA of host B, and the address in the
+# server certificate, sent on as in check_peer_tls. Runs COMMAND with sh
+# there, with SUFFIX set and the TLS settings in the environment.
+function as_peer() {
+  local COMMAND=${1}
+  local ID NETWORK ADDR SUFFIX
+
+  SUFFIX=$(on_ldap openldap 'echo "${SUFFIX}"')
+  ID=$("${COMPOSE[@]}" ps -q openldap)
+  read -r NETWORK ADDR < <(docker inspect \
+    -f '{{range $name, $net := .NetworkSettings.Networks}}{{$name}} {{$net.IPAddress}}{{"\n"}}{{end}}' \
+    "${ID}" 2> /dev/null | grep -v -F -- "koitohan-test_openssh")
+  docker run --rm --network "${NETWORK}" --cap-add NET_ADMIN --ulimit nofile=1024 \
+    -e "SUFFIX=${SUFFIX}" \
+    -v "${PEER_ROOT}/CA/openldap_replication.crt:/peer/replication.crt:ro" \
+    -v "${PEER_ROOT}/CA/openldap_replication.key:/peer/replication.key:ro" \
+    -v "${KOITOHAN_GENERATED_ROOT}/CA/default-ca.pem:/peer/ca.pem:ro" \
+    --entrypoint sh koitohan/openldap -c "
+      nft add table ip peer \
+      && nft 'add chain ip peer out { type nat hook output priority -100; }' \
+      && nft add rule ip peer out ip daddr ${HOST_ADDRESS} dnat to ${ADDR} \
+      && export LDAPTLS_REQCERT=demand LDAPTLS_CACERT=/peer/ca.pem \
+           LDAPTLS_CERT=/peer/replication.crt LDAPTLS_KEY=/peer/replication.key \
+      && ${COMMAND}" 2>&1 < /dev/null
+}
+
+# The addresses of a pair are TEST-NET, as in the server certificates.
+# Each host sends the address of the other on to its container, with
+# DNAT in its own namespace (the container itself has given NET_ADMIN
+# up). A container that starts again has a new namespace, and maybe a
+# new address, so this follows every start. A host that is not running
+# is left out.
+function link_pair() {
+  local FROM TO ADDRESS ID TARGET
+
+  for FROM in openldap openldap-b; do
+    if [[ "${FROM}" == 'openldap' ]]; then
+      TO=openldap-b
+      ADDRESS=${PEER_ADDRESS}
+    else
+      TO=openldap
+      ADDRESS=${HOST_ADDRESS}
+    fi
+    ID=$("${COMPOSE[@]}" ps -q "${FROM}" 2> /dev/null)
+    TARGET=$(docker inspect -f '{{(index .NetworkSettings.Networks "koitohan-test_default").IPAddress}}' \
+               "$("${COMPOSE[@]}" ps -q "${TO}" 2> /dev/null)" 2> /dev/null)
+    [[ -z "${ID}" || -z "${TARGET}" ]] && continue
+    docker run --rm --network "container:${ID}" --cap-add NET_ADMIN --ulimit nofile=1024 \
+      --entrypoint sh koitohan/openldap -c "
+        nft delete table ip pair 2> /dev/null
+        nft add table ip pair \
+        && nft 'add chain ip pair out { type nat hook output priority -100; }' \
+        && nft add rule ip pair out ip daddr ${ADDRESS} dnat to ${TARGET}" > /dev/null 2>&1
+  done
+}
+
+# waits up to TRIES times 2 seconds until the log of SERVICE has TEXT
+function wait_log() {
+  local SERVICE=${1}
+  local TEXT=${2}
+  local TRIES=${3:-15}
+  local TRY
+
+  for (( TRY = 1; TRY <= TRIES; TRY++ )); do
+    "${COMPOSE[@]}" logs "${SERVICE}" 2>&1 | grep -q -F -- "${TEXT}" && return 0
+    sleep 2
+  done
+  return 1
+}
+
+# whether host B listens on LDAPS, and its marks
+PAIR_STATE='if netstat -ltn | grep -q ":636 "; then echo -n "636 listening "; else echo -n "636 closed "; fi; ls /etc/openldap/slapd.d | grep "^koitohan-" | paste -s -d " " -'
+
+# The whole tree of SERVICE with the operational attributes, one line
+# for each value, with the DN of its entry in front, sorted. memberOf is
+# made on each host, and the rest is replicated: the two hosts of a pair
+# have to give the same.
+function tree_of() {
+  on_ldap "${1}" 'ldapsearch -LLL -o ldif-wrap=no -Q -Y EXTERNAL -H ldapi:/// -b "${SUFFIX}" "(objectClass=*)" "*" "+"' \
+    | awk '/^dn: / { dn = $0 } NF { print dn " | " $0 }' | sort
+}
+
+# waits for the two hosts of the pair to hold the same tree
+function check_pair_same() {
+  local WHO=${1}
+  local TRY A B WHY='expected the same tree on both hosts'
+
+  for (( TRY = 1; TRY <= 20; TRY++ )); do
+    A=$(tree_of openldap)
+    B=$(tree_of openldap-b)
+    if grep -q '^dn: ' <<< "${A}" && [[ "${A}" == "${B}" ]]; then
+      WHY=''
+      break
+    fi
+    sleep 3
+  done
+  report 'pair' "${WHO}" "the same tree, $(grep -c . <<< "${A}") values" "${WHY}" \
+    "$(diff <(echo "${A}") <(echo "${B}") | head -n 20)"
+}
+
+# the replication settings of SERVICE, in one line
+PAIR_CONFIG='for F in "(objectClass=olcSyncProvConfig)" "(olcSyncrepl=*)" "(olcMultiProvider=TRUE)"; do
+    echo -n "$(ldapsearch -LLL -Q -Y EXTERNAL -H ldapi:/// -b cn=config "${F}" dn | grep -c "^dn:") "
+  done
+  ldapsearch -LLL -o ldif-wrap=no -Q -Y EXTERNAL -H ldapi:/// -b cn=config "(|(olcServerID=*)(olcSyncrepl=*))" olcServerID olcSyncrepl \
+    | sed -n "s/^olcServerID: /id /p; s/^olcSyncrepl: .*\(provider=[^ ]*\).*/\1/p" | paste -s -d " " - | grep . || echo none'
+
 # a missing source of a file bind mount would be created as a directory
 for FILE in \
   openssh/hostkeys/ssh_host_ed25519_key
@@ -1103,7 +1227,9 @@ fi
 mkdir -p -m 700 "${PEER_ROOT}/CA"
 if ! { KOITOHAN_GENERATED_ROOT="${PEER_ROOT}" OPENLDAP_HOST_ADDRESS="${PEER_ADDRESS}" \
          scripts/create_certs.sh > /dev/null 2>&1 \
-       && cp "${PEER_ROOT}/CA/default-ca.pem" "${KOITOHAN_GENERATED_ROOT}/openldap/peer/ca.pem"; }; then
+       && cp "${PEER_ROOT}/CA/default-ca.pem" "${KOITOHAN_GENERATED_ROOT}/openldap/peer/ca.pem" \
+       && mkdir -p "${PEER_ROOT}/openldap/peer" \
+       && cp "${KOITOHAN_GENERATED_ROOT}/CA/default-ca.pem" "${PEER_ROOT}/openldap/peer/ca.pem"; }; then
   echo 'could not generate the certificates of the other host'
   exit 1
 fi
@@ -1239,16 +1365,21 @@ check_tls tls1_2 refused
 
 # The certificates for a redundant pair. The server certificate names
 # the address that the other host connects to, and the bind checks it
-# against the address in the URI. The replication certificate binds as
-# itself (nothing maps it yet). One from the CA of the other host is
-# refused while OPENLDAP_PEER_ADDRESS is none, though its ca.pem is there.
+# against the address in the URI. The replication certificate maps to
+# the DN of replication, on a single host as well. One from the CA of
+# the other host is refused while OPENLDAP_PEER_ADDRESS is none, though
+# its ca.pem is there.
 OUT=$(openssl x509 -noout -ext subjectAltName -in "${KOITOHAN_GENERATED_ROOT}/CA/openldap_server.crt" 2>&1)
 check_found 'certs' 'server' "IP Address:${HOST_ADDRESS}" "${OUT}"
-REPLICATION_DN="cn=replication,ou=$(hostname -s),o=koitohan"
+REPLICATION_DN='cn=replication,cn=koitohan'
 OUT=$(openssl x509 -noout -subject -nameopt RFC2253 -in "${KOITOHAN_GENERATED_ROOT}/CA/openldap_replication.crt" 2>&1)
 check_found 'certs' 'replication' "subject=CN=replication,OU=$(hostname -s),O=koitohan" "${OUT}"
 check_peer_tls own "${KOITOHAN_GENERATED_ROOT}" "${REPLICATION_DN}"
 check_peer_tls 'peer none' "${PEER_ROOT}" refused
+
+# A single host has syncprov, and nothing else of replication: no
+# server ID, no syncrepl.
+check_ldap 'replication' 'single' '1 0 0 none' "${PAIR_CONFIG}"
 
 # The filter of OpenLDAP: the test stack has none, as .env.sample, and
 # lets in its own networks only. FreeRADIUS and OpenSSH coming in from
@@ -1333,6 +1464,13 @@ done
 mv "${KOITOHAN_GENERATED_ROOT}/openldap/peer/ca.pem" "${KOITOHAN_GENERATED_ROOT}/openldap/peer/ca.pem.away"
 check_bad_value 'bad peer' OPENLDAP_PEER_ADDRESS openldap "${PEER_ADDRESS}" 'openldap/peer/ca.pem (the CA certificate of the other host) is missing'
 mv "${KOITOHAN_GENERATED_ROOT}/openldap/peer/ca.pem.away" "${KOITOHAN_GENERATED_ROOT}/openldap/peer/ca.pem"
+# A host of a pair needs its own address, which is not that of the
+# other host: the two decide the server IDs.
+OPENLDAP_PEER_ADDRESS="${PEER_ADDRESS}" check_bad_value 'bad peer' OPENLDAP_HOST_ADDRESS openldap none \
+  'a host of a pair needs its own address'
+check_bad_value 'bad peer' OPENLDAP_PEER_ADDRESS openldap "${HOST_ADDRESS}" 'are the same address'
+check_bad_value 'bad host address' OPENLDAP_HOST_ADDRESS openldap example.com \
+  'OPENLDAP_HOST_ADDRESS must be none or an IPv4 address'
 # and the address of this host, before any certificate is made
 for VALUE in example.com 198.51.100.256; do
   OUT=$(KOITOHAN_GENERATED_ROOT="${KOITOHAN_GENERATED_ROOT}/bad-address" OPENLDAP_HOST_ADDRESS="${VALUE}" \
@@ -1758,6 +1896,10 @@ check_ldap 'memberof' 'config' 'modifying entry "olcOverlay={0}memberof,olcDatab
 check_ldap 'service identity' 'config' 'modifying entry "olcDatabase={1}mdb,cn=config"' \
   'ldapmodify -Q -Y EXTERNAL -H ldapi:///' \
   'dn: cn=config\nchangetype: modify\ndelete: olcAuthzRegexp\n\ndn: olcDatabase={1}mdb,cn=config\nchangetype: modify\ndelete: olcAccess\nolcAccess: {2}\n'
+# and for replication: a single host has no server ID
+check_ldap 'replication' 'config' 'modifying entry "cn=config"' \
+  'ldapmodify -Q -Y EXTERNAL -H ldapi:///' \
+  'dn: cn=config\nchangetype: modify\nreplace: olcServerID\nolcServerID: 7\n'
 
 check_restart
 
@@ -1767,6 +1909,9 @@ check_ldap 'hash scheme' 'config' 'olcPasswordHash: {ARGON2}' \
   "ldapsearch -LLL -Q -Y EXTERNAL -H ldapi:/// -b 'olcDatabase={-1}frontend,cn=config' -s base olcPasswordHash"
 check_ldap 'service identity' 'config' '"cn=openssh,cn=koitohan"' \
   'ldapsearch -LLL -Q -Y EXTERNAL -H ldapi:/// -b cn=config -s base olcAuthzRegexp'
+check_ldap 'replication' 'identity' '"cn=replication,cn=koitohan"' \
+  'ldapsearch -LLL -o ldif-wrap=no -Q -Y EXTERNAL -H ldapi:/// -b cn=config -s base olcAuthzRegexp'
+check_ldap 'replication' 'config' '1 0 0 none' "${PAIR_CONFIG}"
 check_ldap 'size limit' 'config' 'olcSizeLimit: unlimited' \
   "ldapsearch -LLL -Q -Y EXTERNAL -H ldapi:/// -b 'olcDatabase={-1}frontend,cn=config' -s base olcSizeLimit"
 check_ldap 'memberof' 'config' 'olcMemberOfAddCheck: TRUE olcMemberOfRefInt: FALSE' \
@@ -1900,6 +2045,139 @@ if ! OPENLDAP_PEER_ADDRESS="${PEER_ADDRESS}" "${COMPOSE[@]}" up -d --no-deps ope
 fi
 check_peer_tls 'peer set' "${PEER_ROOT}" "${REPLICATION_DN}"
 check_peer_tls 'own, peer set' "${KOITOHAN_GENERATED_ROOT}" "${REPLICATION_DN}"
+
+# The identity of replication, as the other host uses it: it reads the
+# whole tree with the passwords, and writes nothing.
+OUT=$(as_peer 'ldapsearch -LLL -Q -Y EXTERNAL -H ldaps://'"${HOST_ADDRESS}"' -b "uid=admin01,ou=People,${SUFFIX}" -s base userPassword')
+check_found 'replication' 'read' 'userPassword:' "${OUT}"
+OUT=$(as_peer 'printf "dn: uid=admin01,ou=People,${SUFFIX}\nchangetype: modify\nreplace: description\ndescription: from the peer\n" \
+               | ldapmodify -Q -Y EXTERNAL -H ldaps://'"${HOST_ADDRESS}")
+check_found 'replication' 'write' 'Insufficient access' "${OUT}"
+
+# openldap is host A of a pair from here: a server ID, syncprov, and the
+# syncrepl towards host B (openldap-b)
+check_ldap 'replication' 'host A' "1 1 1 id 1 provider=ldaps://${PEER_ADDRESS}:636" "${PAIR_CONFIG}"
+
+# Host B starts empty, and receives the data from host A. A failed bind
+# leaves a record of ppolicy on host A first, which has to come along.
+on_ldap openldap 'ldapwhoami -x -H ldapi:/// -D "uid=readonly01,ou=People,${SUFFIX}" -w wrong-password' > /dev/null
+# Host A is away when host B starts. Host B waits for it, and does not
+# listen on LDAPS meanwhile.
+"${COMPOSE[@]}" stop openldap > /dev/null 2>&1
+"${COMPOSE[@]}" up -d --no-deps openldap-b > /dev/null 2>&1
+WHY=''
+wait_log openldap-b 'waiting for the data from' || WHY='expected host B to wait'
+report 'pair receive' 'waiting' 'waits for host A' "${WHY}" "$("${COMPOSE[@]}" logs --tail 5 openldap-b 2>&1)"
+check_found 'pair receive' 'waiting' '636 closed koitohan-receiving' "$(on_ldap openldap-b "${PAIR_STATE}")"
+# stopped halfway, it starts over
+"${COMPOSE[@]}" stop openldap-b > /dev/null 2>&1
+"${COMPOSE[@]}" start openldap-b > /dev/null 2>&1
+WHY=''
+wait_log openldap-b 'stopped halfway: deleting it' || WHY='expected host B to start over'
+report 'pair receive' 'stopped' 'starts over' "${WHY}" "$("${COMPOSE[@]}" logs --tail 5 openldap-b 2>&1)"
+# and waits again, with nothing of the first try left that would stop it
+for (( TRY = 1; TRY <= 15; TRY++ )); do
+  [[ $("${COMPOSE[@]}" logs openldap-b 2>&1 | grep -c -F 'receiving the data from the other host') -ge 2 ]] && break
+  sleep 2
+done
+check_found 'pair receive' 'stopped' '636 closed koitohan-receiving' "$(on_ldap openldap-b "${PAIR_STATE}")"
+
+# host A is back
+"${COMPOSE[@]}" start openldap > /dev/null 2>&1
+if ! wait_ldap_ready; then
+  echo 'host A did not start again'
+  "${COMPOSE[@]}" logs --tail 30 openldap
+  exit 1
+fi
+link_pair
+WHY=''
+wait_log openldap-b 'received the data from the other host' 60 || WHY='expected host B to receive the data'
+report 'pair receive' 'received' 'all of it' "${WHY}" "$("${COMPOSE[@]}" logs --tail 10 openldap-b 2>&1)"
+check_found 'pair receive' 'serving' '636 listening koitohan-seeded' "$(on_ldap openldap-b "${PAIR_STATE}")"
+OUT=$("${COMPOSE[@]}" logs openldap-b 2>&1)
+grep -q -F 'seeding' <<< "${OUT}" || OUT='not seeded'
+check_found 'pair receive' 'openldap-b' 'not seeded' "${OUT}"
+check_found 'replication' 'host B' "1 1 1 id 2 provider=ldaps://${HOST_ADDRESS}:636" \
+  "$(on_ldap openldap-b "${PAIR_CONFIG}")"
+check_pair_same 'received'
+# made on host B from the groups, not received
+check_found 'pair receive' 'memberOf' 'memberOf: cn=admin,ou=Roles' \
+  "$(on_ldap openldap-b 'ldapsearch -LLL -Q -Y EXTERNAL -H ldapi:/// -b "uid=admin01,ou=People,${SUFFIX}" -s base memberOf')"
+check_found 'pair receive' 'ppolicy' 'pwdFailureTime:' \
+  "$(on_ldap openldap-b 'ldapsearch -LLL -Q -Y EXTERNAL -H ldapi:/// -b "uid=readonly01,ou=People,${SUFFIX}" -s base pwdFailureTime')"
+check_found 'pair receive' 'password' 'dn:uid=admin01,ou=People' \
+  "$(on_ldap openldap-b "ldapwhoami -x -H ldapi:/// -D \"uid=admin01,ou=People,\${SUFFIX}\" -w '${PASS_ADMIN}'")"
+
+# Both ways from here. A user added on host B, with a role and a
+# password, logs in through the FreeRADIUS of host A. FreeRADIUS does
+# not get over the changes of openldap above, so it is made again.
+on_ldap openldap-b "ldapadd -Q -Y EXTERNAL -H ldapi:/// > /dev/null <<EOF
+dn: uid=pair01,ou=People,\${SUFFIX}
+objectClass: inetOrgPerson
+objectClass: posixAccount
+uid: pair01
+uidNumber: 19001
+gidNumber: 10000
+homeDirectory: /home/pair01
+loginShell: /bin/sh
+cn: pair01
+sn: pair01
+
+dn: cn=readonly,ou=Roles,\${SUFFIX}
+changetype: modify
+add: uniqueMember
+uniqueMember: uid=pair01,ou=People,\${SUFFIX}
+EOF
+ldappasswd -Q -Y EXTERNAL -H ldapi:/// -s '${PASS_OTHER}' \"uid=pair01,ou=People,\${SUFFIX}\"" > /dev/null
+check_pair_same 'added on B'
+if ! "${COMPOSE[@]}" up -d --no-deps --force-recreate freeradius > /dev/null 2>&1 || ! wait_ready; then
+  echo 'freeradius did not start again for the pair'
+  "${COMPOSE[@]}" logs --tail 30 freeradius
+  exit 1
+fi
+check 'pair' 127.0.0.1 pair01 "${PASS_OTHER}" Accept 'AVPair = "shell:priv-lvl=1"'
+# a failure on host A reaches host B
+on_ldap openldap 'ldapwhoami -x -H ldapi:/// -D "uid=pair01,ou=People,${SUFFIX}" -w wrong-password' > /dev/null
+check_pair_same 'failure on A'
+check_found 'pair' 'failure on A' 'pwdFailureTime:' \
+  "$(on_ldap openldap-b 'ldapsearch -LLL -Q -Y EXTERNAL -H ldapi:/// -b "uid=pair01,ou=People,${SUFFIX}" -s base pwdFailureTime')"
+# deleted on host B, the user leaves the group on host A as well (refint
+# on host B changes the group, which is replicated)
+on_ldap openldap-b 'ldapdelete -Q -Y EXTERNAL -H ldapi:/// "uid=pair01,ou=People,${SUFFIX}"' > /dev/null
+check_pair_same 'deleted on B'
+check_found 'pair' 'deleted on B' 'uid=pair01: 0' \
+  "$(on_ldap openldap 'echo "uid=pair01: $(ldapsearch -LLL -Q -Y EXTERNAL -H ldapi:/// -b "${SUFFIX}" "(|(uid=pair01)(uniqueMember=uid=pair01,ou=People,${SUFFIX}))" dn | grep -c "^dn:")"')"
+
+# The settings of replication are written on every start: changed over
+# ldapi:/// on host A, they are back after a restart, and the two hosts
+# go on.
+check_ldap 'replication' 'host A' 'modifying entry "olcDatabase={1}mdb,cn=config"' \
+  'ldapmodify -Q -Y EXTERNAL -H ldapi:///' \
+  'dn: cn=config\nchangetype: modify\nreplace: olcServerID\nolcServerID: 5\n\ndn: olcDatabase={1}mdb,cn=config\nchangetype: modify\nreplace: olcSyncrepl\nolcSyncrepl: rid=001 provider=ldaps://192.0.2.1:636 bindmethod=sasl saslmech=EXTERNAL searchbase="dc=invalid" type=refreshAndPersist retry="10 +"\n'
+"${COMPOSE[@]}" restart openldap > /dev/null 2>&1
+if ! wait_ldap_ready; then
+  echo 'host A did not start again'
+  "${COMPOSE[@]}" logs --tail 30 openldap
+  exit 1
+fi
+link_pair
+check_ldap 'replication' 'host A' "1 1 1 id 1 provider=ldaps://${PEER_ADDRESS}:636" "${PAIR_CONFIG}"
+on_ldap openldap-b 'ldapmodify -Q -Y EXTERNAL -H ldapi:/// > /dev/null <<EOF
+dn: cn=operator,ou=Roles,${SUFFIX}
+changetype: modify
+replace: description
+description: after the restart of host A
+EOF' > /dev/null
+check_pair_same 'restarted A'
+
+# Without the other host, openldap is a single host again: no server
+# ID, no syncrepl, and syncprov stays.
+if ! "${COMPOSE[@]}" up -d --no-deps openldap > /dev/null 2>&1 || ! wait_ldap_ready; then
+  echo 'openldap did not start without the other host'
+  "${COMPOSE[@]}" logs --tail 30 openldap
+  exit 1
+fi
+check_ldap 'replication' 'single again' '1 0 0 none' "${PAIR_CONFIG}"
 
 echo
 if [[ ${FAILED} -ne 0 ]]; then
