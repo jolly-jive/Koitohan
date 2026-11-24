@@ -101,13 +101,14 @@ clean:
 ### up and down
 # Docker would create a missing source of a bind mount as root
 SYSLOG_HOSTS_DIR := syslog-ng/log/Hosts
-OPENSSH_CERT := CA/openssh_client.crt
+# the last of the certificates, and one that earlier versions did not make
+REPLICATION_CERT := CA/openldap_replication.crt
 
 $(SYSLOG_HOSTS_DIR):
 	mkdir -p $@
 
 up: private_dirs freeradius_conf device_networks ssh_hostkeys | $(SYSLOG_HOSTS_DIR)
-	@test -f $(OPENSSH_CERT) || { echo "$(OPENSSH_CERT) is missing. Run 'make' first."; exit 1; }
+	@test -f $(REPLICATION_CERT) || { echo "$(REPLICATION_CERT) is missing. Run 'make' first."; exit 1; }
 	docker compose up -d
 
 down:

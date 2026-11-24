@@ -84,17 +84,45 @@ if [ -z "${LDAP_DOMAIN:-}" ]; then
 fi
 LDAP_SUFFIX="dc=$(echo "${LDAP_DOMAIN}" | sed 's/\./,dc=/g')"
 
+# The other host of a redundant pair: none (a single host), or its IPv4
+# address. Its CA is trusted only when there is one, so that a single
+# host does not take more client certificates than its own.
+PEER_ADDRESS="${OPENLDAP_PEER_ADDRESS:-}"
+PEER_CA=/etc/koitohan/peer/ca.pem
+if [ "${PEER_ADDRESS}" != none ] && ! echo "${PEER_ADDRESS}" | awk -F . '
+    $0 !~ /^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$/ { exit 1 }
+    { for (i = 1; i <= 4; i++) if (length($i) > 3 || $i > 255) exit 1 }'; then
+  echo "OPENLDAP_PEER_ADDRESS must be none or an IPv4 address: '${PEER_ADDRESS}'" >&2
+  exit 1
+fi
+if [ "${PEER_ADDRESS}" != none ] && [ ! -s "${PEER_CA}" ]; then
+  echo "OPENLDAP_PEER_ADDRESS is set, and openldap/peer/ca.pem (the CA certificate of the other host) is missing" >&2
+  exit 1
+fi
+
 # slapd writes to syslog, so pass it on to the stdout of the container
 # (with -d it writes to stderr, but stamps the time in hexadecimal).
 # The syslog() of musl stamps the time in UTC; -t drops it, and syslogd
 # stamps it again in TZ.
 syslogd -n -t -O - &
 
-# slapd reads the certificate and the key after it drops root. Only root
-# can enter where they are mounted, so copy them into a directory of its own.
+# slapd reads the certificates and the keys after it drops root. Only
+# root can enter where they are mounted, so copy them into a directory of
+# its own. replication.* is what this host binds to the other one with.
+# ca.crt is what slapd trusts: the CA of this host, and of the other
+# host of a pair if there is one.
 install -d -m 700 -o ldap -g ldap "${SLAPD_CERT_DIR}"
 install -m 400 -o ldap -g ldap \
-  "${CERT_DIR}/ca.crt" "${CERT_DIR}/ldap.crt" "${CERT_DIR}/ldap.key" "${SLAPD_CERT_DIR}/"
+  "${CERT_DIR}/ldap.crt" "${CERT_DIR}/ldap.key" \
+  "${CERT_DIR}/replication.crt" "${CERT_DIR}/replication.key" "${SLAPD_CERT_DIR}/"
+if [ "${PEER_ADDRESS}" = none ]; then
+  cat "${CERT_DIR}/ca.crt" > "${SLAPD_CERT_DIR}/ca.crt"
+else
+  # a copied file may lack the last newline, which would join two lines
+  { cat "${CERT_DIR}/ca.crt"; echo; cat "${PEER_CA}"; } > "${SLAPD_CERT_DIR}/ca.crt"
+fi
+chown ldap:ldap "${SLAPD_CERT_DIR}/ca.crt"
+chmod 400 "${SLAPD_CERT_DIR}/ca.crt"
 
 chown ldap:ldap "${SOCKET_DIR}"
 

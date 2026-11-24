@@ -12,6 +12,8 @@
 | `LDAP_ORGANISATION`                   | Organization name stored in the directory.                                     |
 | `OPENLDAP_CONTAINER_NAME`             | Container name of OpenLDAP.                                                    |
 | `OPENLDAP_ALLOWED_NETWORKS`           | Networks outside the Docker host that LDAPS is accepted from: `none`, or addresses. See [Sources of LDAPS](#sources-of-ldaps). |
+| `OPENLDAP_HOST_ADDRESS`               | For a redundant pair, which is not ready yet. Leave it `none`.                 |
+| `OPENLDAP_PEER_ADDRESS`               | For a redundant pair, which is not ready yet. Leave it `none`.                 |
 | `FREERADIUS_CONTAINER_NAME`           | Container name of FreeRADIUS.                                                  |
 | `SYSLOG_CONTAINER_NAME`               | Container name of syslog-ng.                                                   |
 | `TFTP_CONTAINER_NAME`                 | Container name of tftpd-hpa.                                                   |

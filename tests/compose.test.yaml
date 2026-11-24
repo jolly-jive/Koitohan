@@ -14,6 +14,9 @@ services:
       - ./tests/generated/CA/default-ca.pem:/etc/koitohan/certs/ca.crt:ro
       - ./tests/generated/CA/openldap_server.crt:/etc/koitohan/certs/ldap.crt:ro
       - ./tests/generated/CA/openldap_server.key:/etc/koitohan/certs/ldap.key:ro
+      - ./tests/generated/CA/openldap_replication.crt:/etc/koitohan/certs/replication.crt:ro
+      - ./tests/generated/CA/openldap_replication.key:/etc/koitohan/certs/replication.key:ro
+      - ./tests/generated/openldap/peer:/etc/koitohan/peer:ro
       - ./tests/generated/openldap/ldif:/etc/koitohan/ldif:ro
     networks:
       default:

@@ -12,6 +12,7 @@
 /openldap/data/*
 /openldap/config/*
 /openldap/ldif/*.ldif
+/openldap/peer/*
 
 /openssh/hostkeys/*
 
