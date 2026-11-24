@@ -17,6 +17,7 @@ services:
       LDAP_LOG_LEVEL: "stats"
       OPENLDAP_ALLOWED_NETWORKS: "${OPENLDAP_ALLOWED_NETWORKS}"
       # an .env from before the redundant pair: a single host
+      OPENLDAP_HOST_ADDRESS: "${OPENLDAP_HOST_ADDRESS-none}"
       OPENLDAP_PEER_ADDRESS: "${OPENLDAP_PEER_ADDRESS-none}"
     volumes:
       - ./openldap/data:/var/lib/openldap/openldap-data
