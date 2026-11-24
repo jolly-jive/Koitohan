@@ -46,6 +46,15 @@ export OPENSSH_EGRESS='none'
 # no other host of a pair reaches OpenLDAP, as .env.sample has it. One
 # check sets addresses on a container of its own.
 export OPENLDAP_ALLOWED_NETWORKS='none'
+# The address that the other host of a pair would connect to (in the
+# server certificate), and the other host itself: none until the last
+# check. The other host has a CA of its own (PEER_ROOT), as it would.
+# TEST-NET-2 and TEST-NET-3: nothing ever answers on them.
+HOST_ADDRESS='198.51.100.10'
+PEER_ADDRESS='203.0.113.10'
+export OPENLDAP_HOST_ADDRESS="${HOST_ADDRESS}"
+export OPENLDAP_PEER_ADDRESS='none'
+PEER_ROOT="${ROOT_DIR}/tests/generated/peer"
 # the optional NTP service as well, whatever .env has. The scripts under
 # bin/ see it too.
 export COMPOSE_PROFILES='ntp'
@@ -1011,6 +1020,53 @@ function check_ldap_networks() {
   report 'ldap networks' "${WHO}" "${GOT}" "${WHY}" "${OUT}"
 }
 
+# A bind over LDAPS to the address in the server certificate, with the
+# replication certificate from the CA of ROOT, as the other host of a
+# pair would make it. The address is TEST-NET, so a container of its own
+# sends it on to openldap (DNAT in its own namespace): the name checked
+# against the certificate is still the address. EXPECT is the DN that
+# the bind gives, or refused (the server ends the handshake).
+function check_peer_tls() {
+  local WHO=${1}
+  local ROOT=${2}
+  local EXPECT=${3}
+  local ID NETWORK ADDR OUT='' GOT WHY=''
+
+  ID=$("${COMPOSE[@]}" ps -q openldap)
+  read -r NETWORK ADDR < <(docker inspect \
+    -f '{{range $name, $net := .NetworkSettings.Networks}}{{$name}} {{$net.IPAddress}}{{"\n"}}{{end}}' \
+    "${ID}" 2> /dev/null | grep -v -F -- "koitohan-test_openssh")
+  if [[ -z "${ADDR}" ]]; then
+    WHY='could not find the address of openldap'
+  else
+    OUT=$(docker run --rm --network "${NETWORK}" --cap-add NET_ADMIN --ulimit nofile=1024 \
+      -v "${ROOT}/CA/openldap_replication.crt:/peer/replication.crt:ro" \
+      -v "${ROOT}/CA/openldap_replication.key:/peer/replication.key:ro" \
+      -v "${KOITOHAN_GENERATED_ROOT}/CA/default-ca.pem:/peer/ca.pem:ro" \
+      --entrypoint sh koitohan/openldap -c "
+        nft add table ip peer \
+        && nft 'add chain ip peer out { type nat hook output priority -100; }' \
+        && nft add rule ip peer out ip daddr ${HOST_ADDRESS} dnat to ${ADDR} \
+        && LDAPTLS_REQCERT=demand LDAPTLS_CACERT=/peer/ca.pem \
+           LDAPTLS_CERT=/peer/replication.crt LDAPTLS_KEY=/peer/replication.key \
+           timeout 10 ldapwhoami -Q -Y EXTERNAL -H ldaps://${HOST_ADDRESS}" 2>&1 < /dev/null)
+    if grep -q '^dn:' <<< "${OUT}"; then
+      GOT=$(grep '^dn:' <<< "${OUT}")
+      GOT=${GOT#dn:}
+    elif grep -q -F 'additional info: TLS:' <<< "${OUT}"; then
+      # this end did not take the server certificate: says nothing
+      # about the client certificate
+      GOT='server not verified'
+    elif grep -q -F "Can't contact LDAP server" <<< "${OUT}"; then
+      GOT='refused'
+    else
+      GOT='failed'
+    fi
+    [[ "${GOT,,}" == "${EXPECT,,}" ]] || WHY="expected ${EXPECT}, got ${GOT}"
+  fi
+  report 'peer tls' "${WHO}" "${GOT}" "${WHY}" "${OUT}"
+}
+
 # a missing source of a file bind mount would be created as a directory
 for FILE in \
   openssh/hostkeys/ssh_host_ed25519_key
@@ -1029,7 +1085,7 @@ trap cleanup EXIT
 
 # The same scripts as make runs, on certificates of the test's own
 rm -rf "${KOITOHAN_GENERATED_ROOT}"
-mkdir -p "${KOITOHAN_GENERATED_ROOT}"/{CA,openldap/ldif,freeradius/config/mods-available,syslog-ng/config,syslog-ng/log/Hosts,tftpboot/firmware}
+mkdir -p "${KOITOHAN_GENERATED_ROOT}"/{CA,openldap/ldif,openldap/peer,freeradius/config/mods-available,syslog-ng/config,syslog-ng/log/Hosts,tftpboot/firmware}
 # as make private_dirs does CA/: the key of FreeRADIUS is 0644 for the
 # container, and only the directory keeps it in
 chmod 700 "${KOITOHAN_GENERATED_ROOT}/CA"
@@ -1040,6 +1096,15 @@ if ! { scripts/create_certs.sh > /dev/null 2>&1 \
        && scripts/generate_freeradius_ldap.sh \
        && scripts/generate_device_networks.sh; }; then
   echo 'could not generate the files of the test stack'
+  exit 1
+fi
+# the CA of the other host, with its own certificates; the test stack
+# trusts it only while OPENLDAP_PEER_ADDRESS names that host
+mkdir -p -m 700 "${PEER_ROOT}/CA"
+if ! { KOITOHAN_GENERATED_ROOT="${PEER_ROOT}" OPENLDAP_HOST_ADDRESS="${PEER_ADDRESS}" \
+         scripts/create_certs.sh > /dev/null 2>&1 \
+       && cp "${PEER_ROOT}/CA/default-ca.pem" "${KOITOHAN_GENERATED_ROOT}/openldap/peer/ca.pem"; }; then
+  echo 'could not generate the certificates of the other host'
   exit 1
 fi
 
@@ -1172,6 +1237,19 @@ check_detail
 check_tls tls1_3 accepted
 check_tls tls1_2 refused
 
+# The certificates for a redundant pair. The server certificate names
+# the address that the other host connects to, and the bind checks it
+# against the address in the URI. The replication certificate binds as
+# itself (nothing maps it yet). One from the CA of the other host is
+# refused while OPENLDAP_PEER_ADDRESS is none, though its ca.pem is there.
+OUT=$(openssl x509 -noout -ext subjectAltName -in "${KOITOHAN_GENERATED_ROOT}/CA/openldap_server.crt" 2>&1)
+check_found 'certs' 'server' "IP Address:${HOST_ADDRESS}" "${OUT}"
+REPLICATION_DN="cn=replication,ou=$(hostname -s),o=koitohan"
+OUT=$(openssl x509 -noout -subject -nameopt RFC2253 -in "${KOITOHAN_GENERATED_ROOT}/CA/openldap_replication.crt" 2>&1)
+check_found 'certs' 'replication' "subject=CN=replication,OU=$(hostname -s),O=koitohan" "${OUT}"
+check_peer_tls own "${KOITOHAN_GENERATED_ROOT}" "${REPLICATION_DN}"
+check_peer_tls 'peer none' "${PEER_ROOT}" refused
+
 # The filter of OpenLDAP: the test stack has none, as .env.sample, and
 # lets in its own networks only. FreeRADIUS and OpenSSH coming in from
 # them is what every check through RADIUS and SSH shows.
@@ -1246,6 +1324,28 @@ check_bad_networks openldap '' 'is empty'
 check_bad_networks openldap example.com 'must be none, or IPv4'
 check_bad_networks openldap 10.0.0.0/33 'Error: Prefix length 33 is invalid'
 check_bad_networks openldap 'none 10.0.0.0/8' 'must be none, or IPv4'
+# The other host of a pair: none or one address, and its CA has to be
+# there. ca.pem is moved away for a while: the directory is mounted.
+for VALUE in '' example.com 203.0.113.256 '203.0.113.10 203.0.113.11'; do
+  check_bad_value 'bad peer' OPENLDAP_PEER_ADDRESS openldap "${VALUE}" \
+    'OPENLDAP_PEER_ADDRESS must be none or an IPv4 address'
+done
+mv "${KOITOHAN_GENERATED_ROOT}/openldap/peer/ca.pem" "${KOITOHAN_GENERATED_ROOT}/openldap/peer/ca.pem.away"
+check_bad_value 'bad peer' OPENLDAP_PEER_ADDRESS openldap "${PEER_ADDRESS}" 'openldap/peer/ca.pem (the CA certificate of the other host) is missing'
+mv "${KOITOHAN_GENERATED_ROOT}/openldap/peer/ca.pem.away" "${KOITOHAN_GENERATED_ROOT}/openldap/peer/ca.pem"
+# and the address of this host, before any certificate is made
+for VALUE in example.com 198.51.100.256; do
+  OUT=$(KOITOHAN_GENERATED_ROOT="${KOITOHAN_GENERATED_ROOT}/bad-address" OPENLDAP_HOST_ADDRESS="${VALUE}" \
+          scripts/create_certs.sh 2>&1)
+  RC=$?
+  WHY=''
+  if [[ ${RC} -eq 0 ]]; then
+    WHY="'${VALUE}': expected create_certs.sh to fail"
+  elif ! grep -q -F 'OPENLDAP_HOST_ADDRESS must be none or an IPv4 address' <<< "${OUT}"; then
+    WHY="'${VALUE}': expected the reason"
+  fi
+  report 'bad host address' 'create_certs' "'${VALUE}': refused" "${WHY}" "$(tail -n 5 <<< "${OUT}")"
+done
 # chronyd itself stops on a malformed network, with its own words, but
 # takes a host name
 check_bad_networks chrony '' 'is empty'
@@ -1788,6 +1888,18 @@ OUT=$(tar -x -O -z -f "${ARCHIVE}" tftp-configs.tar \
       && "${COMPOSE[@]}" exec -T tftpd-hpa sh -c '
            F=/tftpboot/configs/smoke.cfg; echo "$(stat -c "%u:%g %a" ${F}) $(cat ${F})"' 2>&1)
 check_found 'restore' 'configs' '1000:10001 640 koitohan-smoke' "${OUT}"
+
+# The other host of a pair is set: openldap is made again with it, and
+# trusts its CA as well as its own. The directory has the mark, so this
+# is a start like any other.
+if ! OPENLDAP_PEER_ADDRESS="${PEER_ADDRESS}" "${COMPOSE[@]}" up -d --no-deps openldap > /dev/null 2>&1 \
+   || ! wait_ldap_ready; then
+  echo 'openldap did not start with the other host set'
+  "${COMPOSE[@]}" logs --tail 30 openldap
+  exit 1
+fi
+check_peer_tls 'peer set' "${PEER_ROOT}" "${REPLICATION_DN}"
+check_peer_tls 'own, peer set' "${KOITOHAN_GENERATED_ROOT}" "${REPLICATION_DN}"
 
 echo
 if [[ ${FAILED} -ne 0 ]]; then

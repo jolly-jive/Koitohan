@@ -5,7 +5,29 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="${SCRIPT_DIR%/*}"
 
+# the environment wins over .env, as it does for docker compose. An .env
+# from before the redundant pair does not have it: a single host.
+FROM_ENVIRONMENT="${OPENLDAP_HOST_ADDRESS-}"
+OPENLDAP_HOST_ADDRESS=none
 source "${ROOT_DIR}/.env"
+[[ -n "${FROM_ENVIRONMENT}" ]] && OPENLDAP_HOST_ADDRESS="${FROM_ENVIRONMENT}"
+
+# The address of this Docker host that the other host of a pair connects
+# to, as the server certificate has to name it. none for a single host.
+function valid_address() {
+  local OCTET
+  local -a OCTETS
+
+  [[ "${1}" =~ ^[0-9]{1,3}(\.[0-9]{1,3}){3}$ ]] || return 1
+  IFS=. read -r -a OCTETS <<< "${1}"
+  for OCTET in "${OCTETS[@]}"; do
+    (( 10#${OCTET} <= 255 )) || return 1
+  done
+}
+if [[ "${OPENLDAP_HOST_ADDRESS}" != none ]] && ! valid_address "${OPENLDAP_HOST_ADDRESS}"; then
+  echo "OPENLDAP_HOST_ADDRESS must be none or an IPv4 address: '${OPENLDAP_HOST_ADDRESS}'" >&2
+  exit 1
+fi
 
 # tests/smoke.sh keeps its own generated files apart
 GENERATED_ROOT="${KOITOHAN_GENERATED_ROOT:-${ROOT_DIR}}"
@@ -80,6 +102,15 @@ echo "  DN_SLASH = ${OPENSSH_CLIENT_DN_SLASH}"
 
 eval $(set_names ${OPENLDAP_CONTAINER_NAME} OPENLDAP_SERVER)
 
+# Replication from the other host of a pair binds with this. The subject
+# has to stay apart from the ones above: the other host maps it to the
+# identity of replication by its subject alone.
+eval $(set_names ${OPENLDAP_CONTAINER_NAME} OPENLDAP_REPLICATION "O=koitohan,OU=${SERVICE_OU},CN=replication")
+
+echo -e "\n## OPENLDAP_REPLICATION"
+echo "  DN       = ${OPENLDAP_REPLICATION_DN}"
+echo "  DN_SLASH = ${OPENLDAP_REPLICATION_DN_SLASH}"
+
 echo -e "\n## OPENLDAP_SERVER_FQDN"
 echo "  FQDN     = ${OPENLDAP_SERVER_FQDN}"
 echo "  DN       = ${OPENLDAP_SERVER_DN}"
@@ -106,6 +137,10 @@ echo -e "\n# CREATE CONFIG FILE: ${CNF_FILE}"
   echo "DNS.1 = ${OPENLDAP_SERVER_HOSTNAME}"
   echo "DNS.2 = ${OPENLDAP_SERVER_FQDN}"
   echo "DNS.3 = localhost"
+  # the other host of a pair connects by the address, not by a name
+  if [[ "${OPENLDAP_HOST_ADDRESS}" != none ]]; then
+    echo "IP.1 = ${OPENLDAP_HOST_ADDRESS}"
+  fi
 } > ${CNF_FILE}
 
 
@@ -155,7 +190,8 @@ function issue_cert() {
 function remove_ca_key() {
   echo -e "\n# REMOVE CA KEY AND CSRS"
   rm -f ${CA_KEY_FILE} ${CNF_FILE} \
-    ${OPENLDAP_SERVER_CSR_FILE} ${FREERADIUS_CLIENT_CSR_FILE} ${OPENSSH_CLIENT_CSR_FILE}
+    ${OPENLDAP_SERVER_CSR_FILE} ${FREERADIUS_CLIENT_CSR_FILE} ${OPENSSH_CLIENT_CSR_FILE} \
+    ${OPENLDAP_REPLICATION_CSR_FILE}
 }
 trap remove_ca_key EXIT
 
@@ -207,3 +243,13 @@ create_csr ${OPENSSH_CLIENT_KEY_FILE}  ${OPENSSH_CLIENT_CSR_FILE}  ${OPENSSH_CLI
 
 echo -e "\n## SIGN CRT: ${OPENSSH_CLIENT_CRT_FILE}"
 issue_cert client_cert  ${OPENSSH_CLIENT_CSR_FILE}  ${OPENSSH_CLIENT_CRT_FILE}
+
+
+echo -e "\n## GENERATE OPENLDAP REPLICATION KEY: ${OPENLDAP_REPLICATION_KEY_FILE}"
+generate_key ${OPENLDAP_REPLICATION_KEY_FILE}
+
+echo -e "\n## CREATE CSR: ${OPENLDAP_REPLICATION_CSR_FILE}"
+create_csr ${OPENLDAP_REPLICATION_KEY_FILE}  ${OPENLDAP_REPLICATION_CSR_FILE}  ${OPENLDAP_REPLICATION_DN_SLASH}
+
+echo -e "\n## SIGN CRT: ${OPENLDAP_REPLICATION_CRT_FILE}"
+issue_cert client_cert  ${OPENLDAP_REPLICATION_CSR_FILE}  ${OPENLDAP_REPLICATION_CRT_FILE}

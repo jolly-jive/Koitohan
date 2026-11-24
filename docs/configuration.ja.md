@@ -12,6 +12,8 @@
 | `LDAP_ORGANISATION`                   | ディレクトリに保存する組織名。                                                        |
 | `OPENLDAP_CONTAINER_NAME`             | OpenLDAP のコンテナ名。                                                               |
 | `OPENLDAP_ALLOWED_NETWORKS`           | Docker ホストの外で LDAPS を受け付ける送信元。`none` かアドレス。「[LDAPS の接続元](#ldaps-の接続元)」を参照。 |
+| `OPENLDAP_HOST_ADDRESS`               | 冗長構成のためのもので、まだ使えません。`none` のままにしてください。                |
+| `OPENLDAP_PEER_ADDRESS`               | 冗長構成のためのもので、まだ使えません。`none` のままにしてください。                |
 | `FREERADIUS_CONTAINER_NAME`           | FreeRADIUS のコンテナ名。                                                             |
 | `SYSLOG_CONTAINER_NAME`               | syslog-ng のコンテナ名。                                                              |
 | `TFTP_CONTAINER_NAME`                 | tftpd-hpa のコンテナ名。                                                              |

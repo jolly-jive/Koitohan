@@ -16,12 +16,19 @@ services:
       LDAP_DOMAIN: "${LDAP_DOMAIN}"
       LDAP_LOG_LEVEL: "stats"
       OPENLDAP_ALLOWED_NETWORKS: "${OPENLDAP_ALLOWED_NETWORKS}"
+      # an .env from before the redundant pair: a single host
+      OPENLDAP_PEER_ADDRESS: "${OPENLDAP_PEER_ADDRESS-none}"
     volumes:
       - ./openldap/data:/var/lib/openldap/openldap-data
       - ./openldap/config:/etc/openldap/slapd.d
       - ./CA/default-ca.pem:/etc/koitohan/certs/ca.crt:ro
       - ./CA/openldap_server.crt:/etc/koitohan/certs/ldap.crt:ro
       - ./CA/openldap_server.key:/etc/koitohan/certs/ldap.key:ro
+      - ./CA/openldap_replication.crt:/etc/koitohan/certs/replication.crt:ro
+      - ./CA/openldap_replication.key:/etc/koitohan/certs/replication.key:ro
+      # ca.pem, the CA of the other host of a pair. A directory, as a
+      # missing file would be made a directory by Docker.
+      - ./openldap/peer:/etc/koitohan/peer:ro
       # loaded once, when the directory is empty
       - ./openldap/ldif:/etc/koitohan/ldif:ro
       # set again on every start
