@@ -91,12 +91,12 @@ function undo() {
 in_openldap "slapadd -F '${CONF_DIR}' -n 0" < "${WORK}/ldap/config.ldif" \
   || undo 'could not load cn=config'
 in_openldap "slapadd -F '${CONF_DIR}' -n 1" < "${WORK}/ldap/data.ldif" \
-  || undo 'could not load the directory'
+  || undo 'could not load the LDAP directory'
 # the mark is what keeps the entrypoint from seeding over it
 in_openldap "touch '${SEEDED}' && chown -R ldap:ldap '${CONF_DIR}' '${DATA_DIR}'" < /dev/null \
-  || undo 'could not mark the directory as seeded'
+  || undo 'could not mark the LDAP directory as seeded'
 
-echo "restored the directory of ${ARCHIVE}"
+echo "restored the LDAP directory of ${ARCHIVE}"
 
 # A host of a pair. The other host has to receive everything from this
 # one again. Started with its own data, it wrote that data over this

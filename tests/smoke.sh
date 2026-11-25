@@ -2012,7 +2012,7 @@ check_found 'restore' 'running' 'is not empty' "${OUT}"
 # makes it again
 "${COMPOSE[@]}" rm -s -f -v openldap > /dev/null 2>&1
 OUT=$("${STACK[@]}" bin/restore_ldap.sh "${ARCHIVE}" 2>&1 < /dev/null)
-check_found 'restore' 'ldap' 'restored the directory' "${OUT}"
+check_found 'restore' 'ldap' 'restored the LDAP directory' "${OUT}"
 
 # FreeRADIUS does not get over the change of openldap (README), so it is
 # made again as well

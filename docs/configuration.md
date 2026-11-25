@@ -6,34 +6,34 @@
 
 `.env` is the single source of configuration. The scripts and `compose.yaml` all read it.
 
-| Variable                              | Meaning                                                                        |
-| ------------------------------------- | ------------------------------------------------------------------------------ |
-| `LDAP_DOMAIN`                         | Domain of the directory. `example.com` becomes the suffix `dc=example,dc=com`. |
-| `LDAP_ORGANISATION`                   | Organization name stored in the directory.                                     |
-| `OPENLDAP_CONTAINER_NAME`             | Container name of OpenLDAP.                                                    |
-| `OPENLDAP_ALLOWED_NETWORKS`           | Networks outside the Docker host that LDAPS is accepted from: `none`, or addresses. See [Sources of LDAPS](#sources-of-ldaps). |
-| `OPENLDAP_HOST_ADDRESS`               | The address of this host, for the other host of a [redundant pair](pair.md). `none` for a single host. |
-| `OPENLDAP_PEER_ADDRESS`               | The address of the other host of a [redundant pair](pair.md). `none` for a single host. |
-| `FREERADIUS_CONTAINER_NAME`           | Container name of FreeRADIUS.                                                  |
-| `SYSLOG_CONTAINER_NAME`               | Container name of syslog-ng.                                                   |
-| `TFTP_CONTAINER_NAME`                 | Container name of tftpd-hpa.                                                   |
-| `TFTP_UPLOAD_MAX_BYTES`               | Size limit, in bytes, for one file uploaded over TFTP. See [TFTP](tftp.md).      |
-| `OPENSSH_CONTAINER_NAME`              | Container name of OpenSSH.                                                     |
-| `OPENSSH_HOSTNAME`                    | Host name of the OpenSSH container. It appears in the prompt of the shell.     |
-| `OPENSSH_PORT`                        | Port of the Docker host that publishes SSH. Keep it apart from the host's own sshd. |
-| `OPENSSH_SUBNET`                      | Subnet of the Docker network that connects only OpenSSH and OpenLDAP, in CIDR notation. |
-| `OPENSSH_ALLOWED_NETWORKS`            | Networks that SSH connections are accepted from. See [Sources of SSH](ssh.md#sources-of-ssh). |
-| `OPENSSH_EGRESS`                      | Where the users can connect to from the OpenSSH container: `none`, `any`, or `ssh` and `icmp` separated by a space. See [Connections out of the container](ssh.md#connections-out-of-the-container). |
-| `NTP_CONTAINER_NAME`                  | Container name of chrony, the NTP server. `chrony` when not set.               |
-| `PASSWDQC_MIN`                        | Minimum lengths of the passwords `passwd` accepts. See [Password rules](ssh.md#password-rules). |
-| `PPOLICY_MIN_LENGTH`                  | Minimum length of the passwords OpenLDAP accepts. See [Password policy](#password-policy). |
-| `PPOLICY_MAX_FAILURE`                 | Number of failed logins that locks a user.                                     |
-| `PPOLICY_FAILURE_WINDOW`              | Time in which the failures are counted, in seconds.                            |
-| `PPOLICY_LOCKOUT_DURATION`            | Time a lock lasts, in seconds.                                                 |
-| `DOCKER_SUBNET`                       | Subnet of the Docker network that connects the containers, in CIDR notation.   |
-| `DEVICE_NETWORKS`                     | Networks that RADIUS, syslog, TFTP and NTP are accepted from. See [Device networks](#device-networks). |
-| `TZ`                                  | Time zone of every container, as a tz database name such as `Asia/Tokyo`.      |
-| `COMPOSE_PROFILES`                    | Optional services to start. `ntp` starts the NTP server. See [Serving the time](#serving-the-time). |
+| Variable                    | Meaning                                                                                                                                                                                              |
+| --------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `LDAP_DOMAIN`               | Domain of the LDAP directory. `example.com` becomes the suffix `dc=example,dc=com`.                                                                                                                  |
+| `LDAP_ORGANISATION`         | Organization name stored in the LDAP directory.                                                                                                                                                      |
+| `OPENLDAP_CONTAINER_NAME`   | Container name of OpenLDAP.                                                                                                                                                                          |
+| `OPENLDAP_ALLOWED_NETWORKS` | Networks outside the Docker host that LDAPS is accepted from: `none`, or addresses. See [Sources of LDAPS](#sources-of-ldaps).                                                                       |
+| `OPENLDAP_HOST_ADDRESS`     | The address of this host, for the other host of a [redundant pair](pair.md). `none` for a single host.                                                                                               |
+| `OPENLDAP_PEER_ADDRESS`     | The address of the other host of a [redundant pair](pair.md). `none` for a single host.                                                                                                              |
+| `FREERADIUS_CONTAINER_NAME` | Container name of FreeRADIUS.                                                                                                                                                                        |
+| `SYSLOG_CONTAINER_NAME`     | Container name of syslog-ng.                                                                                                                                                                         |
+| `TFTP_CONTAINER_NAME`       | Container name of tftpd-hpa.                                                                                                                                                                         |
+| `TFTP_UPLOAD_MAX_BYTES`     | Size limit, in bytes, for one file uploaded over TFTP. See [TFTP](tftp.md).                                                                                                                          |
+| `OPENSSH_CONTAINER_NAME`    | Container name of OpenSSH.                                                                                                                                                                           |
+| `OPENSSH_HOSTNAME`          | Host name of the OpenSSH container. It appears in the prompt of the shell.                                                                                                                           |
+| `OPENSSH_PORT`              | Port of the Docker host that publishes SSH. Keep it apart from the host's own sshd.                                                                                                                  |
+| `OPENSSH_SUBNET`            | Subnet of the Docker network that connects only OpenSSH and OpenLDAP, in CIDR notation.                                                                                                              |
+| `OPENSSH_ALLOWED_NETWORKS`  | Networks that SSH connections are accepted from. See [Sources of SSH](ssh.md#sources-of-ssh).                                                                                                        |
+| `OPENSSH_EGRESS`            | Where the users can connect to from the OpenSSH container: `none`, `any`, or `ssh` and `icmp` separated by a space. See [Connections out of the container](ssh.md#connections-out-of-the-container). |
+| `NTP_CONTAINER_NAME`        | Container name of chrony, the NTP server. `chrony` when not set.                                                                                                                                     |
+| `PASSWDQC_MIN`              | Minimum lengths of the passwords `passwd` accepts. See [Password rules](ssh.md#password-rules).                                                                                                      |
+| `PPOLICY_MIN_LENGTH`        | Minimum length of the passwords OpenLDAP accepts. See [Password policy](#password-policy).                                                                                                           |
+| `PPOLICY_MAX_FAILURE`       | Number of failed logins that locks a user.                                                                                                                                                           |
+| `PPOLICY_FAILURE_WINDOW`    | Time in which the failures are counted, in seconds.                                                                                                                                                  |
+| `PPOLICY_LOCKOUT_DURATION`  | Time a lock lasts, in seconds.                                                                                                                                                                       |
+| `DOCKER_SUBNET`             | Subnet of the Docker network that connects the containers, in CIDR notation.                                                                                                                         |
+| `DEVICE_NETWORKS`           | Networks that RADIUS, syslog, TFTP and NTP are accepted from. See [Device networks](#device-networks).                                                                                               |
+| `TZ`                        | Time zone of every container, as a tz database name such as `Asia/Tokyo`.                                                                                                                            |
+| `COMPOSE_PROFILES`          | Optional services to start. `ntp` starts the NTP server. See [Serving the time](#serving-the-time).                                                                                                  |
 
 The container names of OpenLDAP, FreeRADIUS and OpenSSH are also the host names in their certificates. If you change them, regenerate the certificates with `make clean && make`.
 
@@ -174,11 +174,11 @@ bin/manage_users.sh delete alice                  # delete
 - A user has one role: `admin`, `operator` or `readonly`. A user who belongs to no role is rejected on every device. A user put into more than one role without the script is treated as the weakest of them (`readonly`, then `operator`, then `admin`), both on the devices and over SSH.
 - `add` and `passwd` ask for the password on the terminal. It is checked by the same rules as when a user changes it with `passwd` (see [Password rules](ssh.md#password-rules)). Ask the user to log in over SSH and change the password you set.
 - A user name takes lowercase letters, digits, `_` and `-`, up to 32 characters.
-- `uidNumber` is handed out in order from 10000. A number is never reused, even after its user is deleted. The files a user leaves behind keep the number as their owner. The next number to hand out is kept in `cn=nextUidNumber` in the directory.
+- `uidNumber` is handed out in order from 10000. A number is never reused, even after its user is deleted. The files a user leaves behind keep the number as their owner. The next number to hand out is kept in `cn=nextUidNumber` in the LDAP directory.
 - A change reaches SSH logins at once. With `delete` and `role`, the sessions of that user are closed (see [Applying changes to users and roles](ssh.md#applying-changes-to-users-and-roles)).
 - `unlock` lifts the lock of a user who failed to log in too many times, without waiting for it to end (see [Password policy](#password-policy)). Setting a new password with `passwd` lifts the lock as well.
 
-In the directory, users live under `ou=People`, and roles are `groupOfUniqueNames` entries under `ou=Roles`. A user belongs to a role when the role's `uniqueMember` holds the user's DN.
+In the LDAP directory, users live under `ou=People`, and roles are `groupOfUniqueNames` entries under `ou=Roles`. A user belongs to a role when the role's `uniqueMember` holds the user's DN.
 
 `delete`, `role`, `passwd` and `unlock` also work on users who were added without the script. Such a user needs `posixAccount` to log in over SSH. Give a `uidNumber` from 10000 to 59999 that no other user has and that was never used before, and set `gidNumber` to 10000. The first `add` starts the numbers after the highest one in use at that time.
 
@@ -223,7 +223,7 @@ A user who keeps failing to log in is locked for a while. With the values in `.e
 - A lock ends by itself when its time is over. To lift it at once, use `bin/manage_users.sh unlock <user>`.
 - FreeRADIUS and OpenSSH bind with their certificates, not with a password (see [Identities of FreeRADIUS and OpenSSH](#identities-of-freeradius-and-openssh)), so no lock stops them.
 
-After you change a `PPOLICY_*` value, generate the LDIF files again and apply the policy to the running OpenLDAP. The data in the directory stays.
+After you change a `PPOLICY_*` value, generate the LDIF files again and apply the policy to the running OpenLDAP. The data in the LDAP directory stays.
 
 ```sh
 make ldap_dir
@@ -236,7 +236,7 @@ It reports `Already exists` for the entries that are already there, which is fin
 
 OpenLDAP stores the passwords as Argon2id hashes (`{ARGON2}`), so that a hash that leaks, from a backup archive for example, is hard to turn back into the password. There is nothing to set. The OpenLDAP container sets this scheme again on every start.
 
-Koitohan used to store them as salted SHA-1 (`{SSHA}`). Switch a directory that was made back then as follows. The data in the directory stays.
+Koitohan used to store them as salted SHA-1 (`{SSHA}`). Switch an LDAP directory that was made back then as follows. The data in the LDAP directory stays.
 
 ```sh
 docker compose build openldap
@@ -252,11 +252,11 @@ The OpenLDAP container is recreated, and no login gets through until it is up ag
   docker compose exec -T openldap slapcat -n 1 -o ldif-wrap=no | awk '/^dn: /{dn=$0} /^userPassword:: e1NTSEF9/{print dn}'
   ```
 
-- After the switch, the directory does not start with an earlier image, which lacks the Argon2 module. The same goes for a backup that was taken after the switch.
+- After the switch, the LDAP directory does not start with an earlier image, which lacks the Argon2 module. The same goes for a backup that was taken after the switch.
 
 ## Identities of FreeRADIUS and OpenSSH
 
-FreeRADIUS and the OpenSSH container bind to OpenLDAP with their client certificates alone. There is no account and no password for them. OpenLDAP maps the subject of each certificate to an identity, which may read the directory except the passwords.
+FreeRADIUS and the OpenSSH container bind to OpenLDAP with their client certificates alone. There is no account and no password for them. OpenLDAP maps the subject of each certificate to an identity, which may read the LDAP directory except the passwords.
 
 | Certificate                | Subject                                       | Identity                    |
 | -------------------------- | --------------------------------------------- | --------------------------- |
@@ -264,7 +264,7 @@ FreeRADIUS and the OpenSSH container bind to OpenLDAP with their client certific
 | `CA/openssh_client.crt`    | `CN=openssh, OU=<host name>, O=koitohan`      | `cn=openssh,cn=koitohan`    |
 
 - `make` (`make certs`) makes the certificates. `OU` is the short host name of the Docker host. It only tells in the logs of OpenLDAP which host a connection comes from.
-- The OpenLDAP container writes the mapping and the access control again on every start. A change made in the directory goes back on the next start.
+- The OpenLDAP container writes the mapping and the access control again on every start. A change made in the LDAP directory goes back on the next start.
 - A certificate cannot be revoked alone. If a private key in `CA/` leaks, make all the certificates again with `make certs`, then run `make down && make up`.
 
 ## OpenLDAP administrators
@@ -273,10 +273,10 @@ OpenLDAP has two administrators: the one of the data (`cn=admin,<suffix>`) and t
 
 Work as an administrator on the Docker host, through `ldapi:///` inside the container, which makes you an administrator without a password (`docker compose exec openldap ldapsearch -Q -Y EXTERNAL -H ldapi:/// ...`). The scripts of this stack do the same.
 
-The OpenLDAP container removes the passwords of the administrators on every start, also one that you set in the directory. Earlier versions of Koitohan kept these passwords in `secrets/`. The files there are no longer used, and you can delete them.
+The OpenLDAP container removes the passwords of the administrators on every start, also one that you set in the LDAP directory. Earlier versions of Koitohan kept these passwords in `secrets/`. The files there are no longer used, and you can delete them.
 
-## Changing the directory seed
+## Changing the seed of the LDAP directory
 
-OpenLDAP loads the generated LDIF files only on its first start with an empty database. To apply changes to `.env` or the LDIF files afterwards, you have to delete `openldap/data/` and `openldap/config/` and start again. This deletes every user and role in the directory. A change of `PPOLICY_*` is the exception and needs no deletion (see [Password policy](#password-policy)).
+OpenLDAP loads the generated LDIF files only on its first start with an empty database. To apply changes to `.env` or the LDIF files afterwards, you have to delete `openldap/data/` and `openldap/config/` and start again. This deletes every user and role in the LDAP directory. A change of `PPOLICY_*` is the exception and needs no deletion (see [Password policy](#password-policy)).
 
 OpenLDAP does not start when it fails to load an LDIF file. Look at `docker compose logs openldap` for the cause, correct the LDIF file and start again.

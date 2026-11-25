@@ -2,7 +2,7 @@
 
 [日本語](pair.ja.md)
 
-Two Koitohan hosts can run as a pair, so that the devices keep logging in when one host is down. Each device uses both hosts as its RADIUS, syslog and NTP servers. The two OpenLDAP servers replicate the directory both ways, and either host takes changes.
+Two Koitohan hosts can run as a pair, so that the devices keep logging in when one host is down. Each device uses both hosts as its RADIUS, syslog and NTP servers. The two OpenLDAP servers replicate the LDAP directory both ways, and either host takes changes.
 
 So far the pair has been tested with two OpenLDAP containers on one Docker host (the smoke test). What one host cannot show has not been tried on two machines yet: the address in the certificate, the limit on the sources of LDAPS, and a cut in the network between the hosts.
 
@@ -30,7 +30,7 @@ Set these in `.env` on each host.
 - The addresses are IPv4, the ones that the two hosts reach each other at. `OPENLDAP_HOST_ADDRESS` goes into the certificate of OpenLDAP, and the other host checks it.
 - `LDAP_DOMAIN` has to be the same on both hosts.
 - 636/tcp has to get through between the two hosts.
-- The password policy is in the directory, so it is shared. Change it on one host (see [Password policy](configuration.md#password-policy)).
+- The password policy is in the LDAP directory, so it is shared. Change it on one host (see [Password policy](configuration.md#password-policy)).
 
 ## Making a pair from a running Koitohan
 
@@ -52,7 +52,7 @@ Host A is the Koitohan that runs now. Host B is new.
    make down && make up
    ```
 
-5. On host B, start the stack. Its OpenLDAP is empty, and receives the whole directory from host A before it serves anything. Until then, FreeRADIUS on host B does not answer and nobody can log in over SSH there. Its log says when it is done:
+5. On host B, start the stack. Its OpenLDAP is empty, and receives the whole LDAP directory from host A before it serves anything. Until then, FreeRADIUS on host B does not answer and nobody can log in over SSH there. Its log says when it is done:
 
    ```sh
    make up
@@ -63,7 +63,7 @@ Host A is the Koitohan that runs now. Host B is new.
 
 7. Add host B to the devices as their second RADIUS, syslog and NTP server.
 
-To make a pair from two new hosts, start host A alone first (`OPENLDAP_PEER_ADDRESS='none'`), so that it seeds the directory, then follow the steps above. Two empty hosts that both name each other wait for each other for good.
+To make a pair from two new hosts, start host A alone first (`OPENLDAP_PEER_ADDRESS='none'`), so that it seeds the LDAP directory, then follow the steps above. Two empty hosts that both name each other wait for each other for good.
 
 ## Rules for running a pair
 
@@ -90,15 +90,15 @@ sudo find openldap/data openldap/config -mindepth 1 ! -name .gitkeep -delete
 make up
 ```
 
-To build the host again from nothing, follow [Restoring onto a new host](backup.md#restoring-onto-a-new-host), but leave out `bin/restore_ldap.sh`: the directory comes from the other host. The new host has a new CA, so give it to the other host as in step 3, and restart OpenLDAP there.
+To build the host again from nothing, follow [Restoring onto a new host](backup.md#restoring-onto-a-new-host), but leave out `bin/restore_ldap.sh`: the LDAP directory comes from the other host. The new host has a new CA, so give it to the other host as in step 3, and restart OpenLDAP there.
 
 ## When the two hosts differ
 
-`bin/check_services.sh` compares the two directories, entry by entry, and gives a `WARN`:
+`bin/check_services.sh` compares the two LDAP directories, entry by entry, and gives a `WARN`:
 
 - `pair: differs from the other host`: the two hosts hold different entries, and still do after a few seconds. The lines under it show some of them (`only here` and `only there`, with the time of the last change).
   - First see whether replication gets through both ways: run `bin/check_services.sh` on the other host as well. When the other host says `cannot read the other host`, changes do not reach it, and the two catch up once that is fixed.
-  - A difference that stays while both hosts read each other does not mend by itself. It can come from a restore of one host while the other kept its data (see [Restoring a pair](backup.md#restoring-a-pair)). Decide which host has the right directory, then delete the persistent data of the other host and start it, as in [When one host breaks](#when-one-host-breaks).
+  - A difference that stays while both hosts read each other does not mend by itself. It can come from a restore of one host while the other kept its data (see [Restoring a pair](backup.md#restoring-a-pair)). Decide which host has the right LDAP directory, then delete the persistent data of the other host and start it, as in [When one host breaks](#when-one-host-breaks).
 - `pair: cannot read the other host`: the other host is down, the network between them is cut, or the other host does not take this one (its `OPENLDAP_ALLOWED_NETWORKS`, or a CA certificate that was not given again after `make certs`).
 
 ## Back to a single host

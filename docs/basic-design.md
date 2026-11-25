@@ -195,7 +195,7 @@ Raspberry Pi 5 を Docker ホストとして利用し、
   │     ├── build/         ← イメージの Dockerfile
   │     ├── ldif/          ← 生成した初期投入の LDIF
   │     ├── config/        ← 永続データ（設定）
-  │     └── data/          ← 永続データ（ディレクトリ）
+  │     └── data/          ← 永続データ（LDAP ディレクトリのデータ）
   ├── freeradius/
   │     └── build/         ← イメージの Dockerfile
   ├── syslog-ng/
@@ -248,7 +248,7 @@ Kea DHCP と BIND9 を追加するかどうかは未決定である。
   - FreeRADIUS の構成の共有（`clients.conf` を台のあいだで揃える）。
   - syslog-ng → 外部ログ基盤／SIEM 連携。
 - Kerberos 認証（LDAP＋FreeRADIUS＋SSSD）。
-- ほかの Linux ホストなどの認証への、ディレクトリの提供（未決定）。  
+- ほかの Linux ホストなどの認証への、LDAP ディレクトリの提供（未決定）。  
   ユーザに `posixAccount` を持たせるため（4.9 節）、属性の面では対応できる。  
   ただし、現在の LDAP はこのスタックのコンテナからの接続だけを想定しており、CA の証明書も外部に配布していない（4.5 節）。提供する場合は、この前提を見直す必要がある。
 - DHCP と DNS を採用した場合は、Kea DHCP の HA 構成と BIND9 セカンダリによる冗長化。

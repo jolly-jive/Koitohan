@@ -6,34 +6,34 @@
 
 `.env` が唯一の設定元です。スクリプトも `compose.yaml` もこのファイルを読みます。
 
-| 変数                                  | 意味                                                                                  |
-| ------------------------------------- | ------------------------------------------------------------------------------------- |
-| `LDAP_DOMAIN`                         | ディレクトリのドメイン。`example.com` はサフィックス `dc=example,dc=com` になります。 |
-| `LDAP_ORGANISATION`                   | ディレクトリに保存する組織名。                                                        |
-| `OPENLDAP_CONTAINER_NAME`             | OpenLDAP のコンテナ名。                                                               |
-| `OPENLDAP_ALLOWED_NETWORKS`           | Docker ホストの外で LDAPS を受け付ける送信元。`none` かアドレス。「[LDAPS の接続元](#ldaps-の接続元)」を参照。 |
-| `OPENLDAP_HOST_ADDRESS`               | [冗長構成](pair.ja.md)で、もう片方の台から見たこの台のアドレス。1台なら `none`。 |
-| `OPENLDAP_PEER_ADDRESS`               | [冗長構成](pair.ja.md)の、もう片方の台のアドレス。1台なら `none`。               |
-| `FREERADIUS_CONTAINER_NAME`           | FreeRADIUS のコンテナ名。                                                             |
-| `SYSLOG_CONTAINER_NAME`               | syslog-ng のコンテナ名。                                                              |
-| `TFTP_CONTAINER_NAME`                 | tftpd-hpa のコンテナ名。                                                              |
-| `TFTP_UPLOAD_MAX_BYTES`               | TFTP でアップロードできる1ファイルあたりの上限(バイト数)。「[TFTP](tftp.ja.md)」を参照。   |
-| `OPENSSH_CONTAINER_NAME`              | OpenSSH のコンテナ名。                                                                |
-| `OPENSSH_HOSTNAME`                    | OpenSSH のコンテナのホスト名。ログインしたシェルのプロンプトに表示されます。          |
-| `OPENSSH_PORT`                        | SSH を公開する Docker ホストのポート番号。ホスト自身の sshd とは別の番号にします。    |
-| `OPENSSH_SUBNET`                      | OpenSSH と OpenLDAP だけをつなぐ Docker ネットワークのサブネット(CIDR 表記)。         |
-| `OPENSSH_ALLOWED_NETWORKS`            | SSH の接続を受け付ける送信元のネットワーク。「[SSH の接続元](ssh.ja.md#ssh-の接続元)」を参照。 |
-| `OPENSSH_EGRESS`                      | OpenSSH のコンテナからユーザーが接続できる先。`none`、`any`、または `ssh` と `icmp`(空白で区切る)。「[コンテナから外への接続](ssh.ja.md#コンテナから外への接続)」を参照。 |
-| `NTP_CONTAINER_NAME`                  | NTP サーバー(chrony)のコンテナ名。書かなければ `chrony`。                             |
-| `PASSWDQC_MIN`                        | `passwd` が受け付けるパスワードの最小の長さ。「[パスワードの規則](ssh.ja.md#パスワードの規則)」を参照。 |
-| `PPOLICY_MIN_LENGTH`                  | OpenLDAP が受け付けるパスワードの最小の長さ。「[パスワードポリシー](#パスワードポリシー)」を参照。 |
-| `PPOLICY_MAX_FAILURE`                 | ユーザーをロックするまでの、認証の失敗の回数。                                        |
-| `PPOLICY_FAILURE_WINDOW`              | 失敗を数える期間(秒)。                                                                |
-| `PPOLICY_LOCKOUT_DURATION`            | ロックする時間(秒)。                                                                  |
-| `DOCKER_SUBNET`                       | コンテナ同士をつなぐ Docker ネットワークのサブネット(CIDR 表記)。                     |
-| `DEVICE_NETWORKS`                     | RADIUS、syslog、TFTP、NTP を受け付ける送信元のネットワーク。「[機器のネットワーク](#機器のネットワーク)」を参照。 |
-| `TZ`                                  | 全コンテナのタイムゾーン。`Asia/Tokyo` のような tz database の名前で指定します。      |
-| `COMPOSE_PROFILES`                    | 起動する任意のサービス。`ntp` で NTP サーバーを起動します。「[時刻の配布](#時刻の配布)」を参照。 |
+| 変数                        | 意味                                                                                                                                                                      |
+| --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `LDAP_DOMAIN`               | LDAP ディレクトリのドメイン。`example.com` はサフィックス `dc=example,dc=com` になります。                                                                                |
+| `LDAP_ORGANISATION`         | LDAP ディレクトリに保存する組織名。                                                                                                                                       |
+| `OPENLDAP_CONTAINER_NAME`   | OpenLDAP のコンテナ名。                                                                                                                                                   |
+| `OPENLDAP_ALLOWED_NETWORKS` | Docker ホストの外で LDAPS を受け付ける送信元。`none` かアドレス。「[LDAPS の接続元](#ldaps-の接続元)」を参照。                                                            |
+| `OPENLDAP_HOST_ADDRESS`     | [冗長構成](pair.ja.md)で、もう片方の台から見たこの台のアドレス。1台なら `none`。                                                                                          |
+| `OPENLDAP_PEER_ADDRESS`     | [冗長構成](pair.ja.md)の、もう片方の台のアドレス。1台なら `none`。                                                                                                        |
+| `FREERADIUS_CONTAINER_NAME` | FreeRADIUS のコンテナ名。                                                                                                                                                 |
+| `SYSLOG_CONTAINER_NAME`     | syslog-ng のコンテナ名。                                                                                                                                                  |
+| `TFTP_CONTAINER_NAME`       | tftpd-hpa のコンテナ名。                                                                                                                                                  |
+| `TFTP_UPLOAD_MAX_BYTES`     | TFTP でアップロードできる1ファイルあたりの上限(バイト数)。「[TFTP](tftp.ja.md)」を参照。                                                                                  |
+| `OPENSSH_CONTAINER_NAME`    | OpenSSH のコンテナ名。                                                                                                                                                    |
+| `OPENSSH_HOSTNAME`          | OpenSSH のコンテナのホスト名。ログインしたシェルのプロンプトに表示されます。                                                                                              |
+| `OPENSSH_PORT`              | SSH を公開する Docker ホストのポート番号。ホスト自身の sshd とは別の番号にします。                                                                                        |
+| `OPENSSH_SUBNET`            | OpenSSH と OpenLDAP だけをつなぐ Docker ネットワークのサブネット(CIDR 表記)。                                                                                             |
+| `OPENSSH_ALLOWED_NETWORKS`  | SSH の接続を受け付ける送信元のネットワーク。「[SSH の接続元](ssh.ja.md#ssh-の接続元)」を参照。                                                                            |
+| `OPENSSH_EGRESS`            | OpenSSH のコンテナからユーザーが接続できる先。`none`、`any`、または `ssh` と `icmp`(空白で区切る)。「[コンテナから外への接続](ssh.ja.md#コンテナから外への接続)」を参照。 |
+| `NTP_CONTAINER_NAME`        | NTP サーバー(chrony)のコンテナ名。書かなければ `chrony`。                                                                                                                 |
+| `PASSWDQC_MIN`              | `passwd` が受け付けるパスワードの最小の長さ。「[パスワードの規則](ssh.ja.md#パスワードの規則)」を参照。                                                                   |
+| `PPOLICY_MIN_LENGTH`        | OpenLDAP が受け付けるパスワードの最小の長さ。「[パスワードポリシー](#パスワードポリシー)」を参照。                                                                        |
+| `PPOLICY_MAX_FAILURE`       | ユーザーをロックするまでの、認証の失敗の回数。                                                                                                                            |
+| `PPOLICY_FAILURE_WINDOW`    | 失敗を数える期間(秒)。                                                                                                                                                    |
+| `PPOLICY_LOCKOUT_DURATION`  | ロックする時間(秒)。                                                                                                                                                      |
+| `DOCKER_SUBNET`             | コンテナ同士をつなぐ Docker ネットワークのサブネット(CIDR 表記)。                                                                                                         |
+| `DEVICE_NETWORKS`           | RADIUS、syslog、TFTP、NTP を受け付ける送信元のネットワーク。「[機器のネットワーク](#機器のネットワーク)」を参照。                                                         |
+| `TZ`                        | 全コンテナのタイムゾーン。`Asia/Tokyo` のような tz database の名前で指定します。                                                                                          |
+| `COMPOSE_PROFILES`          | 起動する任意のサービス。`ntp` で NTP サーバーを起動します。「[時刻の配布](#時刻の配布)」を参照。                                                                          |
 
 OpenLDAP、FreeRADIUS、OpenSSH のコンテナ名は、証明書のホスト名を兼ねています。変更したら `make clean && make` で証明書を作り直してください。
 
@@ -174,11 +174,11 @@ bin/manage_users.sh delete alice                  # 削除
 - ユーザーに割り当てるロールは、`admin`、`operator`、`readonly` のうちの1つです。どのロールにも所属していないユーザーは、すべての機器で拒否されます。スクリプトを使わずに複数のロールに所属させたユーザーは、そのうちいちばん弱いロール(`readonly`、`operator`、`admin` の順)として扱われます。機器へのログインでも、SSH でも同じです。
 - `add` と `passwd` は、パスワードを端末から尋ねます。パスワードは、ユーザーが `passwd` で変更するときと同じ規則で判定します(「[パスワードの規則](ssh.ja.md#パスワードの規則)」を参照)。発行したパスワードは、ユーザー本人に SSH でログインして変更してもらってください。
 - ユーザー名に使えるのは、英小文字、数字、`_`、`-` で、32 文字までです。
-- `uidNumber` は 10000 から順に割り当てます。一度使った番号は、ユーザーを削除したあとも再利用しません。ユーザーが置いたファイルの所有者は、番号で残るためです。次に割り当てる番号は、ディレクトリの `cn=nextUidNumber` に記録しています。
+- `uidNumber` は 10000 から順に割り当てます。一度使った番号は、ユーザーを削除したあとも再利用しません。ユーザーが置いたファイルの所有者は、番号で残るためです。次に割り当てる番号は、LDAP ディレクトリの `cn=nextUidNumber` に記録しています。
 - 変更は、SSH のログインにもすぐに反映されます。`delete` と `role` では、そのユーザーのログイン中のセッションが切れます(「[ユーザーとロールの変更を反映する](ssh.ja.md#ユーザーとロールの変更を反映する)」を参照)。
 - `unlock` は、認証の失敗が続いてロックされたユーザーを、時間を待たずに解除します(「[パスワードポリシー](#パスワードポリシー)」を参照)。`passwd` でパスワードを再発行しても、ロックは解除されます。
 
-ディレクトリの中では、ユーザーは `ou=People` の下にあり、ロールは `ou=Roles` の下の `groupOfUniqueNames` です。ロールへの所属は、ロールの `uniqueMember` にユーザーの DN があることで表します。
+LDAP ディレクトリの中では、ユーザーは `ou=People` の下にあり、ロールは `ou=Roles` の下の `groupOfUniqueNames` です。ロールへの所属は、ロールの `uniqueMember` にユーザーの DN があることで表します。
 
 スクリプトを使わずに登録したユーザーも、`delete`、`role`、`passwd`、`unlock` で扱えます。そうしたユーザーに SSH でログインさせるには、`posixAccount` を持たせます。`uidNumber` は 10000〜59999 の範囲で、ほかのユーザーと重ならず、過去に使っていない番号にします。`gidNumber` は 10000 にします。スクリプトを初めて `add` で使うとき、次に割り当てる番号は、その時点で使われている最大の番号の次から始まります。
 
@@ -223,7 +223,7 @@ OpenLDAP は、ハッシュ済みのパスワードの書き込みを受け付�
 - ロックは時間が過ぎると解除されます。すぐに解除するには `bin/manage_users.sh unlock <ユーザー>` を使います。
 - FreeRADIUS と OpenSSH は、パスワードではなく証明書で bind するので(「[FreeRADIUS と OpenSSH の身元](#freeradius-と-openssh-の身元)」)、ロックで止まることはありません。
 
-`PPOLICY_*` の値を変えたときは、LDIF を生成し直して、稼働中の OpenLDAP に適用します。ディレクトリのデータを消す必要はありません。
+`PPOLICY_*` の値を変えたときは、LDIF を生成し直して、稼働中の OpenLDAP に適用します。LDAP ディレクトリのデータを消す必要はありません。
 
 ```sh
 make ldap_dir
@@ -236,7 +236,7 @@ docker compose exec -T openldap ldapmodify -c -Q -Y EXTERNAL -H ldapi:/// < open
 
 OpenLDAP は、パスワードを Argon2id のハッシュ(`{ARGON2}`)にして保存します。バックアップのアーカイブなどからハッシュが漏れたときに、パスワードを割り出されにくくするためです。設定する値はありません。OpenLDAP のコンテナが、起動するたびにこの方式を設定し直します。
 
-以前の Koitohan は、ソルト付きの SHA-1(`{SSHA}`)で保存していました。その頃に作ったディレクトリは、次の手順で切り替えます。ディレクトリのデータを消す必要はありません。
+以前の Koitohan は、ソルト付きの SHA-1(`{SSHA}`)で保存していました。その頃に作った LDAP ディレクトリは、次の手順で切り替えます。LDAP ディレクトリのデータを消す必要はありません。
 
 ```sh
 docker compose build openldap
@@ -252,11 +252,11 @@ OpenLDAP のコンテナが作り直され、起動し直すまでのあいだ�
   docker compose exec -T openldap slapcat -n 1 -o ldif-wrap=no | awk '/^dn: /{dn=$0} /^userPassword:: e1NTSEF9/{print dn}'
   ```
 
-- 切り替えたあとのディレクトリは、以前のイメージでは起動しません(Argon2 のモジュールがないためです)。切り替えたあとに取ったバックアップも同じです。
+- 切り替えたあとの LDAP ディレクトリは、以前のイメージでは起動しません(Argon2 のモジュールがないためです)。切り替えたあとに取ったバックアップも同じです。
 
 ## FreeRADIUS と OpenSSH の身元
 
-FreeRADIUS と OpenSSH のコンテナは、クライアント証明書だけで OpenLDAP に bind します。アカウントもパスワードもありません。OpenLDAP は、証明書の subject を身元に対応づけ、その身元に、パスワードを除くディレクトリの読み取りを許します。
+FreeRADIUS と OpenSSH のコンテナは、クライアント証明書だけで OpenLDAP に bind します。アカウントもパスワードもありません。OpenLDAP は、証明書の subject を身元に対応づけ、その身元に、パスワードを除く LDAP ディレクトリの読み取りを許します。
 
 | 証明書                     | subject                                       | 身元                        |
 | -------------------------- | --------------------------------------------- | --------------------------- |
@@ -264,7 +264,7 @@ FreeRADIUS と OpenSSH のコンテナは、クライアント証明書だけで
 | `CA/openssh_client.crt`    | `CN=openssh, OU=<ホスト名>, O=koitohan`       | `cn=openssh,cn=koitohan`    |
 
 - 証明書は `make`(`make certs`)が作ります。`OU` は Docker ホストの短いホスト名です。OpenLDAP のログで、どのホストからの接続かを見分けるためだけのものです。
-- 対応づけとアクセス制御は、OpenLDAP のコンテナが起動するたびに書き直します。ディレクトリの側で変えても、次の起動で元に戻ります。
+- 対応づけとアクセス制御は、OpenLDAP のコンテナが起動するたびに書き直します。LDAP ディレクトリの側で変えても、次の起動で元に戻ります。
 - 証明書を1枚だけ無効にすることはできません。`CA/` の秘密鍵が漏れたときは、`make certs` ですべての証明書を作り直し、`make down && make up` を実行してください。
 
 ## OpenLDAP の管理者
@@ -273,10 +273,10 @@ OpenLDAP には、管理者が2つあります。データの管理者(`cn=admin
 
 管理者としての作業は、Docker ホストで、コンテナ内の `ldapi:///` から行います。パスワードなしで管理者になれます(`docker compose exec openldap ldapsearch -Q -Y EXTERNAL -H ldapi:/// ...`)。このスタックのスクリプトも同じです。
 
-OpenLDAP のコンテナは、起動するたびに、管理者のパスワードを消します。ディレクトリの側で設定しても、次の起動で消えます。以前の Koitohan は、このパスワードを `secrets/` に置いていました。そのファイルはもう使われないので、消して構いません。
+OpenLDAP のコンテナは、起動するたびに、管理者のパスワードを消します。LDAP ディレクトリの側で設定しても、次の起動で消えます。以前の Koitohan は、このパスワードを `secrets/` に置いていました。そのファイルはもう使われないので、消して構いません。
 
-## ディレクトリの初期データを変更する
+## LDAP ディレクトリの初期データを変更する
 
-OpenLDAP が生成済みの LDIF を読み込むのは、データベースが空の状態での初回起動時だけです。その後に `.env` や LDIF の変更を反映するには、`openldap/data/` と `openldap/config/` を削除して起動し直す必要があります。このとき、ディレクトリ内のユーザーとロールはすべて失われます。`PPOLICY_*` の変更は例外で、データを消さずに反映できます(「[パスワードポリシー](#パスワードポリシー)」を参照)。
+OpenLDAP が生成済みの LDIF を読み込むのは、データベースが空の状態での初回起動時だけです。その後に `.env` や LDIF の変更を反映するには、`openldap/data/` と `openldap/config/` を削除して起動し直す必要があります。このとき、LDAP ディレクトリ内のユーザーとロールはすべて失われます。`PPOLICY_*` の変更は例外で、データを消さずに反映できます(「[パスワードポリシー](#パスワードポリシー)」を参照)。
 
 LDIF の読み込みが途中で失敗したときは、OpenLDAP は起動しません。`docker compose logs openldap` で原因を確かめ、LDIF を直してから起動し直してください。

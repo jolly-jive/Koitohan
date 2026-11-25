@@ -96,7 +96,7 @@ function user_dn() {
 function user_exists() {
   local OUT
 
-  OUT=$(ldap_search -b "${PEOPLE_DN}" -s one "(uid=${1})" dn) || die 'could not search the directory'
+  OUT=$(ldap_search -b "${PEOPLE_DN}" -s one "(uid=${1})" dn) || die 'could not search the LDAP directory'
   [[ -n "${OUT}" ]]
 }
 
@@ -267,7 +267,7 @@ function cmd_delete() {
 
   require_user "${USER}"
   DN=$(user_dn "${USER}")
-  ROLES_NOW=$(roles_of "${USER}") || die 'could not search the directory'
+  ROLES_NOW=$(roles_of "${USER}") || die 'could not search the LDAP directory'
 
   for ROLE in ${ROLES_NOW}; do
     ldap ldapmodify > /dev/null <<EOF || die "could not take ${USER} out of ${ROLE}"
@@ -292,7 +292,7 @@ function cmd_role() {
   is_role "${ROLE}" || die "${ROLE}: no such role (${ROLES[*]})"
   DN=$(user_dn "${USER}")
   # a failed search must not pass for "no role": the old roles would stay
-  CURRENT=$(roles_of "${USER}") || die 'could not search the directory'
+  CURRENT=$(roles_of "${USER}") || die 'could not search the LDAP directory'
 
   if [[ "${CURRENT}" == "${ROLE}" ]]; then
     echo "${USER} is ${ROLE} already"
@@ -320,7 +320,7 @@ function cmd_passwd() {
   local FULL_NAME
 
   require_user "${USER}"
-  FULL_NAME=$(full_name_of "${USER}") || die 'could not search the directory'
+  FULL_NAME=$(full_name_of "${USER}") || die 'could not search the LDAP directory'
   FULL_NAME=${FULL_NAME//$'\n'/ }
 
   read_password
@@ -336,7 +336,7 @@ function cmd_unlock() {
 
   require_user "${USER}"
   STATE=$(ldap_search -b "$(user_dn "${USER}")" -s base pwdAccountLockedTime pwdFailureTime) \
-    || die 'could not search the directory'
+    || die 'could not search the LDAP directory'
 
   if [[ -z "$(values_of pwdAccountLockedTime <<< "${STATE}")" ]]; then
     echo "${USER} is not locked"

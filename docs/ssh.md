@@ -22,7 +22,7 @@ Apart from this, OpenLDAP checks a minimum length by itself (see [Password polic
 
 ## Applying changes to users and roles
 
-The OpenSSH container reads the directory when it starts, and every 60 seconds after that, and rebuilds the list of users who can log in. `bin/manage_users.sh` has the list rebuilt at once after every change, so there is usually nothing to do. A change made to the directory without the script also takes effect within a minute. To apply it at once, rebuild the list yourself.
+The OpenSSH container reads the LDAP directory when it starts, and every 60 seconds after that, and rebuilds the list of users who can log in. `bin/manage_users.sh` has the list rebuilt at once after every change, so there is usually nothing to do. A change made to the LDAP directory without the script also takes effect within a minute. To apply it at once, rebuild the list yourself.
 
 ```sh
 docker compose exec openssh koitohan-update-users

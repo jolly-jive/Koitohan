@@ -2,18 +2,18 @@
 
 [日本語](backup.ja.md)
 
-`bin/backup.sh` puts what Koitohan cannot make again into one archive: the settings, the keys, the directory of OpenLDAP, and the configurations the devices have uploaded. With the archive and the repository, you can rebuild Koitohan on a new host, for example after the storage of the Raspberry Pi has failed.
+`bin/backup.sh` puts what Koitohan cannot make again into one archive: the settings, the keys, the LDAP directory of OpenLDAP, and the configurations the devices have uploaded. With the archive and the repository, you can rebuild Koitohan on a new host, for example after the storage of the Raspberry Pi has failed.
 
 ## What a backup holds
 
-| In the archive                                     | What it is                                                     |
-| -------------------------------------------------- | -------------------------------------------------------------- |
-| `.env`                                             | The settings                                                   |
-| `freeradius/config/clients.conf`                   | The RADIUS clients and their shared secrets                    |
-| `openssh/hostkeys/`                                | The host keys of the OpenSSH container                         |
-| `ldap/config.ldif`, `ldap/data.ldif`               | The configuration and the contents of the directory (users, roles, passwords, locks) |
-| `tftp-configs.tar`                                 | The files in `tftpd-hpa/tftpboot/configs/`, with their owners and modes |
-| `koitohan-backup.txt`                              | When and on which host the backup was taken, and the commit of the repository |
+| In the archive                       | What it is                                                                                |
+| ------------------------------------ | ----------------------------------------------------------------------------------------- |
+| `.env`                               | The settings                                                                              |
+| `freeradius/config/clients.conf`     | The RADIUS clients and their shared secrets                                               |
+| `openssh/hostkeys/`                  | The host keys of the OpenSSH container                                                    |
+| `ldap/config.ldif`, `ldap/data.ldif` | The configuration and the contents of the LDAP directory (users, roles, passwords, locks) |
+| `tftp-configs.tar`                   | The files in `tftpd-hpa/tftpboot/configs/`, with their owners and modes                   |
+| `koitohan-backup.txt`                | When and on which host the backup was taken, and the commit of the repository             |
 
 These are left out:
 
@@ -30,7 +30,7 @@ Run `bin/backup.sh` on the Docker host while the stack is running. Give it the d
 bin/backup.sh /var/backups/koitohan
 ```
 
-It writes `koitohan-<host>-<date>-<time>.tar.gz` with the mode 0600. The stack keeps running: the directory is dumped with `slapcat`, which reads a consistent state while OpenLDAP runs.
+It writes `koitohan-<host>-<date>-<time>.tar.gz` with the mode 0600. The stack keeps running: the LDAP directory is dumped with `slapcat`, which reads a consistent state while OpenLDAP runs.
 
 With `-k`, it deletes the older archives of the same host in that directory once the new one is written, and keeps the given number of them.
 
@@ -71,7 +71,7 @@ To copy the archives to another host at 3:45, add a line like this. The SSH key 
 
 Run these in the directory of the repository, as the user who will run the stack. `<archive>` is the path of the backup.
 
-1. Clone the repository and check out the commit written in the archive. A newer commit may set up the directory differently from the one in the backup.
+1. Clone the repository and check out the commit written in the archive. A newer commit may set up the LDAP directory differently from the one in the backup.
 
    ```sh
    git clone https://github.com/jolly-jive/Koitohan.git koitohan
@@ -93,7 +93,7 @@ Run these in the directory of the repository, as the user who will run the stack
    make host_check
    ```
 
-4. Load the directory, then start the stack. `bin/restore_ldap.sh` makes the OpenLDAP container without starting it, loads the directory into its empty data, and marks it so that OpenLDAP does not seed it again.
+4. Load the LDAP directory, then start the stack. `bin/restore_ldap.sh` makes the OpenLDAP container without starting it, loads the LDAP directory into its empty data, and marks it so that OpenLDAP does not seed it again.
 
    ```sh
    bin/restore_ldap.sh <archive>
@@ -110,9 +110,9 @@ Run these in the directory of the repository, as the user who will run the stack
 
 If you checked out an older commit in step 1, go back to the branch you follow with `git switch main`, and apply the changes since then as you would on a running Koitohan.
 
-## Restoring the directory only
+## Restoring the LDAP directory only
 
-When the directory is broken, or a large part of it was deleted by mistake, load the directory of a backup into an empty OpenLDAP. Everything in the directory now is lost, so check that this is what you want first.
+When the LDAP directory is broken, or a large part of it was deleted by mistake, load the LDAP directory of a backup into an empty OpenLDAP. Everything in the LDAP directory now is lost, so check that this is what you want first.
 
 ```sh
 make down
@@ -127,9 +127,9 @@ The certificates need nothing: FreeRADIUS and OpenSSH bind with the ones that `m
 
 ## Restoring a pair
 
-In a [redundant pair](pair.md), restore one host only, either of them. The other host deletes its directory and receives everything from the restored one.
+In a [redundant pair](pair.md), restore one host only, either of them. The other host deletes its LDAP directory and receives everything from the restored one.
 
-**Do not skip the delete on the other host.** Started with its own directory, the other host can write it over the restored host: in a test, the backup put back on the restored host did not last, and without a word, both hosts ended up with the directory of the other host, as before the restore. In an earlier trial, the two hosts stayed different for good instead. `bin/check_services.sh` gives `WARN pair: differs from the other host` for the second, and nothing for the first. `bin/restore_ldap.sh` reminds you at the end when the host is one of a pair.
+**Do not skip the delete on the other host.** Started with its own LDAP directory, the other host can write it over the restored host: in a test, the backup put back on the restored host did not last, and without a word, both hosts ended up with the LDAP directory of the other host, as before the restore. In an earlier trial, the two hosts stayed different for good instead. `bin/check_services.sh` gives `WARN pair: differs from the other host` for the second, and nothing for the first. `bin/restore_ldap.sh` reminds you at the end when the host is one of a pair.
 
 1. Stop both hosts. Meanwhile the devices can log in with their local accounts only.
 
@@ -144,13 +144,13 @@ In a [redundant pair](pair.md), restore one host only, either of them. The other
    bin/restore_ldap.sh <archive>
    ```
 
-3. On the other host, delete the directory:
+3. On the other host, delete the persistent data of OpenLDAP (its LDAP directory):
 
    ```sh
    sudo find openldap/data openldap/config -mindepth 1 ! -name .gitkeep -delete
    ```
 
-4. Start both hosts, in either order. The other host receives the directory once the restored one is up (see step 5 of [Making a pair](pair.md#making-a-pair-from-a-running-koitohan)).
+4. Start both hosts, in either order. The other host receives the LDAP directory once the restored one is up (see step 5 of [Making a pair](pair.md#making-a-pair-from-a-running-koitohan)).
 
    ```sh
    make up       # on both hosts
@@ -168,7 +168,7 @@ A file of the same name in `configs/` is overwritten. Files that are not in the 
 
 ## Things to know
 
-- A restore brings back the directory as it was at the backup. Users added or deleted, roles changed and passwords changed after that are lost, and the locks are as they were then. Tell the users who changed their password since the backup that the old one is back.
-- `make up` reads the users again, so SSH logins follow the restored directory without `koitohan-update-users`.
-- `bin/restore_ldap.sh` brings back the configuration of the directory (`cn=config`) from the backup as well, including the password policy and the access control.
-- The archive has no entries for directories, so unpacking it does not change the mode of any directory in the repository.
+- A restore brings back the LDAP directory as it was at the backup. Users added or deleted, roles changed and passwords changed after that are lost, and the locks are as they were then. Tell the users who changed their password since the backup that the old one is back.
+- `make up` reads the users again, so SSH logins follow the restored LDAP directory without `koitohan-update-users`.
+- `bin/restore_ldap.sh` brings back the configuration of the LDAP directory (`cn=config`) from the backup as well, including the password policy and the access control.
+- The archive lists files only, with no entries for the directories of the file system, so unpacking it does not change the mode of any directory in the repository.
