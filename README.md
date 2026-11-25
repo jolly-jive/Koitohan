@@ -29,7 +29,7 @@ Koitohan is at the verification stage. It is not hardened for production use.
 
 | Function                         | Component                                       | Status    |
 | -------------------------------- | ----------------------------------------------- | --------- |
-| Directory                        | OpenLDAP 2.6 (built here from Alpine)           | Working   |
+| LDAP directory                   | OpenLDAP 2.6 (built here from Alpine)           | Working   |
 | Authentication and authorization | FreeRADIUS 4.x (`cayenneryo/freeradius-server`) | Working   |
 | Log collection                   | syslog-ng (`linuxserver/syslog-ng`)             | Working   |
 | File distribution                | tftpd-hpa (built here from Alpine)              | Working   |
@@ -117,7 +117,7 @@ make down               # stop the stack
 make clean              # delete generated certificates, LDIF files and config
 bin/manage_users.sh     # add and delete users, change a role, set a new password, unlock
 bin/backup.sh           # take a backup of the running stack
-bin/restore_ldap.sh     # load the directory of a backup into an empty OpenLDAP
+bin/restore_ldap.sh     # load the LDAP directory of a backup into an empty OpenLDAP
 bin/check_services.sh   # check that each service of the running stack works
 ```
 
@@ -192,7 +192,7 @@ For the Koitohan administrators:
 - [Logs](docs/logs.md): where the logs are and how they rotate
 - [Backup and restore](docs/backup.md): what a backup holds, running it every day, restoring onto a new host
 - [Checking the services](docs/monitoring.md): checking that the services work, and doing it on a schedule (recommended)
-- [Redundant pair](docs/pair.md): two hosts that share the directory, setting them up, rules, when they differ
+- [Redundant pair](docs/pair.md): two hosts that share the LDAP directory, setting them up, rules, when they differ
 - [Device configuration examples](docs/devices/README.md): settings on the network devices, sent by contributors
 - [Basic design](docs/basic-design.md) (Japanese)
 

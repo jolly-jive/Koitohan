@@ -15,19 +15,19 @@ If you have monitoring apart from Koitohan (a monitoring server you already run,
 
 ## What it checks
 
-| Item              | How                                                                                       | NG or WARN when                                    |
-| ----------------- | ----------------------------------------------------------------------------------------- | -------------------------------------------------- |
-| Containers        | The state of the containers that should be up (with the number of restarts)               | one is not running (NG)                            |
-| OpenLDAP          | From the OpenSSH container, binds over LDAPS with its certificate and reads the directory  | the bind or the read fails (NG)                    |
-| FreeRADIUS        | Sends Status-Server from inside the container                                             | no answer (NG)                                     |
-| syslog-ng         | Asks over its control socket                                                              | no answer (NG)                                     |
-| Where logs go     | The space on the filesystem of `syslog-ng/log/`                                           | 90% or more used (WARN)                            |
-| tftpd-hpa         | Asks for a missing file from inside the container                                         | no `File not found` comes back (NG)                |
-| `configs/`        | The owner as the container sees it, and the space on its filesystem                       | `in.tftpd` cannot write (NG), 90% or more (WARN)   |
-| OpenSSH           | Connects to sshd from inside the container                                                | no answer (NG)                                     |
-| chrony            | Whether it serves (only when `COMPOSE_PROFILES` has `ntp`)                                | it stopped serving, as the host clock is out of sync (NG) |
-| Certificates      | When the certificates in `CA/` expire                                                     | within 30 days (WARN)                              |
-| Pair              | Only in a [redundant pair](pair.md): compares every entry and its time of change with the other host, read over LDAPS with the certificate of replication | they differ for some seconds, or the other host cannot be read (WARN) |
+| Item          | How                                                                                                                                                       | NG or WARN when                                                       |
+| ------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------- |
+| Containers    | The state of the containers that should be up (with the number of restarts)                                                                               | one is not running (NG)                                               |
+| OpenLDAP      | From the OpenSSH container, binds over LDAPS with its certificate and reads the LDAP directory                                                            | the bind or the read fails (NG)                                       |
+| FreeRADIUS    | Sends Status-Server from inside the container                                                                                                             | no answer (NG)                                                        |
+| syslog-ng     | Asks over its control socket                                                                                                                              | no answer (NG)                                                        |
+| Where logs go | The space on the filesystem of `syslog-ng/log/`                                                                                                           | 90% or more used (WARN)                                               |
+| tftpd-hpa     | Asks for a missing file from inside the container                                                                                                         | no `File not found` comes back (NG)                                   |
+| `configs/`    | The owner as the container sees it, and the space on its filesystem                                                                                       | `in.tftpd` cannot write (NG), 90% or more (WARN)                      |
+| OpenSSH       | Connects to sshd from inside the container                                                                                                                | no answer (NG)                                                        |
+| chrony        | Whether it serves (only when `COMPOSE_PROFILES` has `ntp`)                                                                                                | it stopped serving, as the host clock is out of sync (NG)             |
+| Certificates  | When the certificates in `CA/` expire                                                                                                                     | within 30 days (WARN)                                                 |
+| Pair          | Only in a [redundant pair](pair.md): compares every entry and its time of change with the other host, read over LDAPS with the certificate of replication | they differ for some seconds, or the other host cannot be read (WARN) |
 
 Every request goes from inside a container to its loopback, so a narrow `DEVICE_NETWORKS` does not turn it away.
 

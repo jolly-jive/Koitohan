@@ -27,16 +27,16 @@ Koitohan は、ネットワーク機器にログイン認証の基盤、ログ�
 
 Koitohan は検証段階です。本番利用に耐える堅牢化はしていません。
 
-| 機能               | コンポーネント                                 | 状況     |
-| ------------------ | ---------------------------------------------- | -------- |
-| ディレクトリ       | OpenLDAP 2.6(Alpine から自前でビルド)          | 動作中   |
-| 認証・認可         | FreeRADIUS 4.x(`cayenneryo/freeradius-server`) | 動作中   |
-| ログ収集           | syslog-ng(`linuxserver/syslog-ng`)             | 動作中   |
-| ファイル配布       | tftpd-hpa(Alpine から自前でビルド)             | 動作中   |
-| ユーザーの作業環境 | OpenSSH(Alpine から自前でビルド)               | 動作中   |
-| 時刻の配布(NTP、任意) | chrony(Alpine から自前でビルド)             | 動作中   |
-| ログローテーション | Docker ホスト側の logrotate                    | 動作中   |
-| DHCP と DNS        | Kea、BIND9                                     | 未決定   |
+| 機能                  | コンポーネント                                 | 状況   |
+| --------------------- | ---------------------------------------------- | ------ |
+| LDAP ディレクトリ     | OpenLDAP 2.6(Alpine から自前でビルド)          | 動作中 |
+| 認証・認可            | FreeRADIUS 4.x(`cayenneryo/freeradius-server`) | 動作中 |
+| ログ収集              | syslog-ng(`linuxserver/syslog-ng`)             | 動作中 |
+| ファイル配布          | tftpd-hpa(Alpine から自前でビルド)             | 動作中 |
+| ユーザーの作業環境    | OpenSSH(Alpine から自前でビルド)               | 動作中 |
+| 時刻の配布(NTP、任意) | chrony(Alpine から自前でビルド)                | 動作中 |
+| ログローテーション    | Docker ホスト側の logrotate                    | 動作中 |
+| DHCP と DNS           | Kea、BIND9                                     | 未決定 |
 
 FreeRADIUS 4.x は開発バージョンです。Koitohan は正式リリースに先行して採用しています。イメージは [freeradius-server-image](https://github.com/jolly-jive/freeradius-server-image) で開発ブランチからビルドしたものです。Koitohan はその特定のビルド(`freeradius/build/Dockerfile` で固定)をもとに自前のイメージをビルドし、要求の送信元を制限するパケットフィルタを加えています。
 
@@ -117,7 +117,7 @@ make down               # スタックを停止
 make clean              # 生成した証明書、LDIF、設定を削除
 bin/manage_users.sh     # ユーザーの登録、削除、ロールの変更、パスワードの再発行、ロックの解除
 bin/backup.sh           # 稼働中のスタックのバックアップ
-bin/restore_ldap.sh     # バックアップのディレクトリを、空の OpenLDAP に読み込む
+bin/restore_ldap.sh     # バックアップの LDAP ディレクトリを、空の OpenLDAP に読み込む
 bin/check_services.sh   # 稼働中のスタックの各サービスが動いているかを確かめる
 ```
 
@@ -192,7 +192,7 @@ TFTP には認証も暗号化もありません。69/udp に到達できる相�
 - [ログ](docs/logs.ja.md): ログの置き場所とローテーション
 - [バックアップと復元](docs/backup.ja.md): バックアップに入るもの、毎日の実行、新しいホストへの復元
 - [稼働の確認](docs/monitoring.ja.md): サービスが動いているかの確認と、その定期実行(推奨)
-- [冗長構成](docs/pair.ja.md): ディレクトリを共有する2台、組み方、決まり、食い違ったとき
+- [冗長構成](docs/pair.ja.md): LDAP ディレクトリを共有する2台、組み方、決まり、食い違ったとき
 - [機器の設定例](docs/devices/README.md)(英語): ネットワーク機器側の設定。コントリビュータの提供
 - [基本設計書](docs/basic-design.md)
 
